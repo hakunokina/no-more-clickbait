@@ -3,6 +3,7 @@ import {
   MAX_AUTHOR_CHARS,
   MAX_TEXT_CHARS,
   MAX_TITLE_CHARS,
+  normalizeLang,
   normalizeText,
   resolveHttpUrl,
 } from "../rules/dom.js";
@@ -49,12 +50,18 @@ export function parseFeed(xml: string, options: ParseFeedOptions): GenericItem[]
   }
   const kind = localName(root.name);
   let entries: Entry[];
+  // The feed's own language is every entry's default.
+  let feedLang: string | undefined;
   if (kind === "rss") {
     const channel = childElement(root, "channel");
+    feedLang = channel && rssLang(channel);
     entries = channel ? childElements(channel, "item").map(rssEntry) : [];
   } else if (kind === "RDF") {
+    const channel = childElement(root, "channel");
+    feedLang = channel && rssLang(channel);
     entries = childElements(root, "item").map(rssEntry);
   } else if (kind === "feed") {
+    feedLang = normalizeLang(root.attrs["xml:lang"]);
     entries = childElements(root, "entry").map(atomEntry);
   } else {
     throw new FeedParseError(`not an RSS or Atom feed (root element <${root.name}>)`);
@@ -76,16 +83,24 @@ export function parseFeed(xml: string, options: ParseFeedOptions): GenericItem[]
       sourceLabel: options.sourceLabel,
       url,
       domain: new URL(url).hostname,
+      // A feed entry links to its article; a video enclosure makes the video the content.
+      kind: entry.video ? "video" : "link",
       promoted: false,
     };
+    const lang = entry.lang ?? feedLang;
+    if (lang) item.lang = lang;
     if (title) item.title = title;
     if (text) item.text = text;
     const author = normalizeText(entry.author, MAX_AUTHOR_CHARS);
     if (author) item.author = author;
     const publishedAt = isoTime(entry.time);
     if (publishedAt) item.publishedAt = publishedAt;
-    const image = resolveHttpUrl(entry.image, url);
-    if (image) item.image = { url: image };
+    const image = resolveHttpUrl(entry.image?.url, url);
+    if (image) {
+      item.image = { url: image };
+      const altText = normalizeText(entry.image?.alt ?? "", MAX_TITLE_CHARS);
+      if (altText) item.image.altText = altText;
+    }
     items.push(item);
   }
   return items;
@@ -97,7 +112,35 @@ interface Entry {
   link: string | undefined;
   author: string;
   time: string;
-  image: string | undefined;
+  image: FeedImage | undefined;
+  lang: string | undefined;
+  /** True when the entry carries a video enclosure. */
+  video: boolean;
+}
+
+interface FeedImage {
+  url: string;
+  /** The image's own description (img alt, media:description of that media). */
+  alt?: string;
+}
+
+/** RSS channel language: `<language>`, else `dc:language`. */
+function rssLang(channel: XmlElement): string | undefined {
+  return normalizeLang(
+    xmlText(childElement(channel, "language")) || xmlText(childElement(channel, "dc:language")),
+  );
+}
+
+/** An RSS/Atom enclosure or Media RSS content that is a video. */
+function hasVideo(el: XmlElement): boolean {
+  return childElements(el).some((child) => {
+    const name = localName(child.name);
+    const type = child.attrs.type ?? "";
+    if (name === "group") return hasVideo(child);
+    if (name === "enclosure") return type.startsWith("video/");
+    if (name === "link") return child.attrs.rel === "enclosure" && type.startsWith("video/");
+    return name === "content" && (child.attrs.medium === "video" || type.startsWith("video/"));
+  });
 }
 
 function rssEntry(item: XmlElement): Entry {
@@ -127,6 +170,8 @@ function rssEntry(item: XmlElement): Entry {
     ),
     time: xmlText(childElement(item, "pubDate")) || xmlText(childElement(item, "dc:date")),
     image: mediaImage(item) ?? firstImageIn(description || content),
+    lang: normalizeLang(xmlText(childElement(item, "dc:language"))),
+    video: hasVideo(item),
   };
 }
 
@@ -168,9 +213,11 @@ function atomEntry(entry: XmlElement): Entry {
     author: author ? xmlText(childElement(author, "name")) : "",
     time: xmlText(childElement(entry, "published")) || xmlText(childElement(entry, "updated")),
     image:
-      enclosure?.attrs.href ??
+      (enclosure?.attrs.href ? { url: enclosure.attrs.href } : undefined) ??
       mediaImage(entry) ??
       (body && body.attrs.type !== "text" ? firstImageIn(xmlText(body)) : undefined),
+    lang: normalizeLang(entry.attrs["xml:lang"]),
+    video: hasVideo(entry),
   };
 }
 
@@ -183,42 +230,60 @@ function atomText(el: XmlElement | undefined): string {
 }
 
 /** media:content / media:thumbnail (also inside media:group), RSS enclosure, itunes:image. */
-function mediaImage(el: XmlElement): string | undefined {
+function mediaImage(el: XmlElement): FeedImage | undefined {
   for (const child of childElements(el)) {
     const name = localName(child.name);
     const type = child.attrs.type ?? "";
     if (name === "enclosure" && type.startsWith("image/") && child.attrs.url)
-      return child.attrs.url;
-    if (name === "thumbnail" && child.attrs.url) return child.attrs.url;
+      return { url: child.attrs.url };
+    if (name === "thumbnail" && child.attrs.url) return { url: child.attrs.url };
     if (
       name === "content" &&
       child.attrs.url &&
       (child.attrs.medium === "image" || type.startsWith("image/"))
     ) {
-      return child.attrs.url;
+      return withAlt(child.attrs.url, mediaDescription(child));
     }
     if (name === "group") {
       const nested = mediaImage(child);
       if (nested) return nested;
     }
     if (name === "image" && child.name.startsWith("itunes:") && child.attrs.href) {
-      return child.attrs.href;
+      return { url: child.attrs.href };
     }
   }
   return undefined;
 }
 
-function firstImageIn(html: string): string | undefined {
-  let found: string | undefined;
+function withAlt(url: string, alt: string | undefined): FeedImage {
+  return alt ? { url, alt } : { url };
+}
+
+/** A media:content's own plain-text media:description (describes that media, not the entry). */
+function mediaDescription(content: XmlElement): string | undefined {
+  const description = childElement(content, "media:description");
+  if (!description || description.attrs.type === "html") return undefined;
+  return xmlText(description).trim() || undefined;
+}
+
+function firstImageIn(html: string): FeedImage | undefined {
+  let found: FeedImage | undefined;
   scanHtml(html, {
     text: () => undefined,
     tag: (tag) => {
       if (found || !/^img\b/i.test(tag)) return;
       const src = /\ssrc\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
-      found = src?.[1] ?? src?.[2];
+      const url = src?.[1] ?? src?.[2];
+      if (!url) return;
+      const alt = /\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
+      const altText = alt?.[1] ?? alt?.[2];
+      found = withAlt(
+        decodeHtmlEntities(url),
+        altText ? decodeHtmlEntities(altText) : undefined,
+      );
     },
   });
-  return found ? decodeHtmlEntities(found) : undefined;
+  return found;
 }
 
 function isoTime(raw: string): string | undefined {

@@ -30,6 +30,14 @@ export function isGenericItem(item: FeedItem): item is GenericItem {
 }
 
 /**
+ * The item's source as a tally reports it: "x", "instagram", or a
+ * generic item's `sourceLabel` ("reddit", "custom:<rule name>", …).
+ */
+export function feedSourceLabel(item: FeedItem): string {
+  return isGenericItem(item) ? item.sourceLabel : platformOf(item);
+}
+
+/**
  * The item's identity across every source in one run: what the hard
  * filter dedupes on and what `ScoreEntry.postId` / `VerificationResult.
  * postId` carry. An X post keeps its bare id (so X results read as
