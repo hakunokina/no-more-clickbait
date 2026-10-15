@@ -235,6 +235,23 @@ describe("extractItems — URLs and fallbacks", () => {
     for (const item of items) expect(GenericItemSchema.parse(item)).toEqual(item);
   });
 
+  it("reads a locale-spelled lang and crosses a shadow root to its host's lang", () => {
+    const host = document.createElement("div");
+    host.setAttribute("lang", "en_US");
+    document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = `<section><article><h2><a href="https://haber.example.invalid/a">Bir</a></h2></article>
+      <article lang="pt_BR"><h2><a href="https://haber.example.invalid/b">Dois</a></h2></article></section>`;
+    const site = rule({
+      item: { selector: "article" },
+      fields: { title: { selector: "h2" } },
+      exclude: { within: [] },
+    });
+    const { items } = extractItems(shadow, site);
+    expect(items.map((item) => item.lang)).toEqual(["en-US", "pt-BR"]);
+    host.remove();
+  });
+
   it("returns nothing for a feed-only rule", () => {
     const feedOnly = rule({
       item: undefined,

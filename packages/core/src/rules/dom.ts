@@ -27,6 +27,8 @@ export interface DomElement extends DomNode, DomQueryRoot {
   readonly attributes: ArrayLike<{ readonly name: string; readonly value: string }>;
   getAttribute(name: string): string | null;
   matches(selectors: string): boolean;
+  /** A shadow root (its `host` is the element it is attached to) or the document. */
+  getRootNode?(): object;
 }
 
 export const ELEMENT_NODE = 1;
@@ -46,10 +48,11 @@ export function normalizeText(text: string, max: number): string {
 
 /**
  * A language tag as a page or feed declares it ("tr", "en-US"), trimmed;
- * anything that does not look like a BCP 47 tag is dropped, not fixed.
+ * the POSIX locale spelling ("en_US") becomes the BCP 47 one ("en-US");
+ * anything else that does not look like a BCP 47 tag is dropped, not fixed.
  */
 export function normalizeLang(raw: string | null | undefined): string | undefined {
-  const value = raw?.trim();
+  const value = raw?.trim().replace(/_/g, "-");
   return value && value.length <= 35 && /^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/i.test(value)
     ? value
     : undefined;

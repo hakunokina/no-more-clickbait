@@ -186,6 +186,37 @@ describe("toTimelineDoc", () => {
     expect(plain).not.toHaveProperty("missingSources");
   });
 
+  it("refuses repeated source labels and a source both delivered and missing", () => {
+    const source = {
+      selected: [ranked("a"), ranked("b")],
+      funnel: funnel(2),
+      settings: { timelineSize: 2 },
+    };
+    const twice = [
+      { label: "x", in: 3, shown: 2 },
+      { label: "x", in: 2, shown: 0 },
+    ];
+    expect(() => toTimelineDoc({ ...source, metrics: { bySource: twice } }, now)).toThrow(
+      /bySource labels must be unique/,
+    );
+    expect(() =>
+      toTimelineDoc(
+        { ...source, missingSources: [{ label: "reddit" }, { label: "reddit" }] },
+        now,
+      ),
+    ).toThrow(/missingSources labels must be unique/);
+    expect(() =>
+      toTimelineDoc(
+        {
+          ...source,
+          metrics: { bySource: [{ label: "x", in: 5, shown: 2 }] },
+          missingSources: [{ label: "x" }],
+        },
+        now,
+      ),
+    ).toThrow(/both in bySource and missingSources/);
+  });
+
   it("refuses a per-source split that does not add up to the funnel", () => {
     const source = {
       selected: [ranked("a"), ranked("b")],
