@@ -10,38 +10,35 @@
       .hint { color: #444; font-size: 0.92rem; }
       .risk { border: 1px solid #b3261e; border-radius: 0.5rem; padding: 0.75rem 1rem; }
       label { display: block; margin: 0.5rem 0; }
-      input[type="number"] { width: 6rem; min-height: 2rem; }
-      select { min-height: 2rem; }
+      input[type="number"] { width: 6rem; min-height: 2.75rem; box-sizing: border-box; }
+      input[aria-invalid="true"] { border: 2px solid #b3261e; }
+      .error { color: #b3261e; font-size: 0.92rem; margin: 0.25rem 0 0; }
+      .warning { color: #8a4b00; }
+      .error:empty { display: none; }
+      .field { margin-bottom: 1rem; }
+      .field .hint { margin: 0.25rem 0 0; }
+      .field.off { opacity: 0.6; }
+      select { min-height: 2.75rem; }
       dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0.5rem 0; }
       dt { color: #444; }
       dd { margin: 0; overflow-wrap: anywhere; }
       h2 { font-size: 1rem; margin: 1rem 0 0; }
       input[type="checkbox"] { width: 1.15rem; height: 1.15rem; vertical-align: middle; }
-      button { min-height: 2.5rem; min-width: 2.5rem; padding: 0.4rem 1.2rem; }
+      button { min-height: 2.75rem; min-width: 2.75rem; padding: 0.4rem 1.2rem; }
       :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
     </style>
   </head>
   <body>
     <h1>No More Clickbait — options</h1>
-    <form id="settings-form">
-      <fieldset>
-        <legend>Timeline</legend>
-        <label>
-          Posts per finished timeline
-          <input
-            id="timeline-size"
-            type="number"
-            min="1"
-            max="100"
-            step="1"
-            aria-describedby="timeline-size-hint"
-          />
-        </label>
-        <p id="timeline-size-hint" class="hint">
-          Your filtered timeline ends after this many posts. No infinite scroll. This is how many
-          posts you <em>read</em> — not how many are collected: the developer capture target below
-          counts raw posts gathered before filtering and is set separately.
+    <form id="settings-form" novalidate>
+      <fieldset aria-describedby="pipeline-hint">
+        <legend>Filter and verification</legend>
+        <p id="pipeline-hint" class="hint">
+          How the desktop app collects, filters and checks your timeline. Saving also sends these
+          settings to the desktop app.
         </p>
+        <div id="pipeline-fields"></div>
+        <button id="pipeline-defaults" type="button">Restore defaults</button>
       </fieldset>
 
       <fieldset>
@@ -62,21 +59,10 @@
             suspension). Only enable it if you understand and accept that. See the README section
             “Mode B and its risks”.
           </p>
-          <label>
-            Posts to collect per run
-            <input
-              id="mode-b-target"
-              type="number"
-              min="1"
-              max="1000"
-              step="1"
-              aria-describedby="mode-b-target-hint"
-            />
-          </label>
-          <p id="mode-b-target-hint" class="hint">
-            Distinct organic posts (no ads, no repeats). A run also stops after 10 minutes, after 8
-            scrolls in a row without a new post, or when X shows a login, error or rate-limit page.
-            The hidden tab closes when the run ends.
+          <p class="hint">
+            A run collects “Posts to collect” distinct organic posts (no ads, no repeats). It also
+            stops after 10 minutes, after 8 scrolls in a row without a new post, or when X shows a
+            login, error or rate-limit page. The hidden tab closes when the run ends.
           </p>
           <label>
             Hidden surface (developer setting)
@@ -115,28 +101,18 @@
             These raw dumps are <strong>personal data</strong> (your own home timeline) — never
             share them and never commit them. For development/debugging only.
           </p>
-          <label>
-            Capture target (distinct posts collected)
-            <input
-              id="capture-target"
-              type="number"
-              min="1"
-              max="10000"
-              step="1"
-              aria-describedby="capture-target-hint"
-            />
-          </label>
-          <p id="capture-target-hint" class="hint">
-            Counts distinct organic posts — ads and posts repeated across responses are not
-            counted. The badge shows the running count; you get a notification when this many were
-            captured. Capture does not stop at the target. Toggling developer capture starts a new
-            count and a new capture folder.
+          <p class="hint">
+            The badge shows the running count of distinct organic posts (ads and repeats not
+            counted); you get a notification when “Posts to collect” were captured. Capture does
+            not stop at that number. Toggling developer capture starts a new count and a new
+            capture folder.
           </p>
         </div>
       </fieldset>
 
       <button type="submit">Save</button>
       <p id="status" role="status" aria-live="polite"></p>
+      <p id="sync-status" class="warning" role="status" aria-live="polite"></p>
     </form>
     <script type="module" src="options.js"></script>
   </body>

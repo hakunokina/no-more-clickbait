@@ -6,6 +6,7 @@ import {
   type OversizedCapture,
   type PostBatch,
   type RawCapture,
+  type SyncedSettings,
 } from "@nmc/core";
 
 export interface BridgeHandlers {
@@ -19,6 +20,8 @@ export interface BridgeHandlers {
   captureStats?: () => CaptureStats;
   /** Records a finished Mode B run's counts in the session summary. */
   onModeBRun?: (run: ModeBRunSummary) => Promise<void> | void;
+  /** Saves the user's synced pipeline settings for the desktop. */
+  onSettingsSync?: (settings: SyncedSettings) => Promise<void> | void;
 }
 
 const EMPTY_STATS: CaptureStats = {
@@ -89,10 +92,15 @@ export async function handleBridgeMessage(
       await handlers.onModeBRun(parsed.data.run);
       return { type: "mode-b-run-recorded" };
     }
-    // Temporary: the schema exists (core #1935), the handlers do not yet —
-    // settings-sync lands with Pixel-2's work, collection-complete with Pixel-3's.
+    case "settings-sync": {
+      if (!handlers.onSettingsSync) {
+        return { type: "error", message: "settings sync is not configured on this host" };
+      }
+      await handlers.onSettingsSync(parsed.data.settings);
+      return { type: "settings-synced" };
+    }
+    // Temporary: the schema exists (core #1935), the handler lands with Pixel-3's work.
     case "collection-complete":
-    case "settings-sync":
       return {
         type: "error",
         message: `${parsed.data.type} is not supported by this host yet`,

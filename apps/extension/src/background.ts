@@ -26,6 +26,7 @@ import {
   type ModeBStart,
 } from "./mode-b.js";
 import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
+import { NATIVE_HOST_NAME, sendNativeOnce, syncSettings } from "./settings-sync.js";
 
 /**
  * Service worker: receives captured timeline responses, converts them
@@ -58,7 +59,7 @@ import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
  * summary says which (`counter`).
  */
 
-export const NATIVE_HOST_NAME = "io.github.hakunokina.no_more_clickbait";
+export { NATIVE_HOST_NAME };
 
 const CAPTURE_NOTIFICATION_ID = "nmc-capture-target";
 const MODE_B_NOTIFICATION_ID = "nmc-mode-b-finished";
@@ -134,7 +135,7 @@ async function reflectCaptureStats(
   if (!settings?.devCaptureEnabled || replyGeneration !== generation) return;
   await updateBadge(stats.uniquePostCount);
   await modeB.onCount(stats.uniquePostCount, "host");
-  const reached = await session.reachedTarget(stats.uniquePostCount, settings.captureTarget);
+  const reached = await session.reachedTarget(stats.uniquePostCount, settings.collectTarget);
   if (!reached || replyGeneration !== generation) return;
   await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
   try {
@@ -144,7 +145,7 @@ async function reflectCaptureStats(
       title: "No More Clickbait — capture target reached",
       message:
         `${stats.uniquePostCount} distinct posts captured in ${stats.responseCount} timeline responses ` +
-        `(target ${settings.captureTarget}). Capture continues; turn it off in Options to stop.`,
+        `(target ${settings.collectTarget}). Capture continues; turn it off in Options to stop.`,
     });
   } catch {
     // Notification is best-effort; the badge already shows the state.
@@ -308,7 +309,7 @@ async function startModeB(): Promise<void> {
   if (!settings.modeBEnabled || (await modeB.current())) return;
   const start: ModeBStart = {
     strategy: settings.modeBStrategy,
-    target: settings.modeBTarget,
+    target: settings.collectTarget,
     counter: settings.devCaptureEnabled ? "host" : "extension",
   };
   if (!(await chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }))) {
@@ -374,6 +375,28 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     if (captureToggled) await startNewCountingSession();
   });
 });
+
+/**
+ * Once per browser start (and on install/update) the desktop gets the
+ * current pipeline settings — not on every worker restart, each sync
+ * starts a host process.
+ */
+async function syncSettingsAtStartup(): Promise<void> {
+  const result = await syncSettings(await loadSettings(), sendNativeOnce);
+  if (result.status !== "synced") {
+    console.warn(
+      `[nmc] settings not synced to the desktop (${result.status}): ${result.detail}`,
+    );
+  }
+}
+
+for (const startup of [chrome.runtime.onStartup, chrome.runtime.onInstalled]) {
+  startup.addListener(() => {
+    void syncSettingsAtStartup().catch((error: unknown) => {
+      console.error(`[nmc] settings sync failed: ${String(error)}`);
+    });
+  });
+}
 
 // A restarted service worker picks up a run that was in progress.
 listenToWatchdog();

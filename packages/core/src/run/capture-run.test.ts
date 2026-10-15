@@ -333,7 +333,7 @@ describe("capture run (synthetic capture directory)", () => {
     expect(calls).toBe(0);
     expect(report.verification).toBeUndefined();
     expect(report.settings).toEqual({
-      timelineSize: 20,
+      timelineSize: 50,
       maxClickbait: 7,
       minReadValue: 2,
       minReadForVerify: 4,
