@@ -1,5 +1,6 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { ZodError } from "zod";
 import { createHardFilter, type HardFilterStats } from "../hard-filter.js";
 import {
   CollectionMetricsSchema,
@@ -29,6 +30,7 @@ import {
   type Settings,
   type VerificationResult,
 } from "../schemas.js";
+import { toTimelineDoc } from "../timeline-doc.js";
 import {
   parseHomeTimelineWithStats,
   type HomeTimelineParseStats,
@@ -339,6 +341,30 @@ function postBody(post: Post): string[] {
   if (post.quoted)
     lines.push(`> ↳ @${post.quoted.authorHandle}: ${oneLine(post.quoted.text)}`, "");
   return lines;
+}
+
+/**
+ * timeline-doc.json's content, or — when the report breaks the
+ * TimelineDoc schema (a pipeline bug) — a one-line warning, so the run
+ * still writes its other files and summary instead of crashing.
+ */
+export function timelineDocJson(
+  report: CaptureRunReport,
+  now?: Date,
+): { json: string } | { warning: string } {
+  try {
+    return { json: `${JSON.stringify(toTimelineDoc(report, now), null, 2)}\n` };
+  } catch (error) {
+    const detail =
+      error instanceof ZodError
+        ? error.issues
+            .map((issue) => `${issue.path.join(".") || "(root)"}: ${issue.message}`)
+            .join("; ")
+        : String(error);
+    return {
+      warning: `timeline-doc.json not written (TimelineDoc schema violation): ${detail}`,
+    };
+  }
 }
 
 /**

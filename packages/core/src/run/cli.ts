@@ -4,7 +4,6 @@ import { parseArgs } from "node:util";
 import { RunMetricsCollector, summarizeRunMetrics } from "../metrics.js";
 import { SettingsSchema, type Settings } from "../schemas.js";
 import { loadSettings } from "../settings-file.js";
-import { toTimelineDoc } from "../timeline-doc.js";
 import { createClaudeScorer, createClaudeScorerProvider } from "../scorer/claude-scorer.js";
 import {
   createClaudeVerifier,
@@ -15,6 +14,7 @@ import {
   renderClickbaitTopMarkdown,
   renderSelectedMarkdown,
   runCapture,
+  timelineDocJson,
 } from "./capture-run.js";
 
 /**
@@ -157,8 +157,14 @@ const selectedFile = join(dirname(outFile), "selected.md");
 await writeFile(selectedFile, renderSelectedMarkdown(report), "utf8");
 const clickbaitTopFile = join(dirname(outFile), "clickbait-top.md");
 await writeFile(clickbaitTopFile, renderClickbaitTopMarkdown(report, capture.posts), "utf8");
-const timelineDocFile = join(dirname(outFile), "timeline-doc.json");
-await writeFile(timelineDocFile, `${JSON.stringify(toTimelineDoc(report), null, 2)}\n`, "utf8");
+const timelineDoc = timelineDocJson(report);
+let timelineDocFile: string | undefined;
+if ("json" in timelineDoc) {
+  timelineDocFile = join(dirname(outFile), "timeline-doc.json");
+  await writeFile(timelineDocFile, timelineDoc.json, "utf8");
+} else {
+  console.error(`warning: ${timelineDoc.warning}`);
+}
 
 const t = report.totals;
 const stageTotals = (stage: string) => {
@@ -223,4 +229,4 @@ console.log(
 console.log(`result: ${outFile}`);
 console.log(`selected: ${selectedFile}`);
 console.log(`clickbait-top: ${clickbaitTopFile}`);
-console.log(`timeline-doc: ${timelineDocFile}`);
+console.log(`timeline-doc: ${timelineDocFile ?? "not written (see warning)"}`);
