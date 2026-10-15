@@ -440,12 +440,30 @@ describe("ModeBRunner", () => {
       kind: "mode-b-step",
       action: "nudge",
     });
-    await vi.advanceTimersByTimeAsync(responsePauseMs(0));
+    await vi.advanceTimersByTimeAsync(stepDelayMs(0));
     expect(browser.sendStep.mock.calls.map(([, message]) => message.action)).toEqual([
       "jump",
       "nudge",
       "jump",
     ]);
+  });
+
+  it("response pacing: ignored jumps still fit at least 10 jumps into the stall window", async () => {
+    expect(MODE_B_LIMITS.responseWaitMs).toBeLessThanOrEqual(1_500);
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, {
+      loadPacing: () => Promise.resolve("response"),
+      random: () => 0.9999, // the slowest rest after each nudge
+    });
+    await runner.start(start);
+    // The stall is noticed at the first step past the window: one more cycle at most.
+    const cycle = MODE_B_LIMITS.responseWaitMs + stepDelayMs(0.9999);
+    await vi.advanceTimersByTimeAsync(
+      MODE_B_LIMITS.firstStepDelayMs + MODE_B_LIMITS.stallMs + cycle,
+    );
+    expect(finished[0]).toMatchObject({ stopReason: "stalled" });
+    const jumps = browser.sendStep.mock.calls.filter(([, m]) => m.action === "jump").length;
+    expect(jumps).toBeGreaterThanOrEqual(10);
   });
 
   it("resumes a stored run after a service-worker restart", async () => {
@@ -468,14 +486,14 @@ describe("ModeBRunner", () => {
 });
 
 describe("loadModeBPacing", () => {
-  it("reads the stored choice and falls back to response pacing", async () => {
+  it("reads the stored choice and falls back to fixed pacing", async () => {
     const area = (value: unknown) => ({
       get: () => Promise.resolve({ [MODE_B_PACING_KEY]: value }),
     });
-    await expect(loadModeBPacing(area("fixed") as never)).resolves.toBe("fixed");
-    await expect(loadModeBPacing(area("warp") as never)).resolves.toBe("response");
+    await expect(loadModeBPacing(area("response") as never)).resolves.toBe("response");
+    await expect(loadModeBPacing(area("warp") as never)).resolves.toBe("fixed");
     await expect(
       loadModeBPacing({ get: () => Promise.reject(new Error("gone")) } as never),
-    ).resolves.toBe("response");
+    ).resolves.toBe("fixed");
   });
 });

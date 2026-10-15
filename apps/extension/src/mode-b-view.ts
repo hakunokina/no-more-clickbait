@@ -30,8 +30,8 @@ export const STRATEGY_LABEL: Record<ModeBStrategy, string> = {
 };
 
 export const PACING_LABEL: Record<ModeBPacing, string> = {
-  response: "wait for X to answer each scroll",
-  fixed: "fixed fast timer (0.36–0.70 s)",
+  response: "wait for X's answer (for comparison)",
+  fixed: "fixed fast pace, 5× faster (default)",
 };
 
 export interface ModeBControls {

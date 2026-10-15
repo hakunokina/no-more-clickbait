@@ -28,11 +28,13 @@ import {
  * service worker resumes it (the background's alarm watchdog calls
  * `resume()`).
  *
- * Each step jumps to the bottom of the timeline. With `response` pacing
- * the next jump waits for X's answer (so requests never outpace X's own
- * loading) and a jump X ignored is followed by one nudge; with `fixed`
- * pacing jumps follow a short timer. Stall and unresponsiveness limits
- * are measured in time, so both paces give up after the same wait.
+ * Each step jumps to the bottom of the timeline. With `fixed` pacing (the
+ * default, five times the first version's pace) jumps follow a short
+ * timer; with `response` pacing (kept for comparison) the next jump waits
+ * briefly for X's answer and a jump X ignored is followed by one nudge,
+ * so even unanswered it stays close to the fixed pace. Stall and
+ * unresponsiveness limits are measured in time, so both paces give up
+ * after the same wait.
  */
 
 export const X_HOME_URL = "https://x.com/home";
@@ -46,7 +48,7 @@ export const MODE_B_LAST_RUN_KEY = "nmc-mode-b-last-run";
  * TODO: after the comparison, move it into Settings or drop it (the boss decides).
  */
 export const MODE_B_PACING_KEY = "nmc-mode-b-pacing";
-export const DEFAULT_MODE_B_PACING: ModeBPacing = "response";
+export const DEFAULT_MODE_B_PACING: ModeBPacing = "fixed";
 /** Optional permissions Mode B asks for when it is switched on. */
 export const MODE_B_PERMISSIONS = ["alarms"];
 
@@ -61,7 +63,10 @@ export interface ModeBLimits {
   firstStepDelayMs: number;
   /** A step the page has not answered by then counts as unanswered. */
   stepTimeoutMs: number;
-  /** Response pacing: how long a jump waits for X before the nudge. */
+  /**
+   * Response pacing: how long a jump waits for X before the nudge (kept
+   * short so ignored jumps stay near the fixed pace).
+   */
   responseWaitMs: number;
 }
 
@@ -75,7 +80,7 @@ export const MODE_B_LIMITS: ModeBLimits = {
   maxUnansweredMs: 5 * FIRST_VERSION_PAUSE_MS,
   firstStepDelayMs: 6_000,
   stepTimeoutMs: 5_000,
-  responseWaitMs: 4_500,
+  responseWaitMs: 1_500,
 };
 
 /** Fixed pacing: 0.36–0.70 s between jumps — the first version's 1.8–3.5 s, five times faster. */
@@ -579,9 +584,11 @@ export class ModeBRunner {
         // Wait for X; its response cuts the wait short (onResponse).
         next.awaitingSince = sentAt;
         this.#schedule(this.#limits.responseWaitMs, "nudge");
-      } else if (next.pacing === "response") {
+      } else if (next.pacing === "response" && action === "jump") {
+        // The page did not answer the jump: no wait for X, rest briefly.
         this.#schedule(responsePauseMs(this.#random()), "jump");
       } else {
+        // Fixed pacing, or the pause after a nudge.
         this.#schedule(stepDelayMs(this.#random()), "jump");
       }
       await this.#save();
