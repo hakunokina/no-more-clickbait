@@ -14,8 +14,46 @@ export const CollectionMetricsSchema = z.object({
   lastCapturedAt: z.string().datetime(),
   /** Posts captured across all timeline responses in the run. */
   postCount: z.number().int().nonnegative(),
+  /** Timeline responses captured (developer capture). */
+  responseCount: z.number().int().nonnegative().optional(),
+  /** Rough promoted-entry count, tracked apart from posts. */
+  promotedCount: z.number().int().nonnegative().optional(),
+  /** Responses refused because they exceeded the bridge frame ceiling. */
+  oversizedCount: z.number().int().nonnegative().optional(),
 });
 export type CollectionMetrics = z.infer<typeof CollectionMetricsSchema>;
+
+export interface TimelineEntryCounts {
+  postCount: number;
+  promotedCount: number;
+}
+
+/**
+ * Rough post count over a parsed X timeline payload — deliberately NOT
+ * a parser: it only tallies timeline entries by their `entryId` prefix
+ * ("tweet-…" vs "promoted-…"), which is durable across response-shape
+ * changes. Duplicates across overlapping responses are counted as seen.
+ */
+export function countTimelineEntries(payload: unknown): TimelineEntryCounts {
+  let postCount = 0;
+  let promotedCount = 0;
+  const stack: unknown[] = [payload];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (Array.isArray(node)) {
+      for (const item of node) stack.push(item);
+    } else if (typeof node === "object" && node !== null) {
+      const record = node as Record<string, unknown>;
+      const entryId = record["entryId"];
+      if (typeof entryId === "string") {
+        if (entryId.startsWith("promoted")) promotedCount += 1;
+        else if (entryId.startsWith("tweet-")) postCount += 1;
+      }
+      for (const value of Object.values(record)) stack.push(value);
+    }
+  }
+  return { postCount, promotedCount };
+}
 
 /** One LLM call's cost/latency, from the provider's own usage report. */
 export const LlmCallMetricsSchema = z.object({

@@ -95,13 +95,61 @@ export const SettingsSchema = z.object({
   modeBEnabled: z.boolean().default(false),
   /** How many posts a finished timeline shows before it ends. */
   timelineSize: z.number().int().min(1).max(100).default(20),
+  /**
+   * Developer capture: forward raw HomeTimeline response bodies to the
+   * native host for local inspection. OFF by default. Raw captures are
+   * personal data; they are written outside the repo and must never be
+   * shared or committed.
+   */
+  devCaptureEnabled: z.boolean().default(false),
+  /**
+   * Developer-capture target: the extension badges/notifies once this
+   * many (roughly counted) posts were captured. Capture does not stop.
+   */
+  captureTarget: z.number().int().min(1).max(10_000).default(250),
 });
 export type Settings = z.infer<typeof SettingsSchema>;
+
+/** Hard ceiling for one framed native-messaging message (extension + host). */
+export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
+
+/** One raw timeline response body, forwarded verbatim for developer capture. */
+export const RawCaptureSchema = z.object({
+  type: z.literal("raw-capture"),
+  /** Which GraphQL operation produced it, e.g. "HomeTimeline". */
+  operation: z.string().min(1).max(64),
+  /** ISO 8601 time the response was captured in the browser. */
+  capturedAt: z.string().datetime(),
+  /** Raw response body text. Untrusted; stored as-is, never into the repo. */
+  bodyText: z.string(),
+});
+export type RawCapture = z.infer<typeof RawCaptureSchema>;
+
+/** Reports a response the extension refused to send (frame ceiling). */
+export const OversizedCaptureSchema = z.object({
+  type: z.literal("capture-oversized"),
+  operation: z.string().min(1).max(64),
+  capturedAt: z.string().datetime(),
+  /** Framed byte length that exceeded MAX_BRIDGE_MESSAGE_BYTES. */
+  byteLength: z.number().int().positive(),
+});
+export type OversizedCapture = z.infer<typeof OversizedCaptureSchema>;
+
+/** Cumulative per-session capture counts the host reports back. */
+export const CaptureStatsSchema = z.object({
+  responseCount: z.number().int().nonnegative(),
+  postCount: z.number().int().nonnegative(),
+  promotedCount: z.number().int().nonnegative(),
+  oversizedCount: z.number().int().nonnegative(),
+});
+export type CaptureStats = z.infer<typeof CaptureStatsSchema>;
 
 /** Messages from the browser extension to the desktop app (via native host). */
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("post-batch"), batch: PostBatchSchema }),
+  RawCaptureSchema,
+  OversizedCaptureSchema,
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
@@ -109,6 +157,21 @@ export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
   z.object({ type: z.literal("batch-accepted"), postCount: z.number().int().nonnegative() }),
+  z.object({
+    type: z.literal("capture-accepted"),
+    sequence: z.number().int().positive(),
+    stats: CaptureStatsSchema,
+  }),
+  z.object({
+    type: z.literal("capture-rejected"),
+    message: z.string(),
+    stats: CaptureStatsSchema,
+  }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type BridgeReply = z.infer<typeof BridgeReplySchema>;
+
+/** UTF-8 byte length of a framed (JSON-serialised) bridge message. */
+export function bridgeMessageByteLength(message: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(message)).byteLength;
+}

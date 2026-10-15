@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { RunMetricsCollector, RunMetricsSchema, summarizeRunMetrics } from "./metrics.js";
+import {
+  countTimelineEntries,
+  RunMetricsCollector,
+  RunMetricsSchema,
+  summarizeRunMetrics,
+} from "./metrics.js";
 
 describe("RunMetrics", () => {
   it("summarises tokens, cache, cost and the collection span", () => {
@@ -53,5 +58,45 @@ describe("RunMetrics", () => {
       durationMs: 1,
     });
     expect(summarizeRunMetrics(collector.toRunMetrics()).costUsd).toBeUndefined();
+  });
+});
+
+describe("countTimelineEntries", () => {
+  // Synthetic shape only — modelled on the entryId convention, no real data.
+  const synthetic = {
+    data: {
+      home: {
+        home_timeline_urt: {
+          instructions: [
+            {
+              entries: [
+                {
+                  entryId: "tweet-1",
+                  content: { itemContent: { __typename: "TimelineTweet" } },
+                },
+                { entryId: "promoted-tweet-2", content: {} },
+                {
+                  entryId: "tweet-3",
+                  content: { items: [{ entryId: "conversationthread-9" }] },
+                },
+                { entryId: "cursor-bottom-0", content: {} },
+              ],
+            },
+          ],
+        },
+      },
+    },
+  };
+
+  it("counts tweet- entries, tracks promoted apart, ignores the rest", () => {
+    expect(countTimelineEntries(synthetic)).toEqual({ postCount: 2, promotedCount: 1 });
+  });
+
+  it("returns zeros for non-object payloads", () => {
+    expect(countTimelineEntries(null)).toEqual({ postCount: 0, promotedCount: 0 });
+    expect(countTimelineEntries("tweet-1 in plain text")).toEqual({
+      postCount: 0,
+      promotedCount: 0,
+    });
   });
 });
