@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
+  <title>Sentetik blog</title>
+  <link href="https://blog.example.invalid/" />
+  <updated>2026-10-15T09:00:00Z</updated>
+  <entry>
+    <title type="html">&lt;em&gt;İlk&lt;/em&gt; yazı</title>
+    <link rel="self" href="https://blog.example.invalid/api/1" />
+    <link rel="alternate" type="text/html" href="https://blog.example.invalid/yazilar/ilk" />
+    <link rel="enclosure" type="image/png" href="https://blog.example.invalid/img/ilk.png" />
+    <id>tag:blog.example.invalid,2026:1</id>
+    <published>2026-10-14T10:00:00+02:00</published>
+    <updated>2026-10-15T10:00:00Z</updated>
+    <author><name>Deniz Ak</name></author>
+    <summary type="html">&lt;p&gt;Özet &lt;a href="x"&gt;bağlantı&lt;/a&gt;&lt;/p&gt;</summary>
+  </entry>
+  <entry>
+    <title>Düz metin &lt;başlık&gt;</title>
+    <link href="/yazilar/ikinci" />
+    <updated>2026-10-13T08:00:00Z</updated>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>XHTML <b>içerik</b></p></div></content>
+    <media:thumbnail url="https://blog.example.invalid/img/2.jpg" />
+  </entry>
+</feed>

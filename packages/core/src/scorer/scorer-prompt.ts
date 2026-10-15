@@ -164,7 +164,8 @@ function genericLine(item: GenericItem, index: number): string {
     .map((part) => sanitizeField(part ?? ""))
     .filter(Boolean)
     .join(" ");
-  const title = sanitizeField(item.title ?? "");
+  // A custom rule can hand any page text in as the title: cap it like a quote.
+  const title = cap(sanitizeField(item.title ?? ""), MAX_QUOTED_CHARS);
   const text = cap(sanitizeField(item.text ?? ""), MAX_TEXT_CHARS);
   return [
     String(index + 1),

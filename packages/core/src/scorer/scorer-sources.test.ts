@@ -81,6 +81,12 @@ describe("scorer lines per source", () => {
     for (const line of lines) expect(line.split("\t")).toHaveLength(6);
   });
 
+  it("caps a generic item's title like a quote", () => {
+    const title = "Ş".repeat(400);
+    const line = buildScorerPrompt([{ ...generic, title, text: "özet" }]).split("\n")[1];
+    expect(line?.split("\t")[5]).toBe(`«${"Ş".repeat(280)}…» özet`);
+  });
+
   it("labels reels and single posts by media kind", () => {
     const reel = buildScorerPrompt([{ ...ig, kind: "reel", caption: "" }]).split("\n")[1];
     expect(reel).toBe("1\tig:@ig_user\t-\tL:10 C:2\treel\t-");

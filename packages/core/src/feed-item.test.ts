@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   feedItemKey,
+  genericItemIdFromText,
   genericItemIdFromUrl,
   isGenericItem,
   isInstagramPost,
@@ -162,6 +163,21 @@ describe("genericItemIdFromUrl", () => {
     expect(genericItemIdFromUrl("https://news.example.invalid/a?x=1#comments")).toBe(id);
     expect(genericItemIdFromUrl("https://NEWS.example.invalid/a?x=1")).toBe(id);
     expect(genericItemIdFromUrl("https://news.example.invalid/a?x=2")).not.toBe(id);
+  });
+
+  it("does not throw on a string that is not a URL", () => {
+    const id = genericItemIdFromUrl(" not a url ");
+    expect(id).toMatch(/^u[0-9a-f]{16}$/);
+    expect(genericItemIdFromUrl("not a url")).toBe(id);
+  });
+});
+
+describe("genericItemIdFromText", () => {
+  it("is stable and tells texts apart", () => {
+    const id = genericItemIdFromText("Başlık\nözet");
+    expect(id).toMatch(/^t[0-9a-f]{16}$/);
+    expect(genericItemIdFromText("Başlık\nözet")).toBe(id);
+    expect(genericItemIdFromText("Başlık\nözet 2")).not.toBe(id);
   });
 });
 

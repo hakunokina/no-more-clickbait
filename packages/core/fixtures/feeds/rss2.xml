@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- sentetik RSS 2.0 beslemesi -->
+<!DOCTYPE rss [
+  <!ENTITY bomb "boom">
+]>
+<rss version="2.0"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:content="http://purl.org/rss/1.0/modules/content/"
+  xmlns:media="http://search.yahoo.com/mrss/"
+  xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Kuzeykent Postası — Gündem</title>
+    <link>https://haber.example.invalid/gundem</link>
+    <atom:link href="https://haber.example.invalid/gundem/rss.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Köprü ihalesi &amp;amp; yeni takvim</title>
+      <link>https://haber.example.invalid/gundem/kopru-ihalesi</link>
+      <description><![CDATA[<p>Belediye meclisi <b>ihaleyi</b> iptal etti.</p><img src="https://haber.example.invalid/img/kopru.jpg"><script>alert(1)</script>]]></description>
+      <dc:creator>Ayşe Yılmaz</dc:creator>
+      <pubDate>Thu, 15 Oct 2026 08:30:00 +0300</pubDate>
+      <guid isPermaLink="false">kp-101</guid>
+    </item>
+    <item>
+      <title>Park alanı genişliyor</title>
+      <link>/gundem/park-alani</link>
+      <description>Yeni yeşil alan &lt;b&gt;iki&lt;/b&gt; mahalleyi birleştiriyor &amp;hellip; &bomb;</description>
+      <author>editor@haber.example.invalid (Mehmet Demir)</author>
+      <pubDate>not a date</pubDate>
+      <enclosure url="https://haber.example.invalid/img/park.jpg" type="image/jpeg" length="1000" />
+    </item>
+    <item>
+      <title>Kalıcı bağlantı guid'de</title>
+      <guid>https://haber.example.invalid/gundem/guid-link</guid>
+      <description>Bağlantı yalnız guid içinde.</description>
+      <media:group><media:content url="https://haber.example.invalid/img/g.jpg" medium="image" /></media:group>
+      <author>editor@haber.example.invalid</author>
+    </item>
+    <item>
+      <title>Bağlantısız öğe</title>
+      <description>Atlanır.</description>
+    </item>
+    <item>
+      <title>Köprü ihalesi tekrar</title>
+      <link>https://haber.example.invalid/gundem/kopru-ihalesi#yorumlar</link>
+    </item>
+    <item>
+      <title>javascript bağlantısı</title>
+      <link>javascript:alert(1)</link>
+    </item>
+  </channel>
+</rss>
