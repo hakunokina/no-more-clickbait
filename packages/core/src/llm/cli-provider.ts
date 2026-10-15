@@ -147,11 +147,13 @@ export class CliLlmProvider implements LlmProvider {
     const startedAt = Date.now();
     const outcome = await this.#run(this.#spec.buildArgs(request), request.prompt);
     const measuredMs = Date.now() - startedAt;
-    const combined = `${outcome.stderr}\n${outcome.stdout}`;
-    if (this.#spec.authFailurePattern?.test(combined)) {
-      throw new CliNotAuthenticatedError(this.#spec.command, firstLine(combined));
-    }
     if (outcome.exitCode !== 0) {
+      // Only a failed run can signal an auth problem. On exit 0 the same
+      // words may simply be quoted feed content inside a valid result.
+      const diagnostics = outcome.stderr.trim() !== "" ? outcome.stderr : outcome.stdout;
+      if (this.#spec.authFailurePattern?.test(diagnostics)) {
+        throw new CliNotAuthenticatedError(this.#spec.command, firstLine(diagnostics));
+      }
       throw new CliRunError(
         this.#spec.command,
         firstLine(outcome.stderr) || `exit ${outcome.exitCode}`,
@@ -297,8 +299,16 @@ export function createClaudeCliProvider(options: ClaudeCliOptions = {}): CliLlmP
       buildArgs: (request) => {
         const args = ["-p", "--output-format", outputFormat];
         if (outputFormat === "stream-json") args.push("--verbose");
+        // `--allowedTools` only ADDS permissions; tools allowed in the
+        // user's own CLI settings would otherwise stay reachable and a
+        // prompt injection in feed content could invoke them. So narrow
+        // the available tool SET with `--tools` as well: exactly the
+        // requested tools, or none at all (`--tools ""`).
         if (request.allowedTools && request.allowedTools.length > 0) {
+          args.push("--tools", request.allowedTools.join(","));
           args.push("--allowedTools", ...request.allowedTools);
+        } else {
+          args.push("--tools", "");
         }
         args.push(...(options.extraArgs ?? []));
         return args;
