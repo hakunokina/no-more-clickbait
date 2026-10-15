@@ -181,6 +181,13 @@ the payload shape and measure collection time:
    repeats across responses are included — typically ~30% higher). Responses over the
    32 MB bridge-frame ceiling are never chunked: they are refused,
    logged, and counted in the summary.
+5. Reddit (www.reddit.com) is captured the same way into a separate
+   `<session time>-reddit\` folder: raw shreddit responses plus DOM
+   snapshots of the post elements. Its `summary.json` lists response
+   paths by structure only (`/r/{x}/comments/{id}/*`, query key names
+   without values) — no subreddit, user name or post title.
+   **Rebuild the host (`pnpm build`) before opening a Reddit tab with
+   capture on:** an older host files Reddit data into the X folder.
 
 > **Raw captures are personal data.** They are your own home timeline as
 > X sent it to your browser. Keep them on your machine, never share

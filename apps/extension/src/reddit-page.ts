@@ -21,11 +21,98 @@ export interface RedditResponseTarget {
   always: boolean;
 }
 
-/** Names in paths (subreddits, users) are generalised: the summary is shared. */
+/**
+ * Fixed route words kept in labels. Any other path segment may be a
+ * subreddit, user, post slug or title, so it becomes `{x}`.
+ */
+const ROUTE_WORDS = new Set([
+  "svc",
+  "shreddit",
+  "feeds",
+  "feed",
+  "r",
+  "u",
+  "user",
+  "comments",
+  "community-more-posts",
+  "more-posts",
+  "more-comments",
+  "home-feed",
+  "popular-feed",
+  "partial",
+  "graphql",
+  "api",
+  "home",
+  "popular",
+  "all",
+  "best",
+  "hot",
+  "new",
+  "top",
+  "rising",
+  "controversial",
+]);
+
+/** A segment right after these is a name, whatever it spells. */
+const NAME_KINDS = new Set(["r", "u", "user"]);
+
+/**
+ * Keeps only a path's structure: summary.json is shared, so no
+ * subreddit, user name or post title may reach a label. Names become
+ * `{x}`, thing ids `{id}`, everything after `comments/<id>` `*`.
+ */
 export function normaliseRedditPath(pathname: string): string {
-  return pathname
-    .replaceAll(/\/(r|u|user)\/[^/]+/gi, (_match, kind: string) => `/${kind}/*`)
-    .replaceAll(/\/t[1-6]_[a-z0-9]+/gi, "/{id}");
+  const segments = pathname.split("/");
+  const out: string[] = [];
+  for (let i = 0; i < segments.length; i += 1) {
+    const segment = segments[i] ?? "";
+    const previous = (segments[i - 1] ?? "").toLowerCase();
+    const word = segment.toLowerCase();
+    if (segment === "") {
+      out.push("");
+    } else if (previous === "comments") {
+      out.push("{id}");
+      if (segments.slice(i + 1).some((rest) => rest !== "")) out.push("*");
+      else if (segments.length > i + 1) out.push("");
+      break;
+    } else if (NAME_KINDS.has(previous)) {
+      out.push("{x}");
+    } else if (/^t[1-6]_[a-z0-9]+$/.test(word)) {
+      out.push("{id}");
+    } else {
+      out.push(ROUTE_WORDS.has(word) ? word : "{x}");
+    }
+  }
+  return out.join("/");
+}
+
+/** Query key names Reddit uses; any other key may itself be data. */
+const QUERY_KEYS = new Set([
+  "after",
+  "before",
+  "name",
+  "sort",
+  "t",
+  "feedLength",
+  "limit",
+  "count",
+  "cursor",
+  "context",
+  "q",
+  "distance",
+  "adDistance",
+  "seeMoreHref",
+  "sr_detail",
+  "raw_json",
+  "is_mobile",
+]);
+
+/** Query strings keep only their key names (`?after&name`), never values. */
+export function normaliseRedditQuery(search: string): string {
+  const keys = new Set(
+    [...new URLSearchParams(search).keys()].map((key) => (QUERY_KEYS.has(key) ? key : "{x}")),
+  );
+  return keys.size > 0 ? `?${[...keys].join("&")}` : "";
 }
 
 /** Which page-made reddit.com responses developer capture keeps, and as what. */
@@ -43,7 +130,7 @@ export function redditResponseTarget(
   if (url.protocol !== "https:" || !(host === "reddit.com" || host.endsWith(".reddit.com"))) {
     return null;
   }
-  const path = normaliseRedditPath(url.pathname);
+  const path = normaliseRedditPath(url.pathname) + normaliseRedditQuery(url.search);
   const sameOrigin = url.origin === pageOrigin;
   const label = (sameOrigin ? path : `${host}${path}`).slice(0, MAX_LABEL_LENGTH);
   const always =
@@ -76,7 +163,7 @@ export class RedditDomCollector {
   readonly #doc: Document;
   readonly #send: (operation: string, bodyText: string) => void;
   readonly #flushDelayMs: number;
-  readonly #seen = new WeakSet<Element>();
+  #seen = new WeakSet<Element>();
   #pending: Element[] = [];
   #observer: MutationObserver | null = null;
   #timer: ReturnType<typeof setTimeout> | null = null;
@@ -109,6 +196,8 @@ export class RedditDomCollector {
     if (this.#timer) clearTimeout(this.#timer);
     this.#timer = null;
     this.#pending = [];
+    // The next start is a new capture folder: it gets its own dom-initial.
+    this.#seen = new WeakSet<Element>();
   }
 
   #begin(): void {
