@@ -242,6 +242,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -903,6 +904,7 @@ describe("Mode B in the background worker", () => {
       "nmc-mode-b-run" in items ? Promise.reject(new Error("quota")) : set(items);
     modeBCommand("start");
     await settle();
+    // Closing the failed start's session opened the next one's port last.
     const port = fake.ports.at(-2);
     expect(port?.posted).toContainEqual(
       expect.objectContaining({
@@ -1035,6 +1037,11 @@ describe("custom sites in the background worker's collections", () => {
     for (const [key, value] of before.local) fake.local.set(key, value);
     for (const [key, value] of before.sessionArea) fake.sessionArea.set(key, value);
     for (const name of before.granted) fake.granted.add(name);
+    // The restarted worker resumes the run with a step at 0 ms. This fake
+    // page never answers a step, so a step that fired would hold the run's
+    // queue until its 5 s timeout and the stop behind it: held, the timer
+    // leaves the stop to end the run, whichever way the event loop turns.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     vi.stubGlobal("chrome", fake.chrome);
     vi.resetModules();
     await import("./background.js");
