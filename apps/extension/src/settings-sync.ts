@@ -51,6 +51,45 @@ export async function syncSettings(
   };
 }
 
+/**
+ * Serialises syncs: one host exchange at a time, so two quick Saves
+ * cannot race (two host processes, renames landing out of order). Saves
+ * made while one is in flight collapse into a single follow-up carrying
+ * the latest settings; their promises resolve with that sync's result.
+ */
+export function createSettingsSyncer(
+  send: SendNative,
+): (settings: unknown) => Promise<SettingsSyncResult> {
+  let pending:
+    { settings: unknown; waiters: ((result: SettingsSyncResult) => void)[] } | undefined;
+  let draining = false;
+  async function drain(): Promise<void> {
+    draining = true;
+    while (pending) {
+      const batch = pending;
+      pending = undefined;
+      let result: SettingsSyncResult;
+      try {
+        result = await syncSettings(batch.settings, send);
+      } catch (error) {
+        result = { status: "rejected", detail: String(error) };
+      }
+      for (const resolve of batch.waiters) resolve(result);
+    }
+    draining = false;
+  }
+  return (settings) =>
+    new Promise((resolve) => {
+      if (pending) {
+        pending.settings = settings;
+        pending.waiters.push(resolve);
+      } else {
+        pending = { settings, waiters: [resolve] };
+      }
+      if (!draining) void drain();
+    });
+}
+
 /** Short Options-page notice for a sync result; empty when synced. */
 export function describeSyncResult(result: SettingsSyncResult): string {
   switch (result.status) {

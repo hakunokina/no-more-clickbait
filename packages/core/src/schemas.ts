@@ -395,21 +395,22 @@ export const SettingsFieldsSchema = z.object({
    */
   devCaptureEnabled: z.boolean().default(false),
   /**
-   * Developer-capture target: the extension badges/notifies once this
-   * many (roughly counted) posts were captured. Capture does not stop.
+   * @deprecated Use `collectTarget`. The old developer-capture target;
+   * nothing reads it any more. Kept so old settings still parse; it
+   * seeds `collectTarget` when neither that nor `modeBTarget` is set.
    */
   captureTarget: z.number().int().min(1).max(10_000).default(250),
 });
 
 /** User settings shared between the extension options page and desktop. */
 export const SettingsSchema = z.preprocess((raw) => {
-  // Settings saved before `collectTarget` existed: Mode B's target was
-  // the only collection target, so it carries over.
+  // Settings saved before `collectTarget` existed: the old targets carry
+  // over — Mode B's first, else the developer-capture one.
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
   const stored = raw as Record<string, unknown>;
-  return stored["collectTarget"] === undefined && stored["modeBTarget"] !== undefined
-    ? { ...stored, collectTarget: stored["modeBTarget"] }
-    : stored;
+  if (stored["collectTarget"] !== undefined) return stored;
+  const old = stored["modeBTarget"] ?? stored["captureTarget"];
+  return old === undefined ? stored : { ...stored, collectTarget: old };
 }, SettingsFieldsSchema);
 export type Settings = z.infer<typeof SettingsSchema>;
 
