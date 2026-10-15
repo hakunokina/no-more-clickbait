@@ -23,6 +23,19 @@ describe("IPC policy", () => {
     expect(ipcAllowed("nmc:get-status", "reader", TIMELINE, READER)).toBe(false);
   });
 
+  it("gives the Settings window only its own calls", () => {
+    for (const channel of [
+      "nmc:get-settings-status",
+      "nmc:update-settings",
+      "nmc:set-browser-choice",
+    ]) {
+      expect(ipcAllowed(channel, "settings", null, READER)).toBe(true);
+    }
+    for (const channel of ["nmc:start-collection", "nmc:cancel-run", "nmc:get-status"]) {
+      expect(ipcAllowed(channel, "settings", null, READER)).toBe(false);
+    }
+  });
+
   it("refuses unknown senders and destroyed frames", () => {
     expect(ipcAllowed("nmc:get-status", null, READER, READER)).toBe(false);
     expect(ipcAllowed("nmc:get-status", "reader", null, READER)).toBe(false);

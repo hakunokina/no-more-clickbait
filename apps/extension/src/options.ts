@@ -60,15 +60,25 @@ async function init(): Promise<void> {
     fillPipelineFields(controls, values);
   };
   fill(settings);
+  /** The form holds edits not saved yet; a desktop change must not wipe them. */
+  let dirty = false;
+  form.addEventListener("input", () => {
+    dirty = true;
+  });
   // A change made in the desktop app shows up here at once.
   chrome.storage.onChanged.addListener((changes, areaName) => {
     const stamp = SettingsStampSchema.safeParse(changes[SETTINGS_STAMP_KEY]?.newValue);
     if (areaName !== "local" || !stamp.success || stamp.data.source !== "desktop") return;
     void loadSettings().then((loaded) => {
       settings = loaded;
+      syncStatus.textContent = "";
+      if (dirty) {
+        status.textContent =
+          "Changed in the desktop app. Your unsaved edits are kept: Save keeps them, reloading this page shows the desktop's values.";
+        return;
+      }
       fill(loaded);
       status.textContent = "Updated from the desktop app.";
-      syncStatus.textContent = "";
     });
   });
   controls.get("verifyEnabled")?.input.addEventListener("change", () => {
@@ -76,6 +86,7 @@ async function init(): Promise<void> {
   });
   pipelineDefaults.addEventListener("click", () => {
     fillPipelineFields(controls, defaultSyncedSettings());
+    dirty = true;
     status.textContent = "Defaults restored in the form — press Save to keep them.";
   });
   bindModeBControls({ button: modeBRun, status: modeBStatus, lastRun: modeBLastRun });
@@ -110,6 +121,7 @@ async function init(): Promise<void> {
         };
         stamp = { updatedAt: new Date().toISOString(), source: "extension" };
         await saveSettings(settings, stamp);
+        dirty = false;
         status.textContent = granted
           ? "Saved."
           : "Saved, but Mode B stays off: the browser did not grant its “alarms” permission.";

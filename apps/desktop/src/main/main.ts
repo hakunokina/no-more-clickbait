@@ -369,15 +369,17 @@ function createTray(): void {
   tray.on("click", toggleMonitor);
 }
 
-/** Only our own two windows may call into main, each within ipc-policy.ts. */
+/** Only our own windows may call into main, each within ipc-policy.ts. */
 function callerAllowed(channel: string, event: IpcMainInvokeEvent): boolean {
   const sender = event.sender;
   const window =
-    sender === liveContents(monitor) || sender === settingsWindow?.webContents
+    sender === liveContents(monitor)
       ? "monitor"
-      : sender === reader.webContents
-        ? "reader"
-        : null;
+      : sender === liveContents(settingsWindow)
+        ? "settings"
+        : sender === reader.webContents
+          ? "reader"
+          : null;
   return ipcAllowed(channel, window, event.senderFrame?.url ?? null, readerPageUrl);
 }
 
