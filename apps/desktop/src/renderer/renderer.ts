@@ -126,6 +126,7 @@ guarded(el<HTMLButtonElement>("collect"), () => window.nmc.startCollection());
 guarded(el<HTMLButtonElement>("cancel"), () => window.nmc.cancelRun());
 guarded(el<HTMLButtonElement>("retry"), () => window.nmc.retryRun());
 el("open-reader").addEventListener("click", () => void window.nmc.openReader());
+el("open-settings").addEventListener("click", () => void window.nmc.openSettings());
 
 window.nmc.onStatus(render);
 void window.nmc.getStatus().then(render);

@@ -52,6 +52,7 @@ describe("NativeChannel", () => {
       extensionConnected: true,
     });
     channel.received(old, { type: "start-collection" });
+    channel.received(old, { type: "settings-push" });
     expect(old.disconnect).not.toHaveBeenCalled();
     channel.received(old, { type: "collection-recorded" });
     expect(old.disconnect).toHaveBeenCalledTimes(1);

@@ -7,8 +7,8 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  ManagedSettingsSchema,
   SettingsSchema,
-  SyncedSettingsSchema,
   type BridgeMessage,
   type ModeBRunSummary,
   type Post,
@@ -259,7 +259,7 @@ describe("collection over the real host, pipe and controller", () => {
     const once = open();
     once.postMessage({
       type: "settings-sync",
-      settings: SyncedSettingsSchema.parse(SettingsSchema.parse({ collectTarget: 100 })),
+      settings: ManagedSettingsSchema.parse(SettingsSchema.parse({ collectTarget: 100 })),
     } satisfies BridgeMessage);
     await until(() => once.count("settings-synced") === 1, "the settings sync");
     once.disconnect();

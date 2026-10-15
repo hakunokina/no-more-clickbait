@@ -1,3 +1,4 @@
+export * from "./browser-identity.js";
 export * from "./capture-store.js";
 export * from "./desktop-link.js";
 export * from "./framing.js";
