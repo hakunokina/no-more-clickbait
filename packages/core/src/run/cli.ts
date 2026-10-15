@@ -4,6 +4,7 @@ import { parseArgs } from "node:util";
 import { RunMetricsCollector, summarizeRunMetrics } from "../metrics.js";
 import { SettingsSchema, type Settings } from "../schemas.js";
 import { loadSettings } from "../settings-file.js";
+import { toTimelineDoc } from "../timeline-doc.js";
 import { createClaudeScorer, createClaudeScorerProvider } from "../scorer/claude-scorer.js";
 import {
   createClaudeVerifier,
@@ -52,8 +53,10 @@ import {
  * Output (default: a "<capture>-run-<time>" folder NEXT TO the capture,
  * outside the repo): result.json (report + RunMetrics), selected.md
  * (the selection + unjudged list, readable) and clickbait-top.md (the
- * 40 highest-clickbait judgements, to audit the filter). All hold feed
- * content — personal data.
+ * 40 highest-clickbait judgements, to audit the filter) and
+ * timeline-doc.json (the TimelineDoc the timeline renderer turns into
+ * timeline.html: `nmc-timeline <run-dir>`). All hold feed content —
+ * personal data.
  * Stdout carries counts only.
  */
 
@@ -154,6 +157,8 @@ const selectedFile = join(dirname(outFile), "selected.md");
 await writeFile(selectedFile, renderSelectedMarkdown(report), "utf8");
 const clickbaitTopFile = join(dirname(outFile), "clickbait-top.md");
 await writeFile(clickbaitTopFile, renderClickbaitTopMarkdown(report, capture.posts), "utf8");
+const timelineDocFile = join(dirname(outFile), "timeline-doc.json");
+await writeFile(timelineDocFile, `${JSON.stringify(toTimelineDoc(report), null, 2)}\n`, "utf8");
 
 const t = report.totals;
 const stageTotals = (stage: string) => {
@@ -218,3 +223,4 @@ console.log(
 console.log(`result: ${outFile}`);
 console.log(`selected: ${selectedFile}`);
 console.log(`clickbait-top: ${clickbaitTopFile}`);
+console.log(`timeline-doc: ${timelineDocFile}`);

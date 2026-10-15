@@ -1,0 +1,178 @@
+/**
+ * The page's only script: lightbox, theme, J/K, "read more", the
+ * verification/why/alt panels, video and GIF controls, the progress
+ * counter. Static: it reads everything from the DOM and no feed data is
+ * ever interpolated, so its CSP hash is fixed. No inline handlers.
+ */
+export const TIMELINE_SCRIPT = `"use strict";
+(() => {
+  const doc = document;
+  const root = doc.documentElement;
+  const posts = Array.from(doc.querySelectorAll(".post"));
+  const done = doc.getElementById("done");
+  const topbar = doc.querySelector(".topbar");
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+  /* Progress: "3 / 10", then "Bitti" once the Done screen is in view. */
+  const progressNow = doc.getElementById("progress-now");
+  const progressOf = doc.getElementById("progress-of");
+  const progressBar = doc.getElementById("progress-bar");
+  function updateProgress() {
+    const total = posts.length;
+    if (!total || !progressNow) return;
+    const line = topbar.getBoundingClientRect().bottom + 40;
+    let idx = 0;
+    posts.forEach((p, k) => { if (p.getBoundingClientRect().top < line) idx = k + 1; });
+    const finished = !!done && done.getBoundingClientRect().top < innerHeight * 0.8;
+    const now = finished ? total : Math.max(1, idx);
+    progressNow.textContent = finished ? "Bitti" : String(now);
+    progressOf.hidden = finished;
+    progressBar.style.width = (now / total) * 100 + "%";
+  }
+  let raf = 0;
+  addEventListener("scroll", () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(updateProgress); }, { passive: true });
+  addEventListener("resize", updateProgress);
+  updateProgress();
+
+  /* Theme: system → light → dark (remembered per viewer when storage works). */
+  const THEME_KEY = "nmc-theme";
+  const MODES = ["system", "light", "dark"];
+  const LABELS = { system: "Sistem", light: "Açık", dark: "Koyu" };
+  const themeBtn = doc.getElementById("theme-btn");
+  let mode = "system";
+  try { const saved = localStorage.getItem(THEME_KEY); if (MODES.includes(saved)) mode = saved; } catch (_) { /* no storage */ }
+  function applyTheme() {
+    if (mode === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", mode);
+    const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+    themeBtn.dataset.mode = mode;
+    themeBtn.setAttribute("aria-label", "Tema: " + LABELS[mode] + ". Değiştir: " + LABELS[next]);
+    themeBtn.title = "Tema: " + LABELS[mode];
+  }
+  themeBtn.addEventListener("click", () => {
+    mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
+    try { localStorage.setItem(THEME_KEY, mode); } catch (_) { /* no storage */ }
+    applyTheme();
+  });
+  applyTheme();
+
+  /* Lightbox: the post's photos, uncropped, ←/→ and Esc. */
+  const lb = doc.getElementById("lightbox");
+  const lbImg = doc.getElementById("lb-img");
+  const lbCap = doc.getElementById("lb-cap");
+  const lbCount = doc.getElementById("lb-count");
+  const lbPrev = doc.getElementById("lb-prev");
+  const lbNext = doc.getElementById("lb-next");
+  let lbSet = [];
+  let lbIdx = 0;
+  let lbOpener = null;
+  function lbShow() {
+    const it = lbSet[lbIdx];
+    lbImg.src = it.src;
+    lbImg.alt = it.alt;
+    lbCap.textContent = it.alt;
+    lbCap.hidden = !it.alt;
+    lbCount.textContent = lbSet.length > 1 ? (lbIdx + 1) + " / " + lbSet.length : "";
+    lbPrev.hidden = lbNext.hidden = lbSet.length < 2;
+  }
+  function lbOpen(btn) {
+    const imgs = Array.from(btn.closest(".media").querySelectorAll(".media__zoom img"));
+    lbSet = imgs.map((img) => ({ src: img.src, alt: img.alt }));
+    lbIdx = Math.max(0, imgs.indexOf(btn.querySelector("img")));
+    lbOpener = btn;
+    lbShow();
+    lb.showModal();
+  }
+  function lbStep(d) { lbIdx = (lbIdx + d + lbSet.length) % lbSet.length; lbShow(); }
+  lbPrev.addEventListener("click", () => lbStep(-1));
+  lbNext.addEventListener("click", () => lbStep(1));
+  doc.getElementById("lb-close").addEventListener("click", () => lb.close());
+  lb.addEventListener("keydown", (e) => {
+    if (lbSet.length < 2) return;
+    if (e.key === "ArrowLeft") lbStep(-1);
+    if (e.key === "ArrowRight") lbStep(1);
+  });
+  lb.addEventListener("click", (e) => { if (e.target === lb || e.target.classList.contains("lightbox__img")) lb.close(); });
+  lb.addEventListener("close", () => { lbImg.removeAttribute("src"); if (lbOpener) lbOpener.focus(); });
+
+  /* GIFs loop while on screen, unless motion is reduced or the reader paused them. */
+  function gifSet(box, playing) {
+    const video = box.querySelector("video");
+    box.dataset.playing = String(playing);
+    box.querySelector(".gif__toggle").setAttribute("aria-pressed", String(playing));
+    if (!playing) { video.pause(); return; }
+    const started = video.play();
+    if (started) started.catch(() => gifSet(box, false));
+  }
+  if ("IntersectionObserver" in window) {
+    const seen = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const box = entry.target;
+        if (entry.isIntersecting) {
+          if (!reduceMotion.matches && box.dataset.user !== "paused") gifSet(box, true);
+        } else if (box.dataset.playing === "true") {
+          gifSet(box, false);
+        }
+      }
+    }, { threshold: 0.5 });
+    doc.querySelectorAll(".gif").forEach((box) => seen.observe(box));
+  }
+
+  function toggle(btn) {
+    const panel = doc.getElementById(btn.getAttribute("aria-controls"));
+    const open = btn.getAttribute("aria-expanded") !== "true";
+    btn.setAttribute("aria-expanded", String(open));
+    return { panel, open };
+  }
+
+  doc.addEventListener("click", (e) => {
+    const t = e.target;
+    if (!(t instanceof Element)) return;
+    const more = t.closest("[data-more]");
+    if (more) {
+      const { panel, open } = toggle(more);
+      panel.classList.toggle("is-clamped", !open);
+      more.textContent = open ? "Daha az göster" : "Devamını oku";
+      return;
+    }
+    const disclosure = t.closest(".verify__toggle, .why-btn, [data-alt]");
+    if (disclosure) { const { panel, open } = toggle(disclosure); panel.hidden = !open; return; }
+    const zoom = t.closest(".media__zoom");
+    if (zoom) { lbOpen(zoom); return; }
+    const play = t.closest("button.video__play");
+    if (play) {
+      const box = play.closest(".video");
+      const video = box.querySelector("video");
+      box.dataset.state = "playing";
+      video.controls = true;
+      const started = video.play();
+      if (started) started.catch(() => {});
+      video.focus();
+      return;
+    }
+    const gifBtn = t.closest(".gif__toggle");
+    if (gifBtn) {
+      const box = gifBtn.closest(".gif");
+      const playing = box.dataset.playing !== "true";
+      box.dataset.user = playing ? "" : "paused";
+      gifSet(box, playing);
+    }
+  });
+
+  /* J/K: post to post; after the last post, the Done screen. */
+  doc.addEventListener("keydown", (e) => {
+    if (lb.open || e.ctrlKey || e.metaKey || e.altKey) return;
+    const active = doc.activeElement;
+    if (active && (/^(INPUT|TEXTAREA|SELECT|VIDEO)$/.test(active.tagName) || active.isContentEditable)) return;
+    const k = e.key.toLowerCase();
+    if (k !== "j" && k !== "k") return;
+    const items = posts.concat(done ? [done] : []);
+    if (!items.length) return;
+    const cur = items.findIndex((el) => el.contains(active));
+    const next = cur === -1 ? 0 : Math.min(items.length - 1, Math.max(0, cur + (k === "j" ? 1 : -1)));
+    items[next].focus({ preventScroll: true });
+    items[next].scrollIntoView({ block: "start" });
+    e.preventDefault();
+  });
+})();
+`;
