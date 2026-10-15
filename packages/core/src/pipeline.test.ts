@@ -141,6 +141,59 @@ describe("runPipeline (fake Scorer/Verifier)", () => {
     expect(ranked.map((r) => r.post.id)).toEqual(["best", "tie-cb", "low"]);
   });
 
+  it("passes media-only posts through unscored, outside the ranking and timelineSize", async () => {
+    const seen: string[] = [];
+    const { verifier: _verifier, ...pipeline } = fakePipeline(new Set());
+    pipeline.scorer = {
+      score: async (input) => {
+        seen.push(...input.map((p) => p.id));
+        return input.map((p) => score(p.id));
+      },
+    };
+    const input = [
+      post("m1", { text: "", mediaOnly: true }),
+      post("a"),
+      post("m2", { text: "", mediaOnly: true }),
+      post("b"),
+    ];
+    const out = await runPipeline(pipeline, input, { timelineSize: 1, verifyConcurrency: 1 });
+    expect(seen).toEqual(["a", "b"]);
+    expect(out.posts.map((r) => r.post.id)).toEqual(["a"]);
+    expect(out.unjudged.map((p) => p.id)).toEqual(["m1", "m2"]);
+    expect(out.metrics.postsSelected).toBe(1);
+  });
+
+  it("skips the scorer when only media-only posts survive the hard filter", async () => {
+    const pipeline = fakePipeline(new Set());
+    pipeline.scorer = {
+      score: async () => {
+        throw new Error("scorer must not be called");
+      },
+    };
+    const out = await runPipeline(pipeline, [post("m", { text: "", mediaOnly: true })], {
+      timelineSize: 5,
+      verifyConcurrency: 1,
+    });
+    expect(out.posts).toEqual([]);
+    expect(out.unjudged.map((p) => p.id)).toEqual(["m"]);
+  });
+
+  it("ends the timeline short when the read floor leaves fewer than N (no padding)", async () => {
+    const { verifier: _verifier, ...pipeline } = fakePipeline(new Set());
+    pipeline.selector = createThresholdSelector({
+      maxClickbaitScore: 0.7,
+      minReadWorthinessScore: 0.2,
+    });
+    pipeline.scorer = {
+      score: async (input) =>
+        input.map((p) =>
+          score(p.id, { readWorthinessScore: p.id === "a" ? 0.3 : p.id === "b" ? 0.2 : 0.1 }),
+        ),
+    };
+    const out = await runPipeline(pipeline, posts, { timelineSize: 50, verifyConcurrency: 1 });
+    expect(out.posts.map((r) => r.post.id)).toEqual(["a", "b"]);
+  });
+
   it("selector drops clickbait above the threshold", async () => {
     const pipeline = fakePipeline(new Set());
     pipeline.scorer = {

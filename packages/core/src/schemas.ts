@@ -87,8 +87,11 @@ export const ScoreEntrySchema = z.object({
   checkWorthy: z.boolean().optional(),
   /** The single most check-worthy factual claim, if any. */
   checkWorthyClaim: z.string().min(1).nullable(),
-  /** Short human-readable justification of the scores. */
-  reason: z.string().optional(),
+  /**
+   * Short human-readable justification of the scores; null when the
+   * Scorer gave none (it is only asked for on suspicious/check-worthy posts).
+   */
+  reason: z.string().nullable().optional(),
   /**
    * True when the Scorer could not obtain a valid score for this post
    * (the LLM never returned one). Scores are then conservative

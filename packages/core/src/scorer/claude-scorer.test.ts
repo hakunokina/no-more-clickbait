@@ -162,6 +162,7 @@ describe("createClaudeScorer (fake claude process)", () => {
     expect(out[1]).toMatchObject({
       postId: "b",
       checkWorthy: true,
+      reason: "somut tarih veriyor",
       checkWorthyClaim: "Köprü onarımı Martta başlayacak",
     });
     for (const e of out) expect(() => ScoreEntrySchema.parse(e)).not.toThrow();
@@ -191,6 +192,8 @@ describe("createClaudeScorer (fake claude process)", () => {
     const out = await scorer.score([post("a"), post("b")]);
 
     expect(out.map((e) => e.scoringFailed)).toEqual([false, false]);
+    // No reason in the line → an explicit null, so the report can say so.
+    expect(out.map((e) => e.reason)).toEqual([null, null]);
     expect(calls).toHaveLength(2);
     expect(calls[1]?.stdin).toContain("text of b");
     expect(calls[1]?.stdin).not.toContain("text of a");
@@ -469,15 +472,14 @@ describe("buildScorerPrompt", () => {
     expect(dataLine).not.toContain('"authorHandle"');
   });
 
-  it("appends the quoted post (capped) and marks media kinds / media-only posts", () => {
+  it("appends the quoted post (capped) and marks media kinds", () => {
     const prompt = buildScorerPrompt([
       post("q", {
         text: "bu 👇",
         quoted: { id: "9", authorHandle: "kaynak", text: `Uzun alıntı ${"x".repeat(400)}` },
       }),
       post("m", {
-        text: "",
-        mediaOnly: true,
+        text: "iki kare",
         media: [
           { type: "photo", url: "https://img.example.invalid/1.jpg" },
           { type: "video", url: "https://img.example.invalid/2.mp4" },
@@ -493,8 +495,10 @@ describe("buildScorerPrompt", () => {
     expect(quoteText.endsWith("…")).toBe(true);
     expect(quoteText.length).toBeLessThan("bu 👇 ↳@kaynak: ".length + 290);
     expect(fields[0]?.[4]).toBe("-");
-    expect(fields[1]?.slice(4)).toEqual(["yalniz-medya:foto,video", "-"]);
+    expect(fields[1]?.slice(4)).toEqual(["foto,video", "iki kare"]);
     expect(fields[2]?.[4]).toBe("foto");
-    expect(SCORER_SYSTEM_PROMPT).toMatch(/yalniz-medya/);
+    // Media-only posts bypass the Scorer (pipeline): no blind-scoring rule.
+    expect(SCORER_SYSTEM_PROMPT).not.toMatch(/yalniz-medya/);
+    expect(SCORER_SYSTEM_PROMPT).toContain("checkWorthy 1 ise ya da clickbait ≥ 4 ise");
   });
 });

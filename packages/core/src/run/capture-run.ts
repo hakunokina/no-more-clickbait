@@ -27,7 +27,8 @@ import {
  * Offline run over one developer-capture session directory (raw
  * HomeTimeline dumps + summary.json written by the native host):
  * parse → HardFilter → Scorer → Selector, no Verifier yet. Produces a
- * report with every score, the selection and the RunMetrics, for
+ * report with every score, the selection, the unjudged (media-only)
+ * posts and the RunMetrics, for
  * measuring a real batch end to end. Captures are personal data: the
  * caller writes the report outside the repo (next to the capture).
  */
@@ -187,6 +188,8 @@ export interface CaptureRunReport {
   scores: ScoreEntry[];
   distribution: ScoreDistribution;
   selected: RankedPost[];
+  /** Media-only posts passed through unscored, outside the selection count. */
+  unjudged: Post[];
   metrics: RunMetrics;
   totals: RunMetricsTotals;
 }
@@ -238,6 +241,7 @@ export async function runCapture(
     scores,
     distribution: scoreDistribution(scores),
     selected: result.posts,
+    unjudged: result.unjudged,
     metrics: result.metrics,
     totals: summarizeRunMetrics(result.metrics),
   };
@@ -248,35 +252,106 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function scoreTags(score: ScoreEntry, post: Post, readFirst: boolean): string[] {
+  const read = `okuma ${Math.round(score.readWorthinessScore * 10)}/10`;
+  const clickbait = `clickbait ${Math.round(score.clickbaitScore * 10)}/10`;
+  return [
+    ...(readFirst ? [read, clickbait] : [clickbait, read]),
+    ...(score.checkWorthy ? ["doğrulanmalı"] : []),
+    ...(post.mediaOnly ? ["yalnız medya"] : []),
+  ];
+}
+
+/** Text, quote and link lines of one post (scores excluded). */
+function postBody(post: Post): string[] {
+  const lines: string[] = [];
+  if (post.repostedBy) lines.push(`_@${post.repostedBy} yeniden paylaştı_`, "");
+  lines.push(post.text ? `> ${oneLine(post.text)}` : "> _(metin yok)_", "");
+  if (post.quoted)
+    lines.push(`> ↳ @${post.quoted.authorHandle}: ${oneLine(post.quoted.text)}`, "");
+  return lines;
+}
+
 /**
  * The selection as a local, human-readable Markdown file (scores, text,
- * link). It holds feed content: written next to the capture only.
+ * link), followed by the unjudged (media-only) posts as a separate
+ * list. It holds feed content: written next to the capture only.
  */
 export function renderSelectedMarkdown(report: CaptureRunReport): string {
   const s = report.selector;
   const lines = [
     `# Seçilen ${report.selected.length} gönderi`,
     "",
-    `Eşik: clickbait < ${s.maxClickbaitScore * 10}, okuma değeri ≥ ${s.minReadWorthinessScore * 10} ` +
-      `(0-10) · eşiği geçen aday: ${s.candidates} · sıralama: okuma değeri ↓, clickbait ↑`,
+    `Kural: clickbait < ${s.maxClickbaitScore * 10}, okuma değeri tabanı ≥ ${s.minReadWorthinessScore * 10} ` +
+      `(0-10) · sıralama: okuma değeri ↓, clickbait ↑ · ilk ${s.timelineSize} · ` +
+      `kuralı geçen aday: ${s.candidates}`,
     "",
   ];
   for (const [index, { post, score }] of report.selected.entries()) {
-    const cb = Math.round(score.clickbaitScore * 10);
-    const rv = Math.round(score.readWorthinessScore * 10);
-    const tags = [
-      `okuma ${rv}/10`,
-      `clickbait ${cb}/10`,
-      ...(score.checkWorthy ? ["doğrulanmalı"] : []),
-      ...(post.mediaOnly ? ["yalnız medya"] : []),
-    ];
-    lines.push(`## ${index + 1}. @${post.authorHandle} — ${tags.join(" · ")}`, "");
-    if (post.repostedBy) lines.push(`_@${post.repostedBy} yeniden paylaştı_`, "");
-    lines.push(post.text ? `> ${oneLine(post.text)}` : "> _(metin yok)_", "");
-    if (post.quoted)
-      lines.push(`> ↳ @${post.quoted.authorHandle}: ${oneLine(post.quoted.text)}`, "");
+    lines.push(
+      `## ${index + 1}. @${post.authorHandle} — ${scoreTags(score, post, true).join(" · ")}`,
+      "",
+    );
+    lines.push(...postBody(post));
     if (score.checkWorthyClaim) lines.push(`- İddia: ${oneLine(score.checkWorthyClaim)}`);
     if (score.reason) lines.push(`- Gerekçe: ${oneLine(score.reason)}`);
+    lines.push(`- Bağlantı: ${post.url}`, "");
+  }
+  lines.push(
+    `# Yargılanamaz: ${report.unjudged.length} gönderi`,
+    "",
+    "Yalnız medya (metin yok): puanlanmadı, sıralamaya ve seçilen sayısına dahil değil.",
+    "",
+  );
+  for (const [index, post] of report.unjudged.entries()) {
+    const kinds = [...new Set(post.media.map((media) => media.type))].join(", ") || "medya";
+    lines.push(`## ${index + 1}. @${post.authorHandle} — ${kinds}`, "");
+    if (post.repostedBy) lines.push(`_@${post.repostedBy} yeniden paylaştı_`, "");
+    lines.push(`- Bağlantı: ${post.url}`, "");
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The highest-clickbait judgements, for checking that the filter drops
+ * the right posts: clickbait ↓ (lower read value, then feed order,
+ * breaking ties), each with scores, reason, text, quote and link.
+ * Unscored placeholders (scoringFailed) are left out — their clickbait
+ * 1 is not a judgement. `posts` is the run's input (e.g. the loaded
+ * capture); feed content, so the file stays next to the capture.
+ */
+export function renderClickbaitTopMarkdown(
+  report: CaptureRunReport,
+  posts: readonly Post[],
+  limit = 40,
+): string {
+  const byId = new Map(posts.map((post) => [post.id, post]));
+  const judged = report.scores
+    .filter((score) => !score.scoringFailed)
+    .map((score, order) => ({ score, order, post: byId.get(score.postId) }))
+    .filter((entry): entry is typeof entry & { post: Post } => entry.post !== undefined)
+    .sort(
+      (a, b) =>
+        b.score.clickbaitScore - a.score.clickbaitScore ||
+        a.score.readWorthinessScore - b.score.readWorthinessScore ||
+        a.order - b.order,
+    )
+    .slice(0, limit);
+  const lines = [
+    `# En yüksek clickbait: ilk ${judged.length} gönderi`,
+    "",
+    `Sıralama: clickbait ↓, okuma değeri ↑ · puanlanan: ${report.distribution.scored} · ` +
+      `seçimden düşme sınırı: clickbait ≥ ${report.selector.maxClickbaitScore * 10}`,
+    "",
+  ];
+  for (const [index, { post, score }] of judged.entries()) {
+    lines.push(
+      `## ${index + 1}. @${post.authorHandle} — ${scoreTags(score, post, false).join(" · ")}`,
+      "",
+    );
+    lines.push(...postBody(post));
+    lines.push(`- Gerekçe: ${score.reason ? oneLine(score.reason) : "_gerekçe yok_"}`);
+    if (score.checkWorthyClaim) lines.push(`- İddia: ${oneLine(score.checkWorthyClaim)}`);
     lines.push(`- Bağlantı: ${post.url}`, "");
   }
   return lines.join("\n");

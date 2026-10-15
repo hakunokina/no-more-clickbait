@@ -50,7 +50,7 @@ export const ClaudeScorerEntrySchema = z
     claim: z.string().min(1).max(500).nullable(),
     /**
      * Short justification. The prompt asks for one (≤6 words) only when
-     * checkWorthy or clickbait ≥ 7 — a reason on every post was most
+     * checkWorthy or clickbait ≥ 4 — a reason on every post was most
      * of the old output volume and explains nothing for plain posts.
      * Validity does not hinge on it: a missing reason never sends an
      * otherwise-good line to the retry.
@@ -150,7 +150,8 @@ function toScoreEntry(entry: ClaudeScorerEntry): ScoreEntry {
     readWorthinessScore: entry.readValue / 10,
     checkWorthy: entry.checkWorthy,
     checkWorthyClaim: entry.claim,
-    ...(entry.reason !== null ? { reason: entry.reason } : {}),
+    // Explicit null (not omitted): the run report shows "no reason given".
+    reason: entry.reason,
     scoringFailed: false,
   };
 }

@@ -3,22 +3,35 @@ import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { RunMetricsCollector } from "../metrics.js";
 import { createClaudeScorer, createClaudeScorerProvider } from "../scorer/claude-scorer.js";
-import { loadCapture, renderSelectedMarkdown, runCapture } from "./capture-run.js";
+import {
+  loadCapture,
+  renderClickbaitTopMarkdown,
+  renderSelectedMarkdown,
+  runCapture,
+} from "./capture-run.js";
 
 /**
  * nmc-run: one measured pipeline run over a capture session directory.
  *
  *   pnpm build
  *   pnpm --filter @nmc/core nmc-run --capture <dir> [--out <result.json>]
- *       [--top 50] [--max-clickbait 7] [--min-read 5] [--responses N]
+ *       [--top 50] [--max-clickbait 7] [--min-read 2] [--responses N]
+ *
+ * Selection: clickbait < --max-clickbait, ranked by read value
+ * (clickbait breaking ties), the first --top taken; --min-read is only
+ * a floor, so the timeline ends shorter when it leaves fewer posts.
+ * Media-only posts are not scored; they are listed separately as
+ * unjudged, outside the --top count.
  *
  * --responses N runs on the first N dumps only (a capture session can
  * keep growing after the measured batch); collection metrics are then
  * rebuilt from those dumps instead of summary.json.
  *
  * Output (default: a "<capture>-run-<time>" folder NEXT TO the capture,
- * outside the repo): result.json (report + RunMetrics) and selected.md
- * (the selection, readable). Both hold feed content — personal data.
+ * outside the repo): result.json (report + RunMetrics), selected.md
+ * (the selection + unjudged list, readable) and clickbait-top.md (the
+ * 40 highest-clickbait judgements, to audit the filter). All hold feed
+ * content — personal data.
  * Stdout carries counts only.
  */
 
@@ -28,7 +41,7 @@ const { values } = parseArgs({
     out: { type: "string" },
     top: { type: "string", default: "50" },
     "max-clickbait": { type: "string", default: "7" },
-    "min-read": { type: "string", default: "5" },
+    "min-read": { type: "string", default: "2" },
     responses: { type: "string" },
   },
 });
@@ -82,6 +95,8 @@ await mkdir(dirname(outFile), { recursive: true });
 await writeFile(outFile, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 const selectedFile = join(dirname(outFile), "selected.md");
 await writeFile(selectedFile, renderSelectedMarkdown(report), "utf8");
+const clickbaitTopFile = join(dirname(outFile), "clickbait-top.md");
+await writeFile(clickbaitTopFile, renderClickbaitTopMarkdown(report, capture.posts), "utf8");
 
 const t = report.totals;
 console.log(
@@ -93,6 +108,7 @@ console.log(
       scoringFailed: report.distribution.scoringFailed,
       candidates: report.selector.candidates,
       selected: report.selected.length,
+      unjudged: report.unjudged.length,
       llmCalls: t.llmCallCount,
       failedCalls: t.failedCallCount,
       llmMs: t.totalDurationMs,
@@ -113,3 +129,4 @@ console.log(
 );
 console.log(`result: ${outFile}`);
 console.log(`selected: ${selectedFile}`);
+console.log(`clickbait-top: ${clickbaitTopFile}`);
