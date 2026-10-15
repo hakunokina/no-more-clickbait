@@ -1,5 +1,6 @@
 import type { BrowserFamily } from "@nmc/native-host";
-import { browserLabel, type CollectBrowserResolution } from "./browser-choice.js";
+import { note, type Note } from "../shared/i18n.js";
+import type { CollectBrowserResolution } from "./browser-choice.js";
 import type { InstalledBrowser } from "./windows-browsers.js";
 
 /**
@@ -9,12 +10,12 @@ import type { InstalledBrowser } from "./windows-browsers.js";
  * extension's link is awaited. A choice that resolves to no supported
  * browser (e.g. the system default is Firefox) does not block a
  * collection when some extension is linked: it runs there (the link's
- * any-host send) and `notice` says so. Pure orchestration over injected
+ * any-host send) and `notice` says so (its sentences, in order). Pure orchestration over injected
  * pieces; the wait itself is windows-browsers' waitForConnection.
  */
 
 export type EnsureBrowserResult =
-  { ok: true; launched: boolean; notice?: string } | { ok: false; reason: string };
+  { ok: true; launched: boolean; notice?: Note[] } | { ok: false; reason: Note };
 
 export interface EnsureBrowserDeps {
   resolution: CollectBrowserResolution;
@@ -32,30 +33,22 @@ export async function ensureCollectBrowser(
   if (!deps.resolution.ok) {
     const fallback = deps.anyConnected?.() ?? null;
     if (fallback === null) return { ok: false, reason: deps.resolution.reason };
-    const used = fallback === "other" ? "browser" : browserLabel(fallback);
     return {
       ok: true,
       launched: false,
-      notice: `${deps.resolution.reason} Collecting in the connected ${used} instead.`,
+      notice: [deps.resolution.reason, note("browserFallback", fallback)],
     };
   }
   const browser = deps.resolution.browser;
   if (deps.isConnected(browser)) return { ok: true, launched: false };
 
-  const label = browserLabel(browser.family);
   try {
     deps.launch(browser.exePath);
   } catch {
-    return { ok: false, reason: `${label} could not be started (${browser.exePath}).` };
+    return { ok: false, reason: note("browserLaunchFailed", browser.family, browser.exePath) };
   }
   const connected = await deps.waitForConnection(() => deps.isConnected(browser));
   return connected
     ? { ok: true, launched: true }
-    : {
-        ok: false,
-        reason:
-          `${label} was opened, but the extension did not connect in time. ` +
-          `Is the No More Clickbait extension installed in ${label}? ` +
-          `Load it there (and register the native host for ${label}), then try again.`,
-      };
+    : { ok: false, reason: note("browserNotLinked", browser.family) };
 }

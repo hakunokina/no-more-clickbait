@@ -38,48 +38,48 @@
   </head>
   <body>
     <h1>No More Clickbait</h1>
-    <p class="sub">Your feed, filtered. Finite by design.</p>
+    <p class="sub" data-i18n="appTagline">Your feed, filtered. Finite by design.</p>
 
     <section aria-labelledby="run-h">
-      <h2 id="run-h">Timeline</h2>
+      <h2 id="run-h" data-i18n="timeline">Timeline</h2>
       <p id="stage" class="stage" role="status" aria-live="polite">Idle</p>
-      <p id="link-status" class="note">Waiting for the browser extension…</p>
+      <p id="link-status" class="note" data-i18n="linkWaiting">Waiting for the browser extension…</p>
       <p id="collection-note" class="note" aria-live="polite"></p>
       <p id="unfinished-note" class="note"></p>
       <div id="run-error" role="alert" hidden>
         <p id="run-error-message" class="note bad"></p>
-        <details><summary>Technical detail</summary><pre id="run-error-detail"></pre></details>
+        <details><summary data-i18n="technicalDetail">Technical detail</summary><pre id="run-error-detail"></pre></details>
       </div>
       <p id="pending-note" class="note"></p>
       <button id="primary" type="button">Collect new timeline</button>
-      <button id="collect-link" class="link" type="button" hidden>Collect new timeline</button>
-      <button id="open-reader" type="button">Open reading window</button>
-      <button id="open-settings" type="button">Settings…</button>
+      <button id="collect-link" class="link" type="button" data-i18n="collectNew" hidden>Collect new timeline</button>
+      <button id="open-reader" type="button" data-i18n="openReader">Open reading window</button>
+      <button id="open-settings" type="button" data-i18n="openSettings">Settings…</button>
     </section>
 
     <section aria-labelledby="usage-h">
-      <h2 id="usage-h">Token monitor</h2>
+      <h2 id="usage-h" data-i18n="tokenMonitor">Token monitor</h2>
       <dl>
-        <dt>Collected</dt><dd id="posts-collected">—</dd>
-        <dt>Filtered out</dt><dd id="posts-filtered">—</dd>
-        <dt>Verified claims</dt><dd id="posts-verified">—</dd>
-        <dt>Posts kept / seen</dt><dd id="posts-kept">—</dd>
-        <dt>Input tokens</dt><dd id="tokens-in">—</dd>
-        <dt>Cache tokens</dt><dd id="tokens-cache">—</dd>
-        <dt>Output tokens</dt><dd id="tokens-out">—</dd>
-        <dt>Thinking tokens</dt><dd id="tokens-thinking">—</dd>
-        <dt>Estimated cost</dt><dd id="cost">—</dd>
-        <dt>Run time</dt><dd id="run-time">—</dd>
-        <dt>Stage times</dt><dd id="stage-times">—</dd>
-        <dt>Collection span</dt><dd id="collection-span">—</dd>
-        <dt>Last run</dt><dd id="last-run">Never</dd>
+        <dt data-i18n="statCollected">Collected</dt><dd id="posts-collected">—</dd>
+        <dt data-i18n="statFilteredOut">Filtered out</dt><dd id="posts-filtered">—</dd>
+        <dt data-i18n="statVerified">Verified claims</dt><dd id="posts-verified">—</dd>
+        <dt data-i18n="statKept">Posts kept / seen</dt><dd id="posts-kept">—</dd>
+        <dt data-i18n="statInputTokens">Input tokens</dt><dd id="tokens-in">—</dd>
+        <dt data-i18n="statCacheTokens">Cache tokens</dt><dd id="tokens-cache">—</dd>
+        <dt data-i18n="statOutputTokens">Output tokens</dt><dd id="tokens-out">—</dd>
+        <dt data-i18n="statThinkingTokens">Thinking tokens</dt><dd id="tokens-thinking">—</dd>
+        <dt data-i18n="statCost">Estimated cost</dt><dd id="cost">—</dd>
+        <dt data-i18n="statRunTime">Run time</dt><dd id="run-time">—</dd>
+        <dt data-i18n="statStageTimes">Stage times</dt><dd id="stage-times">—</dd>
+        <dt data-i18n="statCollectionSpan">Collection span</dt><dd id="collection-span">—</dd>
+        <dt data-i18n="statLastRun">Last run</dt><dd id="last-run">Never</dd>
       </dl>
     </section>
 
     <section aria-labelledby="llm-h">
-      <h2 id="llm-h">LLM provider (your local CLI)</h2>
-      <p id="llm-status" role="status" aria-live="polite">Not checked yet.</p>
-      <button id="check-llm" type="button">Check <code>claude</code> CLI</button>
+      <h2 id="llm-h" data-i18n="llmProvider">LLM provider (your local CLI)</h2>
+      <p id="llm-status" role="status" aria-live="polite" data-i18n="llmNotChecked">Not checked yet.</p>
+      <button id="check-llm" type="button" data-i18n="llmCheck">Check the claude CLI</button>
     </section>
 
     <script src="renderer.js"></script>

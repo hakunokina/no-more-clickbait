@@ -1,5 +1,6 @@
-import type { ManagedSettings, SettingsStamp } from "@nmc/core";
+import type { ManagedSettings, SettingsStamp, UiLang } from "@nmc/core";
 import type { BrowserFamily } from "@nmc/native-host";
+import type { Note } from "./i18n.js";
 
 /**
  * The Settings window's state: the managed settings as both sides last
@@ -19,6 +20,8 @@ export interface BrowserOption {
 }
 
 export interface SettingsStatus {
+  /** The language the windows show (the Settings choice, "system" resolved). */
+  lang: UiLang;
   settings: ManagedSettings;
   stamp: SettingsStamp;
   /** A desktop change the extension has not confirmed yet. */
@@ -33,5 +36,5 @@ export interface SettingsStatus {
   /** Where collections will go, once resolved (null = not resolvable). */
   collectBrowserLabel: string | null;
   /** Why no collecting browser resolved, when there is a reason to show. */
-  collectBrowserProblem: string | null;
+  collectBrowserProblem: Note | null;
 }

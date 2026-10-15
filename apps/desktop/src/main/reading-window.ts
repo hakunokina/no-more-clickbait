@@ -42,6 +42,8 @@ export class ReadingWindow {
   readonly #options: ReadingWindowOptions;
   #window: BrowserWindow | null = null;
   #showing: "app" | "timeline" = "app";
+  /** The file shown now. */
+  #file: string | null = null;
   /** The user asked for a new timeline here: show it as soon as it is ready. */
   #waiting = false;
 
@@ -85,8 +87,18 @@ export class ReadingWindow {
     return true;
   }
 
+  /** The timeline file was written again (a language change): show the new one if it is open. */
+  reloadTimeline(timelinePath: string): void {
+    const win = this.#window;
+    if (!win || win.isDestroyed()) return;
+    if (this.#showing === "timeline" && this.#file === timelinePath) {
+      this.#load(win, "timeline", timelinePath);
+    }
+  }
+
   #load(win: BrowserWindow, showing: "app" | "timeline", file: string): void {
     this.#showing = showing;
+    this.#file = file;
     void win.loadFile(file);
   }
 
@@ -127,6 +139,7 @@ export class ReadingWindow {
     contents.on("will-attach-webview", (event) => event.preventDefault());
     win.on("closed", () => {
       this.#window = null;
+      this.#file = null;
       this.#waiting = false;
     });
     this.#window = win;

@@ -28,6 +28,7 @@ import {
   type RunStage,
   type UsageTotals,
 } from "../shared/status.js";
+import { note } from "../shared/i18n.js";
 
 /**
  * Runs the pipeline (HardFilter → Scorer → Selector → Verifier) for one
@@ -94,21 +95,19 @@ function availabilityError(availability: Exclude<LlmAvailability, { ok: true }>)
     case "not-found":
       return {
         kind: "cli-not-found",
-        message:
-          "The claude CLI was not found. Install Claude Code and log in, then try again.",
+        note: note("errCliNotFound"),
         detail: availability.detail,
       };
     case "not-authenticated":
       return {
         kind: "cli-not-authenticated",
-        message:
-          "The claude CLI is installed but not logged in. Log in with it, then try again.",
+        note: note("errCliNotAuthenticated"),
         detail: availability.detail,
       };
     default:
       return {
         kind: "cli-error",
-        message: "The claude CLI did not respond as expected.",
+        note: note("errCliUnexpected"),
         detail: availability.detail,
       };
   }
@@ -124,13 +123,13 @@ export function classifyError(error: unknown): RunError {
   if (error instanceof CliRunError) {
     return {
       kind: "cli-error",
-      message: "The claude CLI call failed. The collected posts are kept; try again.",
+      note: note("errCliFailed"),
       detail: error.message,
     };
   }
   return {
     kind: "internal",
-    message: "The run failed unexpectedly. The collected posts are kept; try again.",
+    note: note("errInternal"),
     detail: error instanceof Error ? error.message : String(error),
   };
 }

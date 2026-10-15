@@ -1,5 +1,8 @@
+import type { UiLang } from "@nmc/core";
 import type { DesktopApi } from "../preload/preload.js";
+import { messages, say } from "../shared/i18n.js";
 import type { SettingsStatus } from "../shared/settings-status.js";
+import { localizePage } from "./localize.js";
 import { buildSettingsForm } from "./settings-form.js";
 
 declare global {
@@ -18,17 +21,26 @@ const form = buildSettingsForm(el("settings-form"));
 const choiceSelect = el<HTMLSelectElement>("browser-choice");
 let dirty = false;
 let lastStamp = "";
+let lang: UiLang = "en";
+/** The save line, re-worded when the language changes. */
+let saveLine: ((lang: UiLang) => string) | null = null;
 
 form.element.addEventListener("input", () => {
   dirty = true;
 });
 
+function showSave(line: ((lang: UiLang) => string) | null): void {
+  saveLine = line;
+  el("save-note").textContent = line ? line(lang) : "";
+}
+
 function renderBrowsers(status: SettingsStatus): void {
+  const m = messages(lang);
   const options: { value: string; label: string }[] = [
-    { value: "default", label: "System default browser" },
+    { value: "default", label: m.browserSystemDefault },
     ...status.browsers.map((browser) => ({
       value: browser.family,
-      label: browser.systemDefault ? `${browser.label} (system default)` : browser.label,
+      label: browser.systemDefault ? m.browserIsDefault(browser.label) : browser.label,
     })),
   ];
   const current = choiceSelect.value;
@@ -43,14 +55,21 @@ function renderBrowsers(status: SettingsStatus): void {
     ? status.choice
     : current || "default";
 
-  el("browser-note").textContent =
-    status.collectBrowserProblem ??
-    (status.collectBrowserLabel
-      ? `Collections run in ${status.collectBrowserLabel}${status.browserConnected ? " (extension connected)" : " (extension not connected right now)"}.`
-      : "");
+  el("browser-note").textContent = status.collectBrowserProblem
+    ? say(lang, status.collectBrowserProblem)
+    : status.collectBrowserLabel
+      ? m.collectsIn(status.collectBrowserLabel, status.browserConnected)
+      : "";
 }
 
 function render(status: SettingsStatus): void {
+  if (status.lang !== lang || document.documentElement.lang !== lang) {
+    lang = status.lang;
+    localizePage(document, lang, messages(lang).settingsWindowTitle);
+    form.setLanguage(lang);
+    showSave(saveLine);
+  }
+  const m = messages(lang);
   renderBrowsers(status);
   // A push from the other side never overwrites what is being typed.
   if (!dirty && status.stamp.updatedAt !== lastStamp) {
@@ -59,31 +78,29 @@ function render(status: SettingsStatus): void {
   }
   el("pending-note").textContent = status.pending
     ? status.browserConnected
-      ? "Sending the change to the extension…"
-      : "Saved here — it will be applied when the browser connects."
+      ? m.pendingSending
+      : m.pendingSavedHere
     : "";
-  el("mode-b-note").textContent = status.modeBPermissionMissing
-    ? "Mode B stayed off: only the extension's options page can ask the browser for its “alarms” permission. Turn Mode B on there once."
-    : "";
+  el("mode-b-note").textContent = status.modeBPermissionMissing ? m.modeBStayedOff : "";
 }
 
 el("save").addEventListener("click", () => {
   const result = form.read();
   if (!result.ok) {
     form.showErrors(result.errors);
-    el("save-note").textContent = "Nothing saved — check the marked fields.";
+    showSave((l) => messages(l).saveInvalid);
     return;
   }
   form.showErrors({});
-  el("save-note").textContent = "Saving…";
+  showSave((l) => messages(l).saving);
   window.nmc
     .updateSettings(result.settings)
     .then(() => {
       dirty = false;
-      el("save-note").textContent = "Saved.";
+      showSave((l) => messages(l).saved);
     })
     .catch((error: unknown) => {
-      el("save-note").textContent = `Could not save: ${String(error)}`;
+      showSave((l) => messages(l).saveFailed(String(error)));
     });
 });
 
@@ -91,7 +108,7 @@ choiceSelect.addEventListener("change", () => {
   void window.nmc
     .setBrowserChoice(choiceSelect.value as SettingsStatus["choice"])
     .catch((error: unknown) => {
-      el("browser-note").textContent = `Could not save the browser choice: ${String(error)}`;
+      el("browser-note").textContent = messages(lang).choiceFailed(String(error));
     });
 });
 

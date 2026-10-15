@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SettingsSchema, type Post, type PostBatch } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
+import { say } from "../shared/i18n.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import {
@@ -175,14 +176,16 @@ describe("SessionController", () => {
     const c = controller();
     await c.startCollection();
     expect(c.status.collection.state).toBe("refused");
-    expect(c.status.collection.message).toMatch(/browser or the extension is not running/);
+    expect(say("en", c.status.collection.message)).toMatch(
+      /browser or the extension is not running/,
+    );
   });
 
   it("relays the Mode B off instruction", () => {
     const c = controller();
     c.handleHostEvent({ type: "collection-start-result", outcome: "mode-b-off", target: 250 });
     expect(c.status.collection.state).toBe("refused");
-    expect(c.status.collection.message).toMatch(/Browse x\.com\/home/);
+    expect(say("en", c.status.collection.message)).toMatch(/Browse x\.com\/home/);
   });
 
   it("runs a completed collection and writes the timeline", async () => {
@@ -230,6 +233,31 @@ describe("SessionController", () => {
     expect(html).toContain(TIMELINE_CSPS.en);
     expect(html).toContain('data-action="collect"');
     expect(html).toContain("synthetic post 1");
+  });
+
+  it("writes the timeline in the windows' language, and again when it changes", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1", "2"]);
+    const c = new SessionController({
+      sessionsRoot: root,
+      runner: new PipelineRunner(() => runStages),
+      loadSettings: async () => SettingsSchema.parse({ timelineSize: 2 }),
+      renderTimeline: (doc, lang) => renderTimeline(doc, { actions: true, lang }),
+      sendToHost: () => false,
+      onStatus: () => {},
+      onReady: () => {},
+    });
+    await expect(c.setLang("tr")).resolves.toBe(false); // no timeline yet
+    expect(c.status.lang).toBe("tr");
+    await c.runSession(id);
+    const page = () => readFile(join(root, id, TIMELINE_FILE), "utf8");
+    expect(await page()).toContain('<html lang="tr">');
+    expect(await page()).toContain(TIMELINE_CSPS.tr);
+
+    await expect(c.setLang("en")).resolves.toBe(true);
+    expect(c.status.lang).toBe("en");
+    expect(await page()).toContain('<html lang="en">');
+    expect(await page()).toContain("synthetic post 1");
+    await expect(c.setLang("en")).resolves.toBe(false); // unchanged
   });
 
   it("starts the run from a host's Mode B collection-complete event", async () => {
@@ -352,7 +380,8 @@ describe("SessionController", () => {
     expect(restarted.status.run).toMatchObject({
       stage: "error",
       sessionId: id,
-      error: { kind: "cli-not-found", detail: null },
+      // Saved in English, read back as its note: shown in either language.
+      error: { kind: "cli-not-found", note: { key: "errCliNotFound" }, detail: null },
     });
 
     // "Try again" runs it, without collecting again.
@@ -426,7 +455,7 @@ describe("SessionController", () => {
     expect(c.status.run.sessionId).toBe(first);
     await c.startCollection();
     expect(sent).toEqual([]);
-    expect(c.status.collection.message).toMatch(/being prepared/);
+    expect(say("en", c.status.collection.message)).toMatch(/being prepared/);
     release();
     await running;
     await expect.poll(() => ready.map((r) => r.sessionId)).toEqual([first, second]);
@@ -473,8 +502,11 @@ describe("SessionController", () => {
     const c = controller();
     c.handleHostEvent(completeEvent(id, "stalled", 84));
     await expect.poll(() => c.status.run.stage).toBe("ready");
-    expect(c.status.collection.message).toBe(
+    expect(say("en", c.status.collection.message)).toBe(
       "Target not reached — the timeline uses 84 of 100 posts (no new posts for about 20 s of scrolling).",
+    );
+    expect(say("tr", c.status.collection.message)).toBe(
+      "Hedefe ulaşılamadı — akış 84 / 100 gönderi ile oluşturuluyor (yaklaşık 20 sn kaydırmada yeni gönderi gelmedi).",
     );
     expect(ready.map((r) => r.sessionId)).toEqual([id]);
   });
@@ -518,7 +550,9 @@ describe("SessionController", () => {
       .poll(async () => (await listSessions(root))[0]?.processed?.status)
       .toBe("cancelled");
     expect(c.status.pending).toBeNull();
-    expect(c.status.collection.message).toMatch(/stopped \(stopped by you\); no timeline/);
+    expect(say("en", c.status.collection.message)).toMatch(
+      /stopped \(stopped by you\); no timeline/,
+    );
     await c.processPending();
     expect(ready).toEqual([]);
   });
@@ -527,7 +561,7 @@ describe("SessionController", () => {
     const c = controller(undefined, { collectionTimeoutsMs: { answerMs: 20, silenceMs: 40 } });
     await c.startCollection();
     await expect.poll(() => c.status.collection.state).toBe("refused");
-    expect(c.status.collection.message).toMatch(/did not answer/);
+    expect(say("en", c.status.collection.message)).toMatch(/did not answer/);
 
     await c.startCollection();
     c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 120 });
@@ -538,7 +572,9 @@ describe("SessionController", () => {
       target: 120,
     });
     await expect.poll(() => c.status.collection.state).toBe("refused");
-    expect(c.status.collection.message).toMatch(/No word .* \(40 of 120 posts so far\)/);
+    expect(say("en", c.status.collection.message)).toMatch(
+      /No word .* \(40 of 120 posts so far\)/,
+    );
 
     c.handleHostEvent({
       type: "collection-progress",
@@ -572,7 +608,7 @@ describe("SessionController", () => {
       .poll(async () => (await listSessions(root))[0]?.processed?.status)
       .toBe("cancelled");
     expect(c.status.collection).toMatchObject({ state: "idle", count: null });
-    expect(c.status.collection.message).toMatch(/no timeline was built/);
+    expect(say("en", c.status.collection.message)).toMatch(/no timeline was built/);
     expect(c.status.run.stage).toBe("idle");
   });
 
@@ -606,7 +642,7 @@ describe("SessionController", () => {
 
     c.handleHostEvent({ type: "collection-start-result", outcome: "mode-b-off", target: 120 });
     expect(c.status.collection).toMatchObject({ state: "refused" });
-    expect(c.status.collection.message).toMatch(/Browse x\.com\/home/);
+    expect(say("en", c.status.collection.message)).toMatch(/Browse x\.com\/home/);
   });
 
   it("counts a collection as cancelled when the extension does not confirm or is gone", async () => {
@@ -615,14 +651,14 @@ describe("SessionController", () => {
     c.cancel();
     expect(c.status.collection.state).toBe("cancelling");
     await expect.poll(() => c.status.collection.state).toBe("idle");
-    expect(c.status.collection.message).toMatch(/Collection cancelled/);
+    expect(say("en", c.status.collection.message)).toMatch(/Collection cancelled/);
 
     await c.startCollection();
     hostOnline = false;
     expect(c.cancel()).toBe(true);
     expect(c.status.collection).toMatchObject({
       state: "idle",
-      message: expect.stringMatching(/Collection cancelled/),
+      message: { key: "collectionCancelled" },
     });
     expect(c.cancel()).toBe(false); // nothing left to cancel
   });

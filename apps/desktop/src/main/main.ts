@@ -10,7 +10,12 @@ import {
 } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { ManagedSettingsSchema, type ManagedSettings } from "@nmc/core";
+import {
+  ManagedSettingsSchema,
+  resolveUiLang,
+  type ManagedSettings,
+  type UiLang,
+} from "@nmc/core";
 import { createClaudeCliProvider, type LlmAvailability } from "@nmc/core/llm";
 import {
   desktopPipePath,
@@ -21,6 +26,7 @@ import {
   type DesktopCommand,
 } from "@nmc/native-host";
 import { renderTimeline } from "@nmc/timeline-renderer";
+import { messages, note, say } from "../shared/i18n.js";
 import type { BrowserChoice, SettingsStatus } from "../shared/settings-status.js";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
 import { READER_PAGE_ARG } from "../preload/reader-bridge.js";
@@ -90,6 +96,8 @@ let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let link: LinkServer | null = null;
 let lastStage: RunStage = "idle";
+/** The windows' language: the Settings choice, "system" resolved against the OS. */
+let lang: UiLang = "en";
 
 // "Browser for collecting": the saved choice resolved against this PC
 // (system default + installed browsers) at start-up and on change.
@@ -124,13 +132,34 @@ function sendToCollectBrowser(command: DesktopCommand): boolean {
 const settingsManager = new SettingsManager({
   sendPush: (settings, stamp) =>
     sendToCollectBrowser({ type: "settings-push", settings, stamp }),
-  onState: () => broadcastSettings(),
+  onState: () => {
+    applyLanguage();
+    broadcastSettings();
+  },
 });
+
+/** Follows the Settings' language: windows (via status), tray, the open timeline. */
+function applyLanguage(): void {
+  const next = resolveUiLang(
+    settingsManager.state.settings.uiLanguage,
+    app.isReady() ? app.getPreferredSystemLanguages() : [],
+  );
+  if (next === lang) return;
+  lang = next;
+  if (tray) setTrayMenu();
+  void controller
+    .setLang(next)
+    .then((rewritten) => {
+      if (rewritten && controller.timelinePath) reader.reloadTimeline(controller.timelinePath);
+    })
+    .catch((error: unknown) => log(`language: ${String(error)}`));
+}
 
 function settingsStatus(): SettingsStatus {
   const state = settingsManager.state;
   const resolved = resolvedBrowser();
   return {
+    lang,
     settings: state.settings,
     stamp: state.stamp,
     pending: state.pending,
@@ -179,24 +208,18 @@ const controller = new SessionController({
   sessionsRoot: root,
   runner: new PipelineRunner(createClaudeStages),
   loadSettings: () => loadDesktopSettings(undefined, log),
-  // Buttons in the page ("Yeni akış topla") are handled by the preload.
-  renderTimeline: (doc) => renderTimeline(doc, { actions: true }),
+  // Buttons in the page ("Collect new timeline") are handled by the preload.
+  renderTimeline: (doc, pageLang) => renderTimeline(doc, { actions: true, lang: pageLang }),
   sendToHost: (command) => sendToCollectBrowser(command),
   onStatus: broadcast,
   onAwaitingConfirmation: ({ uniquePostCount }) => {
-    notify(
-      `${uniquePostCount} posts collected`,
-      "Build the timeline now? Click to open, then choose “Build timeline”.",
-      () => void openReader(),
-    );
+    const m = messages(lang);
+    notify(m.notifyCollected(uniquePostCount), m.notifyCollectedBody, () => void openReader());
   },
   onReady: ({ timelinePath, selected }) => {
     if (reader.timelineReady(timelinePath)) return;
-    notify(
-      "Your timeline is ready",
-      `${selected} posts, finite by design. Click to read.`,
-      () => reader.open(timelinePath),
-    );
+    const m = messages(lang);
+    notify(m.notifyReady, m.notifyReadyBody(selected), () => reader.open(timelinePath));
   },
   log,
 });
@@ -208,26 +231,16 @@ function notify(title: string, body: string, onClick?: () => void): void {
   notification.show();
 }
 
-const STAGE_LABELS: Record<RunStage, string> = {
-  idle: "idle",
-  checking: "checking the claude CLI",
-  filtering: "filtering",
-  scoring: "scoring",
-  verifying: "verifying",
-  rendering: "writing the timeline",
-  ready: "timeline ready",
-  error: "failed",
-  cancelled: "cancelled",
-};
-
 function broadcast(status: DesktopStatus): void {
   sendToAll([liveContents(monitor), reader.webContents], "nmc:status", status, log);
-  tray?.setToolTip(`No More Clickbait — ${STAGE_LABELS[status.run.stage]}`);
+  const m = messages(status.lang);
+  tray?.setToolTip(`No More Clickbait — ${m.trayStage(status.run.stage)}`);
   const stage = status.run.stage;
   if (stage === "error" && lastStage !== "error" && !reader.webContents) {
+    const error = status.run.error;
     notify(
-      "timeline not prepared",
-      status.run.error?.message ?? "The run failed.",
+      m.notifyFailed,
+      error ? say(status.lang, error.note) : m.notifyRunFailed,
       () => void openReader(),
     );
   }
@@ -283,7 +296,7 @@ function createSettingsWindow(): BrowserWindow {
     minWidth: 420,
     minHeight: 480,
     show: false,
-    title: "No More Clickbait — Settings",
+    title: messages(lang).settingsWindowTitle,
     autoHideMenuBar: true,
     webPreferences: {
       preload,
@@ -338,12 +351,16 @@ async function startCollection(): Promise<void> {
       waitForConnection: (check) => waitForConnection(check),
       anyConnected: () => link?.hosts.at(-1)?.browser.family ?? null,
     });
+    const m = messages(lang);
     if (!ensured.ok) {
-      log(`collection not started: ${ensured.reason}`);
-      notify("collection not started", ensured.reason, showMonitor);
+      log(`collection not started: ${ensured.reason.key}`);
+      notify(m.notifyNotStarted, say(lang, ensured.reason), showMonitor);
       return;
     }
-    if (ensured.notice) notify("collecting in another browser", ensured.notice, showMonitor);
+    if (ensured.notice) {
+      const notice = ensured.notice.map((part) => say(lang, part)).join(" ");
+      notify(m.notifyOtherBrowser, notice, showMonitor);
+    }
     if (ensured.launched) settingsManager.setBrowserConnected(collectBrowserConnected());
   }
   return controller.startCollection();
@@ -356,17 +373,23 @@ function createTray(): void {
   );
   tray = new Tray(icon);
   tray.setToolTip("No More Clickbait");
-  tray.setContextMenu(
+  setTrayMenu();
+  tray.on("click", toggleMonitor);
+}
+
+/** The tray menu in the current language. */
+function setTrayMenu(): void {
+  const m = messages(lang);
+  tray?.setContextMenu(
     Menu.buildFromTemplate([
-      { label: "Collect new timeline", click: () => void startCollection() },
-      { label: "Open reading window", click: () => void openReader() },
-      { label: "Show status", click: showMonitor },
-      { label: "Settings…", click: showSettings },
+      { label: m.collectNew, click: () => void startCollection() },
+      { label: m.openReader, click: () => void openReader() },
+      { label: m.trayShowStatus, click: showMonitor },
+      { label: m.openSettings, click: showSettings },
       { type: "separator" },
-      { label: "Quit", click: () => app.quit() },
+      { label: m.trayQuit, click: () => app.quit() },
     ]),
   );
-  tray.on("click", toggleMonitor);
 }
 
 /** Only our own windows may call into main, each within ipc-policy.ts. */
@@ -457,7 +480,7 @@ async function startLink(): Promise<void> {
     log(`link pipe unavailable: ${String(error)}`);
     controller.setLink({
       listening: false,
-      error: "The browser link could not be opened (is another copy of the app running?).",
+      error: note("linkUnavailable"),
     });
   }
 }
