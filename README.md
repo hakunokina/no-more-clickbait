@@ -98,20 +98,55 @@ pnpm test
 2. Open `brave://extensions` (or `chrome://extensions`), enable
    **Developer mode**.
 3. **Load unpacked** → select `apps/extension/dist`.
-4. Note the extension ID shown on its card.
+
+The extension ID is pinned by the public `key` in the manifest, so it is
+the same on every machine regardless of the checkout path:
+**`ojljncfhbebelhbkgjhmfgjodpojmnbe`**. (Only the public key lives in this
+repo. The matching private key is needed solely to sign `.crx` packages
+and is intentionally not kept — generating a new key pair would change
+the ID.)
 
 ### Register the native host (Windows)
 
 The bridge between browser and desktop uses Native Messaging — no open
-ports. Registration is per-user (HKCU) and covers Chrome and Brave:
+ports. Registration is per-user (HKCU) and covers Chrome and Brave. The
+script defaults to the pinned extension ID above, so after `pnpm build`
+you (the user — it writes to your registry) run:
 
 ```powershell
-./packages/native-host/install-host.ps1 -ExtensionId <id-from-step-4>
+./packages/native-host/install-host.ps1
 ```
 
 (Node must be on PATH; the browser launches the host through
 `packages/native-host/bin/no-more-clickbait-host.cmd`.) Uninstall with
 `-Uninstall`.
+
+### Developer capture (measure a real collection)
+
+For development you can record your own timeline responses to inspect
+the payload shape and measure collection time:
+
+1. Open the extension **Options** and tick **Developer capture**
+   (off by default). Set the capture target (default 250 posts).
+2. Browse X as usual (Mode A). The extension forwards each
+   HomeTimeline/HomeLatestTimeline response body **verbatim** to the
+   native host.
+3. The badge shows the running rough post count (timeline entries whose
+   `entryId` starts with `tweet-`; promoted entries counted separately);
+   when the target is reached you get a badge + notification and capture
+   keeps going until you untick it.
+4. The host writes each response to a per-session folder **outside the
+   repo** — `%LOCALAPPDATA%\nmc\captures\<session time>\` by default
+   (set `NMC_INBOX_DIR` in the host's environment to move it) — numbered
+   `0001-<time>-HomeTimeline.json` etc., plus a `summary.json` holding
+   only counts and times (first/last capture, response/post/promoted
+   counts, oversized refusals, collection span). Responses over the
+   32 MB bridge-frame ceiling are never chunked: they are refused,
+   logged, and counted in the summary.
+
+> **Raw captures are personal data.** They are your own home timeline as
+> X sent it to your browser. Keep them on your machine, never share
+> them, never commit them. This repo's tests use synthetic data only.
 
 ### Run the desktop app
 
