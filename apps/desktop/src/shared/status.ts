@@ -58,7 +58,8 @@ export interface UsageTotals {
   costUsd: number | null;
 }
 
-export type CollectionState = "idle" | "requested" | "collecting" | "refused";
+/** `cancelling`: "Cancel" was pressed; waiting for the extension to end the run. */
+export type CollectionState = "idle" | "requested" | "collecting" | "cancelling" | "refused";
 
 export interface DesktopStatus {
   link: {

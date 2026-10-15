@@ -55,12 +55,8 @@ function pushToExtension(message: BridgeReply): void {
 function startDesktopLink(): void {
   if (link) return;
   link = new LinkClient({
-    onCommand: (command) => {
-      pushToExtension({
-        type: "start-collection",
-        ...(command.target !== undefined ? { target: command.target } : {}),
-      });
-    },
+    // Desktop commands are extension pushes of the same shape.
+    onCommand: pushToExtension,
     onConnectionChanged: (desktopConnected) => {
       pushToExtension({ type: "link-status", desktopConnected, extensionConnected: true });
     },
@@ -72,6 +68,11 @@ function startDesktopLink(): void {
 }
 
 const decoder = new MessageDecoder();
+
+/** Only a Mode B run reports a start or progress: tag this session. */
+function markModeB(): void {
+  sessionStore.markMode("B").catch(() => undefined);
+}
 
 /**
  * In-flight message handlers. When stdin closes the process must not
@@ -103,9 +104,11 @@ function dispatch(raw: string): void {
       });
     },
     onCollectionStartResult: (result) => {
+      if (result.outcome === "started") markModeB();
       link?.send(result);
     },
     onCollectionProgress: (progress) => {
+      markModeB();
       link?.send(progress);
     },
     onRawCapture: async (capture) => ({

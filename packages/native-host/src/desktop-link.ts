@@ -101,6 +101,7 @@ export const DesktopCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("start-collection"),
     target: z.number().int().min(1).max(10_000).optional(),
   }),
+  z.object({ type: z.literal("stop-collection") }),
 ]);
 export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 
@@ -139,8 +140,28 @@ export async function writeLinkToken(path: string = linkTokenPath()): Promise<st
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.tmp`;
   await writeFile(temp, token, { encoding: "utf8", mode: 0o600 });
-  await rename(temp, path);
+  await renameRetrying(temp, path);
   return token;
+}
+
+/**
+ * Windows refuses to replace a file another process has open (EPERM):
+ * a host re-reading the token while the desktop app starts, or a virus
+ * scanner. Such handles live for milliseconds, so retry briefly instead
+ * of failing the app's whole link for this start.
+ */
+async function renameRetrying(from: string, to: string, budgetMs = 2_000): Promise<void> {
+  const started = Date.now();
+  for (let delay = 5; ; delay = Math.min(delay * 2, 100)) {
+    try {
+      return await rename(from, to);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      const busy = code === "EPERM" || code === "EACCES" || code === "EBUSY";
+      if (!busy || Date.now() - started > budgetMs) throw error;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
 }
 
 export async function readLinkToken(path: string = linkTokenPath()): Promise<string | null> {

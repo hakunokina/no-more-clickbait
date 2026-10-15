@@ -175,6 +175,11 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
     runCommand(() => startCollectionForDesktop(reply.target));
     return;
   }
+  if (reply.type === "stop-collection") {
+    // Queued behind a start still in flight, so it stops that run too.
+    runCommand(() => modeB.stop("cancelled"));
+    return;
+  }
   if (reply.type === "capture-accepted" || reply.type === "capture-rejected") {
     if (reply.type === "capture-rejected") {
       console.error(`[nmc] developer capture refused: ${reply.message}`);

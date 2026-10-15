@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -41,6 +41,23 @@ import { SessionController } from "./session-controller.js";
 const HOST_MAIN = fileURLToPath(
   new URL("../../../../packages/native-host/dist/main.js", import.meta.url),
 );
+
+const HOST_SRC = fileURLToPath(
+  new URL("../../../../packages/native-host/src/", import.meta.url),
+);
+/** Written by the host's `build` script after every build (tsc skips unchanged outputs). */
+const HOST_BUILD_STAMP = join(HOST_SRC, "..", "dist", ".build-stamp");
+
+/** Host sources edited after the last build (the test would run old code). */
+function staleHostSources(): string[] {
+  const builtAt = existsSync(HOST_BUILD_STAMP) ? statSync(HOST_BUILD_STAMP).mtimeMs : 0;
+  return readdirSync(HOST_SRC).filter(
+    (name) =>
+      name.endsWith(".ts") &&
+      !name.endsWith(".test.ts") &&
+      statSync(join(HOST_SRC, name)).mtimeMs > builtAt,
+  );
+}
 
 // Fully synthetic posts — no real feed data.
 function post(id: string): Post {
@@ -139,6 +156,12 @@ describe("collection over the real host, pipe and controller", () => {
   beforeEach(async () => {
     if (!existsSync(HOST_MAIN)) {
       throw new Error(`build the native host first (pnpm build): ${HOST_MAIN} is missing`);
+    }
+    const stale = staleHostSources();
+    if (stale.length > 0) {
+      throw new Error(
+        `the native host build is older than its sources (${stale.join(", ")}); run pnpm build first`,
+      );
     }
     local = await mkdtemp(join(tmpdir(), "nmc-link-e2e-"));
     const pipe =

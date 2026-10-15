@@ -9,6 +9,7 @@ import {
   formatDuration,
 } from "../shared/format.js";
 import { isRunActive, type DesktopStatus } from "../shared/status.js";
+import { monitorActions, type MonitorAction } from "../shared/actions.js";
 
 declare global {
   interface Window {
@@ -27,6 +28,15 @@ function text(id: string, value: string): void {
 }
 
 let current: DesktopStatus | null = null;
+let primaryAction: MonitorAction = "collect";
+
+const ACTIONS: Record<MonitorAction, () => Promise<unknown>> = {
+  collect: () => window.nmc.startCollection(),
+  cancel: () => window.nmc.cancelRun(),
+  build: () => window.nmc.buildTimeline(),
+  rebuild: () => window.nmc.retryRun(),
+  retry: () => window.nmc.retryRun(),
+};
 
 function render(status: DesktopStatus): void {
   current = status;
@@ -37,8 +47,7 @@ function render(status: DesktopStatus): void {
   text("collection-note", status.collection.message ?? "");
   text("unfinished-note", describeUnfinished(status));
 
-  const pending = status.pending;
-  el("pending").hidden = pending === null || active;
+  const pending = active ? null : status.pending;
   text(
     "pending-note",
     pending === null
@@ -47,21 +56,27 @@ function render(status: DesktopStatus): void {
         ? `${pending.uniquePostCount} posts collected while you browsed. Build the timeline? (Uses your claude CLI.)`
         : `The collection stopped early (${describeStopReason(pending.reason)}) with ${pending.uniquePostCount} posts. Build the timeline anyway? (Uses your claude CLI.)`,
   );
-  text("build", pending?.mode === "B" ? "Build timeline anyway" : "Build timeline");
 
   const error = el("run-error");
   error.hidden = run.error === null;
   text("run-error-message", run.error?.message ?? "");
   text("run-error-detail", run.error?.detail ?? "");
 
-  el<HTMLButtonElement>("collect").disabled = active || !status.link.listening;
-  el<HTMLButtonElement>("cancel").disabled = !active;
-  el<HTMLButtonElement>("retry").disabled =
-    active || run.sessionId === null || !(run.stage === "error" || run.stage === "cancelled");
+  const actions = monitorActions(status);
+  primaryAction = actions.primary;
+  const primary = el<HTMLButtonElement>("primary");
+  primary.textContent = actions.label;
+  primary.disabled = actions.disabled;
+  const collectLink = el<HTMLButtonElement>("collect-link");
+  collectLink.hidden = !actions.collectLink;
+  collectLink.disabled = !status.link.listening;
 
   const counts = run.counts;
   const { collection } = status;
-  const collecting = !active && collection.state === "collecting" && collection.count !== null;
+  const collecting =
+    !active &&
+    (collection.state === "collecting" || collection.state === "cancelling") &&
+    collection.count !== null;
   text(
     "posts-collected",
     collecting
@@ -121,10 +136,8 @@ function guarded(button: HTMLButtonElement, action: () => Promise<unknown>): voi
   });
 }
 
-guarded(el<HTMLButtonElement>("build"), () => window.nmc.buildTimeline());
-guarded(el<HTMLButtonElement>("collect"), () => window.nmc.startCollection());
-guarded(el<HTMLButtonElement>("cancel"), () => window.nmc.cancelRun());
-guarded(el<HTMLButtonElement>("retry"), () => window.nmc.retryRun());
+guarded(el<HTMLButtonElement>("primary"), () => ACTIONS[primaryAction]());
+guarded(el<HTMLButtonElement>("collect-link"), () => window.nmc.startCollection());
 el("open-reader").addEventListener("click", () => void window.nmc.openReader());
 
 window.nmc.onStatus(render);

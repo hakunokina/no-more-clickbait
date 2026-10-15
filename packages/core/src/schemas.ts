@@ -756,7 +756,7 @@ export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 /**
  * Messages from the desktop side to the extension: replies to the
  * messages above, plus unsolicited pushes (`start-collection`,
- * `link-status`).
+ * `stop-collection`, `link-status`).
  */
 export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
@@ -785,6 +785,8 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
     /** Overrides the user's `collectTarget` for this collection. */
     target: z.number().int().min(1).max(10_000).optional(),
   }),
+  /** Push: the desktop cancels the running collection (it ends as `cancelled`). */
+  z.object({ type: z.literal("stop-collection") }),
   /** Push: which ends of the bridge are currently connected. */
   z.object({
     type: z.literal("link-status"),

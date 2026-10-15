@@ -50,6 +50,19 @@ export const SessionProcessedSchema = z.object({
 });
 export type SessionProcessed = z.infer<typeof SessionProcessedSchema>;
 
+/**
+ * `session.json`: what the host knows about a session while it runs
+ * (open for more fields). Written once a Mode B run reports, so a
+ * session that never completed can still be told apart from the user's
+ * own scrolling.
+ */
+export const SessionInfoSchema = z.object({
+  mode: z.enum(["A", "B"]),
+  /** When the host learned the mode. */
+  startedAt: z.string().datetime(),
+});
+export type SessionInfo = z.infer<typeof SessionInfoSchema>;
+
 function newSessionId(nowIso: string): string {
   const stamp = nowIso.replaceAll(":", "-").replaceAll(".", "-");
   return `${stamp}-${randomBytes(2).toString("hex")}`;
@@ -127,6 +140,9 @@ export class PostSessionStore {
   #sessionId: string | null = null;
   #batchCount = 0;
   #completed = false;
+  /** Mode to record in session.json; written once the folder exists. */
+  #info: SessionInfo | null = null;
+  #infoWritten = false;
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(
@@ -151,6 +167,7 @@ export class PostSessionStore {
         this.#sessionId = newSessionId(this.#now());
         await mkdir(join(this.#root, this.#sessionId, "batches"), { recursive: true });
         await pruneSessions(this.#root, this.#keep, this.#sessionId);
+        await this.#writeInfo();
       }
       this.#batchCount += 1;
       const name = `${String(this.#batchCount).padStart(4, "0")}.json`;
@@ -173,6 +190,25 @@ export class PostSessionStore {
     });
   }
 
+  /**
+   * Records the session's collection mode in session.json (the only
+   * writer). Before the first batch there is no folder yet: it is
+   * written with it. The first mode recorded stays.
+   */
+  async markMode(mode: SessionInfo["mode"]): Promise<void> {
+    return this.#enqueue(async () => {
+      if (this.#completed || this.#info) return;
+      this.#info = { mode, startedAt: this.#now() };
+      await this.#writeInfo();
+    });
+  }
+
+  async #writeInfo(): Promise<void> {
+    if (!this.#info || !this.#sessionId || this.#infoWritten) return;
+    this.#infoWritten = true;
+    await writeJsonAtomic(join(this.#root, this.#sessionId, "session.json"), this.#info);
+  }
+
   #enqueue<T>(work: () => Promise<T>): Promise<T> {
     const run = this.#queue.then(work, work);
     this.#queue = run.then(
@@ -190,6 +226,8 @@ export interface SessionListing {
   /** How the collection ended (mode, counts), when complete. */
   completion: SessionCompletion | null;
   processed: SessionProcessed | null;
+  /** session.json, when the host recorded the mode (Mode B runs). */
+  info: SessionInfo | null;
   /** Stored post batches. */
   batchCount: number;
 }
@@ -218,12 +256,14 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
       const processed = SessionProcessedSchema.safeParse(
         await readJson(join(dir, "processed.json")),
       );
+      const info = SessionInfoSchema.safeParse(await readJson(join(dir, "session.json")));
       return {
         id,
         dir,
         complete: complete.success,
         completion: complete.success ? complete.data : null,
         processed: processed.success ? processed.data : null,
+        info: info.success ? info.data : null,
         batchCount: await countBatches(dir),
       };
     }),
