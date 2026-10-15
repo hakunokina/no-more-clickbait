@@ -44,6 +44,17 @@ export function normalizeText(text: string, max: number): string {
   return flat.length > max ? `${flat.slice(0, max).trimEnd()}…` : flat;
 }
 
+/**
+ * A language tag as a page or feed declares it ("tr", "en-US"), trimmed;
+ * anything that does not look like a BCP 47 tag is dropped, not fixed.
+ */
+export function normalizeLang(raw: string | null | undefined): string | undefined {
+  const value = raw?.trim();
+  return value && value.length <= 35 && /^[a-z]{2,8}(?:-[a-z0-9]{1,8})*$/i.test(value)
+    ? value
+    : undefined;
+}
+
 /** Not read: code, invisible and decorative content. */
 const SKIPPED_TAGS = new Set(["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "SVG", "IFRAME"]);
 
