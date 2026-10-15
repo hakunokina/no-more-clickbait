@@ -280,6 +280,24 @@ describe("PostSessionStore", () => {
     expect(ids).toEqual([failed, running, plain, current]);
   });
 
+  it("never takes a session of only custom-site items for an empty one", async () => {
+    const older = await session(10, { complete: true });
+    const sitesOnly = await session(11, { complete: true }, 0);
+    await writeFile(join(root, sitesOnly, "batches", "f0001.json"), "{}");
+    const empty = await session(12, {}, 0);
+    const current = await session(13);
+    expect((await listSessions(root)).find((s) => s.id === sitesOnly)).toMatchObject({
+      batchCount: 0,
+      feedBatchCount: 1,
+    });
+    await pruneSessions(root, 2, current);
+    const ids = (await listSessions(root)).map((s) => s.id);
+    // The empty one goes first, then the oldest; the newer sites-only session stays.
+    expect(ids).toEqual([sitesOnly, current]);
+    expect(ids).not.toContain(older);
+    expect(ids).not.toContain(empty);
+  });
+
   it("records a failed run with its reason", async () => {
     const id = await session(10, { complete: true });
     await markSessionProcessed(join(root, id), "error", () => clock, {

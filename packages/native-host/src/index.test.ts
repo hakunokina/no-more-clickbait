@@ -69,13 +69,23 @@ describe("handleBridgeMessage", () => {
     };
     const reply = await handleBridgeMessage(JSON.stringify({ type: "feed-batch", batch }), {
       onPostBatch: () => {},
-      onFeedBatch: (got) => void seen.push(got.siteId ?? ""),
+      onFeedBatch: (got) => {
+        seen.push(got.siteId ?? "");
+        return got.items.length;
+      },
     });
     expect(reply).toEqual({
       type: "feed-accepted",
       siteId: "news.example/world",
       itemCount: 1,
     });
+    // Refused after collection-complete: the reply says nothing was stored.
+    await expect(
+      handleBridgeMessage(JSON.stringify({ type: "feed-batch", batch }), {
+        onPostBatch: () => {},
+        onFeedBatch: () => 0,
+      }),
+    ).resolves.toMatchObject({ type: "feed-accepted", itemCount: 0 });
     expect(seen).toEqual(["news.example/world"]);
     await expect(
       handleBridgeMessage(JSON.stringify({ type: "feed-batch", batch }), {

@@ -97,11 +97,15 @@ const BATCH_FILE = /^\d{4,}\.json$/;
 /** Non-X (`feed-batch`) batches: the same folder, never mixed into the X counts. */
 const FEED_BATCH_FILE = /^f\d{4,}\.json$/;
 
-async function countBatches(dir: string): Promise<number> {
+async function countBatches(dir: string): Promise<{ x: number; feed: number }> {
   try {
-    return (await readdir(join(dir, "batches"))).filter((name) => BATCH_FILE.test(name)).length;
+    const names = await readdir(join(dir, "batches"));
+    return {
+      x: names.filter((name) => BATCH_FILE.test(name)).length,
+      feed: names.filter((name) => FEED_BATCH_FILE.test(name)).length,
+    };
   } catch {
-    return 0;
+    return { x: 0, feed: 0 };
   }
 }
 
@@ -138,7 +142,9 @@ export async function pruneSessions(
     if (kept.has(session.id)) continue;
     const status = session.processed?.status;
     const discarded =
-      status === "superseded" || status === "cancelled" || session.batchCount === 0;
+      status === "superseded" ||
+      status === "cancelled" ||
+      (session.batchCount === 0 && session.feedBatchCount === 0);
     (discarded ? discardable : rest).push(session);
   }
   for (const session of [...discardable, ...rest].slice(0, excess)) {
@@ -284,8 +290,10 @@ export interface SessionListing {
   processed: SessionProcessed | null;
   /** session.json, when the host recorded the mode (Mode B runs). */
   info: SessionInfo | null;
-  /** Stored post batches. */
+  /** Stored post batches (X). */
   batchCount: number;
+  /** Stored custom-site batches; a session of only these is not empty. */
+  feedBatchCount: number;
 }
 
 /** When a session's first batch was stored (its id is that time). */
@@ -313,6 +321,7 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
         await readJson(join(dir, "processed.json")),
       );
       const info = SessionInfoSchema.safeParse(await readJson(join(dir, "session.json")));
+      const batches = await countBatches(dir);
       return {
         id,
         dir,
@@ -320,7 +329,8 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
         completion: complete.success ? complete.data : null,
         processed: processed.success ? processed.data : null,
         info: info.success ? info.data : null,
-        batchCount: await countBatches(dir),
+        batchCount: batches.x,
+        feedBatchCount: batches.feed,
       };
     }),
   );

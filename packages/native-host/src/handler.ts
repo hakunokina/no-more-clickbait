@@ -22,7 +22,8 @@ export interface BridgeHandlers {
   /** Called with every validated post batch from the extension. */
   onPostBatch(batch: PostBatch): Promise<void> | void;
   /** Called with every validated non-X batch (custom sites). */
-  onFeedBatch?: (batch: FeedBatch) => Promise<void> | void;
+  /** Returns how many items were stored (0: refused after `collection-complete`). */
+  onFeedBatch?: (batch: FeedBatch) => Promise<number> | number;
   /** Stores one raw developer capture; returns its sequence number. */
   onRawCapture?: (capture: RawCapture) => Promise<{ sequence: number }>;
   /** Records a refused oversized capture (counter + summary only). */
@@ -88,11 +89,11 @@ export async function handleBridgeMessage(
         return { type: "error", message: "feed batches are not configured on this host" };
       }
       const { batch } = parsed.data;
-      await handlers.onFeedBatch(batch);
+      const stored = await handlers.onFeedBatch(batch);
       return {
         type: "feed-accepted",
         ...(batch.siteId ? { siteId: batch.siteId } : {}),
-        itemCount: batch.items.length,
+        itemCount: stored,
       };
     }
     case "raw-capture": {

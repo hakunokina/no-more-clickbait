@@ -106,7 +106,11 @@ function dispatch(raw: string): void {
       }
     },
     onFeedBatch: async (batch) => {
-      await sessionStore.addFeedBatch(batch);
+      const stored = await sessionStore.addFeedBatch(batch);
+      if (stored === 0 && batch.items.length > 0) {
+        process.stderr.write("native-host: feed batch after collection-complete dropped\n");
+      }
+      return stored;
     },
     onCollectionComplete: async ({ mode, reason, uniquePostCount, responseCount, target }) => {
       const counts = { mode, reason, uniquePostCount, responseCount };
