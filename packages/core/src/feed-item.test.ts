@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
   feedItemKey,
+  feedSourceLabel,
   genericItemIdFromText,
   genericItemIdFromUrl,
   isGenericItem,
@@ -13,10 +14,13 @@ import {
   platformOf,
 } from "./feed-item.js";
 import { createHardFilter } from "./hard-filter.js";
-import { FunnelCountsSchema } from "./metrics.js";
+import { FunnelCountsSchema, RunMetricsSchema } from "./metrics.js";
 import { createThresholdSelector, runPipeline } from "./pipeline.js";
 import {
   FeedItemSchema,
+  GenericItemSchema,
+  InstagramPostSchema,
+  PostSchema,
   RankedPostSchema,
   type FeedItem,
   type GenericItem,
@@ -126,6 +130,67 @@ describe("FeedItemSchema", () => {
       verification: null,
     };
     expect(RankedPostSchema.parse(ranked).post).not.toHaveProperty("platform");
+  });
+});
+
+describe("card fields of Instagram and generic items", () => {
+  it("accepts the optional card fields and keeps them", () => {
+    const ig = igPost("1", {
+      lang: "tr",
+      coauthors: [{ handle: "ortak_hesap", name: "Ortak Hesap" }, { handle: "ikinci" }],
+      location: "Sentetik Park",
+      paidPartnership: { partner: "Değirmen Un" },
+    });
+    expect(InstagramPostSchema.parse(ig)).toEqual(ig);
+    const generic = genericItem("1", {
+      kind: "link",
+      lang: "en",
+      linkUrl: "https://news.example.invalid/story",
+      flair: "Bilim",
+      siteIconUrl: "https://styles.example.invalid/r-synthetic.png",
+      image: { url: "https://i.example.invalid/1.jpg", altText: "Bir köprü", width: 640 },
+    });
+    expect(GenericItemSchema.parse(generic)).toEqual(generic);
+    // A paid partnership whose brand was not delivered is still labelled.
+    expect(
+      InstagramPostSchema.parse(igPost("2", { paidPartnership: {} })).paidPartnership,
+    ).toEqual({});
+  });
+
+  it("refuses card fields that would reach the renderer as unsafe or empty", () => {
+    const bad: Partial<GenericItem>[] = [
+      { linkUrl: "javascript:alert(1)" },
+      { siteIconUrl: "data:image/png;base64,AAAA" },
+      { kind: "gallery" as GenericItem["kind"] },
+      { flair: "" },
+    ];
+    for (const overrides of bad) {
+      expect(GenericItemSchema.safeParse(genericItem("1", overrides)).success).toBe(false);
+    }
+    expect(
+      InstagramPostSchema.safeParse(igPost("1", { coauthors: [{ handle: "" }] })).success,
+    ).toBe(false);
+  });
+
+  it("leaves the X Post schema as it was", () => {
+    expect(Object.keys(PostSchema.shape)).not.toEqual(
+      expect.arrayContaining(["kind", "linkUrl", "flair", "siteIconUrl", "coauthors"]),
+    );
+    const parsed = FeedItemSchema.parse({
+      ...xPost("1"),
+      flair: "x",
+      linkUrl: "https://a.invalid/",
+    });
+    expect(parsed).not.toHaveProperty("flair");
+    expect(parsed).not.toHaveProperty("linkUrl");
+  });
+
+  it("labels sources the way the tally names them", () => {
+    expect(
+      [xPost("1"), igPost("1"), genericItem("1", { sourceLabel: "custom:Haber" })].map(
+        feedSourceLabel,
+      ),
+    ).toEqual(["x", "instagram", "custom:Haber"]);
   });
 });
 
@@ -269,6 +334,14 @@ describe("runPipeline with mixed sources", () => {
       mediaOnly: 1,
       shown: 3,
     });
+    // Scanned/shown per source, in order of first appearance; ads and
+    // media-only posts count as scanned.
+    expect(result.metrics.bySource).toEqual([
+      { label: "x", in: 1, shown: 1 },
+      { label: "instagram", in: 2, shown: 1 },
+      { label: "reddit", in: 2, shown: 1 },
+    ]);
+    expect(RunMetricsSchema.parse(result.metrics).bySource).toEqual(result.metrics.bySource);
   });
 
   it("verifies non-X items with their own key", async () => {
@@ -340,6 +413,25 @@ describe("TimelineDoc with mixed sources", () => {
     for (const card of doc.cards) expect(card.score.postId).toBe(feedItemKey(card.post));
     const words = doc.cards.reduce((sum, card) => sum + postWordCount(card.post), 0);
     expect(doc.header.wordCount).toBe(words);
+    // Every optional card field the renderer binds appears at least once.
+    const generic = doc.cards.map((card) => card.post).filter(isGenericItem);
+    const ig = doc.cards.map((card) => card.post).filter(isInstagramPost);
+    for (const field of ["kind", "lang", "linkUrl", "flair", "siteIconUrl"] as const) {
+      expect(generic.some((item) => item[field] !== undefined)).toBe(true);
+    }
+    expect(generic.some((item) => item.image?.altText)).toBe(true);
+    for (const field of ["lang", "coauthors", "location", "paidPartnership"] as const) {
+      expect(ig.some((item) => item[field] !== undefined)).toBe(true);
+    }
+    expect(doc.bySource?.map((count) => count.label)).toEqual([
+      "x",
+      "reddit",
+      "instagram",
+      "custom:haber",
+    ]);
+    expect(doc.missingSources).toEqual([
+      { label: "custom:blog", reason: "Site yanıt vermedi" },
+    ]);
   });
 
   it("counts an Instagram caption and a generic title plus text as words", () => {

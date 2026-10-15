@@ -307,7 +307,10 @@ function readLang(card: DomElement): string | undefined {
 /** The page's declared icon (`<link rel="icon">`), when the root holds the document head. */
 function readSiteIcon(root: DomQueryRoot, base: string): string | undefined {
   try {
-    return resolveHttpUrl(root.querySelector('link[rel~="icon"][href]')?.getAttribute("href"), base);
+    return resolveHttpUrl(
+      root.querySelector('link[rel~="icon"][href]')?.getAttribute("href"),
+      base,
+    );
   } catch {
     // A root that cannot run selectors has no head to read.
     return undefined;

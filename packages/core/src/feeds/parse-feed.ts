@@ -277,7 +277,10 @@ function firstImageIn(html: string): FeedImage | undefined {
       if (!url) return;
       const alt = /\salt\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(tag);
       const altText = alt?.[1] ?? alt?.[2];
-      found = withAlt(decodeHtmlEntities(url), altText ? decodeHtmlEntities(altText) : undefined);
+      found = withAlt(
+        decodeHtmlEntities(url),
+        altText ? decodeHtmlEntities(altText) : undefined,
+      );
     },
   });
   return found;

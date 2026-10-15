@@ -90,7 +90,12 @@
           "score": 2140,
           "comments": 318
         },
-        "promoted": false
+        "promoted": false,
+        "kind": "link",
+        "lang": "tr",
+        "linkUrl": "https://science.example.invalid/2026/yuruyus-uyku",
+        "flair": "Sağlık",
+        "siteIconUrl": "https://icons.example.invalid/r-synthetic_science.png"
       },
       "score": {
         "postId": "generic:reddit:t3_synth01",
@@ -127,9 +132,13 @@
         "image": {
           "url": "https://news.example.invalid/img/sentetik-faiz.jpg",
           "width": 1200,
-          "height": 630
+          "height": 630,
+          "altText": "Sentetik bir banka binasının cephesi"
         },
-        "promoted": false
+        "promoted": false,
+        "kind": "link",
+        "lang": "tr",
+        "siteIconUrl": "https://news.example.invalid/favicon.png"
       },
       "score": {
         "postId": "generic:custom%3Ahaber:ua316cf13747dcfad",
@@ -198,7 +207,18 @@
           "likes": 842,
           "comments": 37
         },
-        "promoted": false
+        "promoted": false,
+        "lang": "tr",
+        "coauthors": [
+          {
+            "handle": "synthetic_ig_partner",
+            "name": "Synthetic Partner"
+          }
+        ],
+        "location": "Sentetik Park",
+        "paidPartnership": {
+          "partner": "Değirmen Un"
+        }
       },
       "score": {
         "postId": "instagram:3100000000000000001",
@@ -320,7 +340,8 @@
           "comments": 64,
           "views": 48200
         },
-        "promoted": false
+        "promoted": false,
+        "lang": "tr"
       },
       "score": {
         "postId": "instagram:3100000000000000002",
@@ -350,7 +371,35 @@
     "rankedOut": 3,
     "shown": 6
   },
+  "bySource": [
+    {
+      "label": "x",
+      "in": 90,
+      "shown": 2
+    },
+    {
+      "label": "reddit",
+      "in": 20,
+      "shown": 1
+    },
+    {
+      "label": "instagram",
+      "in": 30,
+      "shown": 2
+    },
+    {
+      "label": "custom:haber",
+      "in": 10,
+      "shown": 1
+    }
+  ],
   "status": {
     "state": "ok"
-  }
+  },
+  "missingSources": [
+    {
+      "label": "custom:blog",
+      "reason": "Site yanıt vermedi"
+    }
+  ]
 }

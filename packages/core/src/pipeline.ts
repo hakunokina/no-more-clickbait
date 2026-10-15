@@ -240,7 +240,10 @@ export interface PipelineRunResult {
 }
 
 /** Scanned/shown per source, in order of first appearance in `posts`. */
-function countBySource(posts: readonly FeedItem[], shown: readonly RankedPost[]): SourceCount[] {
+function countBySource(
+  posts: readonly FeedItem[],
+  shown: readonly RankedPost[],
+): SourceCount[] {
   const counts = new Map<string, SourceCount>();
   for (const post of posts) {
     const label = feedSourceLabel(post);
