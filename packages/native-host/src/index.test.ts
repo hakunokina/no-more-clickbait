@@ -63,4 +63,73 @@ describe("handleBridgeMessage", () => {
       }),
     ).resolves.toMatchObject({ type: "error" });
   });
+
+  it("stores a raw capture and replies with sequence + cumulative stats", async () => {
+    const seen: string[] = [];
+    const reply = await handleBridgeMessage(
+      JSON.stringify({
+        type: "raw-capture",
+        operation: "HomeTimeline",
+        capturedAt: "2026-01-01T00:00:00.000Z",
+        bodyText: '{"synthetic":true}',
+      }),
+      {
+        onPostBatch: () => {},
+        onRawCapture: (capture) => {
+          seen.push(capture.operation);
+          return Promise.resolve({ sequence: 7 });
+        },
+        captureStats: () => ({
+          responseCount: 1,
+          postCount: 3,
+          promotedCount: 1,
+          oversizedCount: 0,
+        }),
+      },
+    );
+    expect(reply).toEqual({
+      type: "capture-accepted",
+      sequence: 7,
+      stats: { responseCount: 1, postCount: 3, promotedCount: 1, oversizedCount: 0 },
+    });
+    expect(seen).toEqual(["HomeTimeline"]);
+  });
+
+  it("reports an oversized capture as rejected and counts it", async () => {
+    const refused: number[] = [];
+    const reply = await handleBridgeMessage(
+      JSON.stringify({
+        type: "capture-oversized",
+        operation: "HomeTimeline",
+        capturedAt: "2026-01-01T00:00:00.000Z",
+        byteLength: 40_000_000,
+      }),
+      {
+        onPostBatch: () => {},
+        onOversizedCapture: (capture) => void refused.push(capture.byteLength),
+        captureStats: () => ({
+          responseCount: 0,
+          postCount: 0,
+          promotedCount: 0,
+          oversizedCount: 1,
+        }),
+      },
+    );
+    expect(reply).toMatchObject({ type: "capture-rejected", stats: { oversizedCount: 1 } });
+    expect(refused).toEqual([40_000_000]);
+  });
+
+  it("errors when developer capture is not configured", async () => {
+    await expect(
+      handleBridgeMessage(
+        JSON.stringify({
+          type: "raw-capture",
+          operation: "HomeTimeline",
+          capturedAt: "2026-01-01T00:00:00.000Z",
+          bodyText: "{}",
+        }),
+        { onPostBatch: () => {} },
+      ),
+    ).resolves.toMatchObject({ type: "error" });
+  });
 });

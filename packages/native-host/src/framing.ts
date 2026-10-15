@@ -3,9 +3,10 @@
  * little-endian length prefix followed by that many bytes of UTF-8 JSON.
  * There is deliberately NO TCP/HTTP port anywhere in this bridge.
  */
+import { MAX_BRIDGE_MESSAGE_BYTES } from "@nmc/core";
 
 /** Browsers cap a single host->extension message at 1 MB; guard inputs too. */
-export const MAX_MESSAGE_BYTES = 32 * 1024 * 1024;
+export const MAX_MESSAGE_BYTES = MAX_BRIDGE_MESSAGE_BYTES;
 
 export function encodeMessage(message: unknown): Buffer {
   const payload = Buffer.from(JSON.stringify(message), "utf8");

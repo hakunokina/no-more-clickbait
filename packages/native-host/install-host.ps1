@@ -10,16 +10,21 @@
   themselves; nothing in the build executes it.
 
 .PARAMETER ExtensionId
-  The extension's ID (chrome://extensions shows it once loaded unpacked).
+  The extension's ID. The unpacked extension pins a fixed ID via the
+  manifest `key` field, so this defaults to it
+  (ojljncfhbebelhbkgjhmfgjodpojmnbe). Pass another ID only if you built
+  a differently-keyed extension.
+
+.EXAMPLE
+  ./install-host.ps1
 
 .EXAMPLE
   ./install-host.ps1 -ExtensionId abcdefghijklmnopqrstuvwxyz012345
 #>
 [CmdletBinding()]
 param(
-  [Parameter(Mandatory = $true)]
   [ValidatePattern('^[a-p]{32}$')]
-  [string]$ExtensionId,
+  [string]$ExtensionId = 'ojljncfhbebelhbkgjhmfgjodpojmnbe',
 
   [switch]$Uninstall
 )
