@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { Post, ScoreEntry, VerificationResult } from "@nmc/core";
+import { SettingsSchema, type Post, type ScoreEntry, type Settings, type VerificationResult } from "@nmc/core";
 import { CliNotAuthenticatedError, CliRunError, type LlmAvailability } from "@nmc/core/llm";
 import { PipelineRunner, RunBusyError, type RunProgress, type RunStages } from "./pipeline-runner.js";
-import { PIPELINE_DEFAULTS, type PipelineSettings } from "./settings-file.js";
 
 // Fully synthetic posts — no real feed data.
 function post(id: string, extra: Partial<Post> = {}): Post {
@@ -75,10 +74,8 @@ function fakeStages(options: FakeOptions = {}): { stages: RunStages; killed: () 
   return { stages, killed: () => killed };
 }
 
-const settings = (overrides: Partial<PipelineSettings> = {}): PipelineSettings => ({
-  ...PIPELINE_DEFAULTS,
-  ...overrides,
-});
+const settings = (overrides: Partial<Settings> = {}): Settings =>
+  SettingsSchema.parse({ timelineSize: 50, ...overrides });
 
 describe("PipelineRunner", () => {
   it("runs filter → scorer → selector → verifier and reports progress", async () => {

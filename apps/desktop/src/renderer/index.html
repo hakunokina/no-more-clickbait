@@ -20,27 +20,61 @@
       dd { margin: 0; font-variant-numeric: tabular-nums; }
       button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
       button:disabled { opacity: 0.6; }
+      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+      .row button { margin-top: 0; }
       :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
       .ok { color: #1c7c3c; }
       .bad { color: #b3261e; }
+      @media (prefers-color-scheme: dark) {
+        .ok { color: #72d39c; }
+        .bad { color: #f2b8b5; }
+        :focus-visible { outline-color: #8ab4f8; }
+      }
+      .stage { font-weight: 600; margin: 0; }
+      .note { font-size: 0.85rem; margin: 0.5rem 0 0; }
+      .note:empty { display: none; }
+      details { font-size: 0.85rem; margin-top: 0.25rem; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.25rem 0 0; }
     </style>
   </head>
   <body>
     <h1>No More Clickbait</h1>
     <p class="sub">Your feed, filtered. Finite by design.</p>
 
+    <section aria-labelledby="run-h">
+      <h2 id="run-h">Timeline</h2>
+      <p id="stage" class="stage" role="status" aria-live="polite">Idle</p>
+      <p id="link-status" class="note">Waiting for the browser extension…</p>
+      <p id="collection-note" class="note" aria-live="polite"></p>
+      <div id="run-error" role="alert" hidden>
+        <p id="run-error-message" class="note bad"></p>
+        <details><summary>Technical detail</summary><pre id="run-error-detail"></pre></details>
+      </div>
+      <button id="collect" type="button">Collect new timeline</button>
+      <div class="row" style="margin-top: 0.5rem">
+        <button id="cancel" type="button" disabled>Cancel run</button>
+        <button id="retry" type="button" disabled>Try again</button>
+      </div>
+      <button id="open-reader" type="button">Open reading window</button>
+    </section>
+
     <section aria-labelledby="usage-h">
       <h2 id="usage-h">Token monitor</h2>
       <dl>
-        <dt>Input tokens</dt><dd id="tokens-in">—</dd>
-        <dt>Output tokens</dt><dd id="tokens-out">—</dd>
-        <dt>Cache tokens</dt><dd id="tokens-cache">—</dd>
-        <dt>Estimated cost</dt><dd id="cost">—</dd>
-        <dt>Last run</dt><dd id="last-run">Never</dd>
-        <dt>Collection span</dt><dd id="collection-span">—</dd>
+        <dt>Collected</dt><dd id="posts-collected">—</dd>
+        <dt>Filtered out</dt><dd id="posts-filtered">—</dd>
+        <dt>Verified claims</dt><dd id="posts-verified">—</dd>
         <dt>Posts kept / seen</dt><dd id="posts-kept">—</dd>
+        <dt>Input tokens</dt><dd id="tokens-in">—</dd>
+        <dt>Cache tokens</dt><dd id="tokens-cache">—</dd>
+        <dt>Output tokens</dt><dd id="tokens-out">—</dd>
+        <dt>Thinking tokens</dt><dd id="tokens-thinking">—</dd>
+        <dt>Estimated cost</dt><dd id="cost">—</dd>
+        <dt>Run time</dt><dd id="run-time">—</dd>
+        <dt>Stage times</dt><dd id="stage-times">—</dd>
+        <dt>Collection span</dt><dd id="collection-span">—</dd>
+        <dt>Last run</dt><dd id="last-run">Never</dd>
       </dl>
-      <p class="sub">Counters bind to core <code>RunMetrics</code> once the scoring pipeline lands.</p>
     </section>
 
     <section aria-labelledby="llm-h">

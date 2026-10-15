@@ -1,6 +1,7 @@
 import {
   createHardFilter,
   createThresholdSelector,
+  pipelineConfigFromSettings,
   runPipeline,
   RunMetricsCollector,
   summarizeRunMetrics,
@@ -10,6 +11,7 @@ import {
   type RunMetrics,
   type ScoreEntry,
   type Scorer,
+  type Settings,
   type Verifier,
 } from "@nmc/core";
 import {
@@ -25,7 +27,6 @@ import {
   type RunStage,
   type UsageTotals,
 } from "../shared/status.js";
-import type { PipelineSettings } from "./settings-file.js";
 
 /**
  * Runs the pipeline (HardFilter → Scorer → Selector → Verifier) for one
@@ -166,7 +167,7 @@ export class PipelineRunner {
 
   async run(
     posts: readonly Post[],
-    settings: PipelineSettings,
+    settings: Settings,
     onProgress: (progress: RunProgress) => void,
     collection?: CollectionMetrics,
   ): Promise<RunOutcome> {
@@ -205,12 +206,8 @@ export class PipelineRunner {
         return { status: "error", error: availabilityError(availability), metrics: metrics.toRunMetrics() };
       }
 
-      const selectorOptions = {
-        maxClickbaitScore: settings.maxClickbait / 10,
-        minReadWorthinessScore: settings.minReadValue / 10,
-      };
-      const selector = createThresholdSelector(selectorOptions);
-      const minReadForVerify = settings.minReadForVerify / 10;
+      const config = pipelineConfigFromSettings(settings);
+      const selector = createThresholdSelector(config.selector);
       let verifyStarted = 0;
 
       const scorer: Scorer = {
@@ -221,7 +218,7 @@ export class PipelineRunner {
           emit("scoring");
           const scores = await stages.scorer.score(judgeable);
           guard();
-          if (settings.verifyEnabled) {
+          if (config.verify) {
             // Claims the ranked top would send to the Verifier; backfill may add more.
             const byId = new Map(scores.map((score) => [score.postId, score]));
             const top = selector
@@ -231,11 +228,12 @@ export class PipelineRunner {
                   return score ? [{ post, score }] : [];
                 }),
               )
-              .slice(0, settings.timelineSize);
+              .slice(0, config.timelineSize);
             const worthy = top.filter(
-              ({ score }) => isCheckWorthy(score) && score.readWorthinessScore >= minReadForVerify,
+              ({ score }) =>
+                isCheckWorthy(score) && score.readWorthinessScore >= config.minReadForVerify,
             ).length;
-            counts.verifyTotal = Math.min(worthy, settings.maxVerifications);
+            counts.verifyTotal = Math.min(worthy, config.maxVerifications);
           }
           emit(counts.verifyTotal > 0 ? "verifying" : "scoring");
           return scores;
@@ -262,14 +260,14 @@ export class PipelineRunner {
             hardFilter: createHardFilter(),
             scorer,
             selector,
-            ...(settings.verifyEnabled && settings.maxVerifications > 0 ? { verifier } : {}),
+            ...(config.verify ? { verifier } : {}),
           },
           posts,
           {
-            timelineSize: settings.timelineSize,
+            timelineSize: config.timelineSize,
             verifyConcurrency: 4,
-            maxVerifications: settings.maxVerifications,
-            minReadForVerify,
+            maxVerifications: config.maxVerifications,
+            minReadForVerify: config.minReadForVerify,
             metrics,
             ...(collection ? { collection } : {}),
           },
@@ -279,8 +277,13 @@ export class PipelineRunner {
       counts.afterHardFilter = result.metrics.postsAfterHardFilter;
       counts.mediaOnly = result.unjudged.length;
       counts.selected = result.posts.length;
+      const funnel = result.funnel;
       counts.filteredOut =
-        result.metrics.postsAfterHardFilter - result.unjudged.length - result.posts.length;
+        funnel.scoringFailed +
+        funnel.clickbait +
+        funnel.belowReadFloor +
+        funnel.contradicted +
+        funnel.rankedOut;
       return { status: "done", result, counts: { ...counts } };
     } catch (error) {
       if (active.cancelled || error instanceof CancelledError) {

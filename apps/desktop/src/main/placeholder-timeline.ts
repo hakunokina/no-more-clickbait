@@ -1,4 +1,4 @@
-import type { PipelineRunResult, RankedPost, VerificationResult } from "@nmc/core";
+import type { TimelineCard, TimelineDoc, VerificationResult } from "@nmc/core";
 
 /**
  * TEMPORARY stand-in for packages/timeline-renderer (`renderTimeline`),
@@ -41,7 +41,7 @@ const BADGES: Record<VerificationResult["status"], string> = {
   unverifiable: "? Doğrulanamadı",
 };
 
-function renderCard({ post, verification }: RankedPost, index: number, total: number): string {
+function renderCard({ post, verification }: TimelineCard, index: number, total: number): string {
   const href = safeHttpsUrl(post.url);
   const lang = post.lang && /^[A-Za-z-]{2,12}$/.test(post.lang) ? post.lang : "und";
   const author = post.authorName
@@ -63,13 +63,15 @@ function renderCard({ post, verification }: RankedPost, index: number, total: nu
 </article>`;
 }
 
-export function renderPlaceholderTimeline(result: PipelineRunResult, capturedAt: string | null): string {
-  const total = result.posts.length;
-  const cards = result.posts.map((ranked, index) => renderCard(ranked, index, total)).join("\n");
+export function renderPlaceholderTimeline(doc: TimelineDoc): string {
+  const total = doc.cards.length;
+  const cards = doc.cards.map((card, index) => renderCard(card, index, total)).join("\n");
+  const scanned = doc.funnel?.scanned ?? 0;
   const header =
     total === 0
       ? "<p>Bugün okumaya değer bir gönderi çıkmadı. Bu da bir sonuç.</p>"
-      : `<p class="muted">${total} gönderi · ${result.metrics.postsIn} gönderiden seçildi · okuma değerine göre sıralı</p>`;
+      : `<p class="muted">${total} gönderi · ${scanned} gönderiden seçildi · okuma değerine göre sıralı</p>`;
+  const capturedAt = doc.header.capturedAt ?? doc.header.generatedAt;
   return `<!doctype html>
 <html lang="tr">
 <head>
@@ -97,12 +99,12 @@ export function renderPlaceholderTimeline(result: PipelineRunResult, capturedAt:
 </head>
 <body>
 <main>
-<h1>Akış${capturedAt ? ` — ${escapeHtml(capturedAt.slice(0, 10))}` : ""}</h1>
+<h1>Akış — ${escapeHtml(capturedAt.slice(0, 10))}</h1>
 ${header}
 <div role="feed" aria-label="Akış, ${total} gönderi">
 ${cards}
 </div>
-<footer><p><strong>Bitti.</strong> ${result.unjudged.length} yalnız-medya gönderi yargılanmadı.</p></footer>
+<footer><p><strong>Bitti.</strong> ${doc.funnel?.mediaOnly ?? 0} yalnız-medya gönderi yargılanmadı.</p></footer>
 </main>
 </body>
 </html>

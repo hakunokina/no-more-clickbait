@@ -2,12 +2,11 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Post, PostBatch } from "@nmc/core";
+import { SettingsSchema, type Post, type PostBatch } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
-import { SessionController, TIMELINE_FILE } from "./session-controller.js";
-import { PIPELINE_DEFAULTS } from "./settings-file.js";
+import { SessionController, TIMELINE_DOC_FILE, TIMELINE_FILE } from "./session-controller.js";
 
 // Fully synthetic posts — no real feed data.
 function post(id: string): Post {
@@ -82,8 +81,8 @@ describe("SessionController", () => {
     return new SessionController({
       sessionsRoot: root,
       runner: new PipelineRunner(() => runStages),
-      loadSettings: async () => ({ ...PIPELINE_DEFAULTS, collectTarget: 120 }),
-      renderTimeline: ({ result }) => `<p>${result.posts.length} posts</p>`,
+      loadSettings: async () => SettingsSchema.parse({ collectTarget: 120 }),
+      renderTimeline: (doc) => `<p>${doc.cards.length} posts</p>`,
       sendToHost: (command) => {
         if (!hostOnline) return false;
         sent.push(command);
@@ -129,6 +128,11 @@ describe("SessionController", () => {
     expect(c.status.run.counts).toMatchObject({ postsIn: 3, afterHardFilter: 2, selected: 2 });
     expect(ready).toEqual([{ sessionId: id, timelinePath: join(root, id, TIMELINE_FILE), selected: 2 }]);
     await expect(readFile(join(root, id, TIMELINE_FILE), "utf8")).resolves.toBe("<p>2 posts</p>");
+    const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+      funnel: { scanned: number; duplicates: number; shown: number };
+    };
+    expect(doc.funnel).toMatchObject({ scanned: 3, duplicates: 1, shown: 2 });
+    expect(c.status.run.funnel).toMatchObject({ scanned: 3, shown: 2 });
     const [session] = await listSessions(root);
     expect(session?.processed?.status).toBe("done");
     const stages = statuses.map((s) => s.run.stage);

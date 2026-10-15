@@ -1,3 +1,5 @@
+import type { FunnelCounts } from "@nmc/core";
+
 /**
  * The desktop app's state as the windows see it. Main owns it and pushes
  * every change to the monitor and reading windows; counts and token
@@ -36,7 +38,10 @@ export interface RunCounts {
   afterHardFilter: number | null;
   /** Media-only posts set aside unjudged. */
   mediaOnly: number | null;
-  /** Posts that did not make the timeline (judged posts only). */
+  /**
+   * Judged posts that did not make the timeline: clickbait, below the
+   * read floor, unscored, contradicted, or ranked below N.
+   */
   filteredOut: number | null;
   selected: number | null;
   verifyDone: number;
@@ -81,6 +86,8 @@ export interface DesktopStatus {
     usage: UsageTotals;
     stageDurationsMs: Record<string, number>;
     collectionSpanMs: number | null;
+    /** Where every scanned post went (finished runs). */
+    funnel: FunnelCounts | null;
     error: RunError | null;
     /** A finished timeline for `sessionId` can be opened. */
     hasTimeline: boolean;
@@ -120,6 +127,7 @@ export function initialStatus(): DesktopStatus {
       usage: { ...EMPTY_USAGE },
       stageDurationsMs: {},
       collectionSpanMs: null,
+      funnel: null,
       error: null,
       hasTimeline: false,
     },

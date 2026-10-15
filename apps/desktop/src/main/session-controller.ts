@@ -1,6 +1,6 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { CollectionMetrics, PipelineRunResult } from "@nmc/core";
+import { toTimelineDoc, type Settings, type TimelineDoc } from "@nmc/core";
 import {
   listSessions,
   loadSession,
@@ -17,7 +17,6 @@ import {
   type DesktopStatus,
 } from "../shared/status.js";
 import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
-import type { PipelineSettings } from "./settings-file.js";
 
 /**
  * The desktop app's orchestration, Electron-free so it is testable:
@@ -25,7 +24,8 @@ import type { PipelineSettings } from "./settings-file.js";
  * - `collection-complete` from a host → run the pipeline on that session;
  * - at start-up (and whenever a host connects) → run the newest complete,
  *   unprocessed session; older ones are marked superseded;
- * - writes `result.json` + `timeline.html` into the session folder and
+ * - writes `result.json`, `timeline.json` (the renderer's TimelineDoc)
+ *   and `timeline.html` into the session folder, then
  *   `processed.json` (done / cancelled). A failed run stays unprocessed
  *   so "Try again" (or the next app start) can redo it without
  *   collecting again.
@@ -34,19 +34,15 @@ import type { PipelineSettings } from "./settings-file.js";
  */
 
 export const TIMELINE_FILE = "timeline.html";
+export const TIMELINE_DOC_FILE = "timeline.json";
 export const RESULT_FILE = "result.json";
 
 export interface SessionControllerDeps {
   sessionsRoot: string;
   runner: PipelineRunner;
-  loadSettings(): Promise<PipelineSettings>;
+  loadSettings(): Promise<Settings>;
   /** Produces the reading window's HTML for a finished run. */
-  renderTimeline(input: {
-    sessionId: string;
-    result: PipelineRunResult;
-    collection: CollectionMetrics | null;
-    settings: PipelineSettings;
-  }): string;
+  renderTimeline(doc: TimelineDoc): string;
   /** Sends a command to the newest connected host; false when none. */
   sendToHost(command: DesktopCommand): boolean;
   onStatus(status: DesktopStatus): void;
@@ -232,13 +228,14 @@ export class SessionController {
         usage: { ...EMPTY_USAGE },
         stageDurationsMs: {},
         collectionSpanMs: null,
+        funnel: null,
         error: null,
         hasTimeline: false,
       };
     });
 
     let session: LoadedSession;
-    let settings: PipelineSettings;
+    let settings: Settings;
     try {
       session = await loadSession(this.#deps.sessionsRoot, sessionId);
       settings = await this.#deps.loadSettings();
@@ -297,18 +294,22 @@ export class SessionController {
     });
     const timelinePath = join(session.dir, TIMELINE_FILE);
     try {
-      const html = this.#deps.renderTimeline({
-        sessionId,
-        result: outcome.result,
-        collection,
-        settings,
-      });
+      const doc = toTimelineDoc(
+        {
+          selected: outcome.result.posts,
+          funnel: outcome.result.funnel,
+          settings,
+          ...(collection ? { collection } : {}),
+        },
+        new Date(this.#now()),
+      );
       await writeFile(
         join(session.dir, RESULT_FILE),
         `${JSON.stringify({ settings, ...outcome.result }, null, 2)}\n`,
         "utf8",
       );
-      await writeFile(timelinePath, html, "utf8");
+      await writeFile(join(session.dir, TIMELINE_DOC_FILE), `${JSON.stringify(doc)}\n`, "utf8");
+      await writeFile(timelinePath, this.#deps.renderTimeline(doc), "utf8");
       await markSessionProcessed(session.dir, "done", () => this.#now());
     } catch (error) {
       this.#failed.add(sessionId);
@@ -326,6 +327,7 @@ export class SessionController {
     this.#finish((status) => {
       status.run.stage = "ready";
       status.run.counts = outcome.counts;
+      status.run.funnel = outcome.result.funnel;
       status.run.usage = usageOf(outcome.result.metrics);
       status.run.stageDurationsMs = outcome.result.metrics.stageDurationsMs;
       status.run.collectionSpanMs = spanMs;
