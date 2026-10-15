@@ -38,7 +38,11 @@ for (const name of ["preload", "reader-preload"]) {
 }
 
 await build({
-  entryPoints: [join(root, "src/renderer/renderer.ts"), join(root, "src/renderer/reader.ts")],
+  entryPoints: [
+    join(root, "src/renderer/renderer.ts"),
+    join(root, "src/renderer/reader.ts"),
+    join(root, "src/renderer/settings-page.ts"),
+  ],
   outdir: join(dist, "renderer"),
   bundle: true,
   format: "iife",
@@ -48,7 +52,7 @@ await build({
   logLevel: "info",
 });
 
-for (const page of ["index.html", "reader.html"]) {
+for (const page of ["index.html", "reader.html", "settings.html"]) {
   await cp(join(root, "src/renderer", page), join(dist, "renderer", page));
 }
 console.log(`Desktop app built to ${dist}`);

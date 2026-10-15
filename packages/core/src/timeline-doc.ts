@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { isInstagramPost, isXPost } from "./feed-item.js";
-import { FunnelCountsSchema, type FunnelCounts } from "./metrics.js";
+import {
+  FunnelCountsSchema,
+  SourceCountSchema,
+  type FunnelCounts,
+  type SourceCount,
+} from "./metrics.js";
 import {
   FeedItemSchema,
   ScoreEntrySchema,
@@ -91,6 +96,19 @@ export const TimelineStatusSchema = z.discriminatedUnion("state", [
 ]);
 export type TimelineStatus = z.infer<typeof TimelineStatusSchema>;
 
+/**
+ * A source that was enabled for the run but delivered nothing, while
+ * others did (partial success: the timeline is still produced). When
+ * every source failed the doc is an `error` doc instead.
+ */
+export const MissingSourceSchema = z.object({
+  /** Same vocabulary as `SourceCount.label`: "x", "instagram", "reddit", "custom:<rule>". */
+  label: z.string().min(1),
+  /** Plain-language cause, for the reader (no secrets, no feed content). */
+  reason: z.string().min(1).optional(),
+});
+export type MissingSource = z.infer<typeof MissingSourceSchema>;
+
 export const TimelineDocSchema = z
   .object({
     version: z.literal(TIMELINE_DOC_VERSION),
@@ -107,17 +125,35 @@ export const TimelineDocSchema = z
     cards: z.array(TimelineCardSchema),
     /** null only for an error before the pipeline produced counts. */
     funnel: FunnelCountsSchema.nullable(),
+    /** The funnel's scanned/shown split per source (`RunMetrics.bySource`); absent in older docs. */
+    bySource: z.array(SourceCountSchema).optional(),
     status: TimelineStatusSchema,
+    /** Enabled sources that delivered nothing this run; absent when none. */
+    missingSources: z.array(MissingSourceSchema).optional(),
   })
   .superRefine((doc, ctx) => {
     const issue = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
     doc.cards.forEach((card, index) => {
       if (card.rank !== index + 1) issue(`card ${index} has rank ${card.rank}`);
     });
+    const labels = doc.bySource?.map((count) => count.label) ?? [];
+    if (new Set(labels).size !== labels.length) issue("bySource labels must be unique");
+    const missing = doc.missingSources?.map((source) => source.label) ?? [];
+    if (new Set(missing).size !== missing.length) issue("missingSources labels must be unique");
+    if (missing.some((label) => labels.includes(label)))
+      issue("a source cannot be both in bySource and missingSources");
     const shown = doc.cards.length;
     if (doc.status.state === "error") return;
     if (!doc.funnel) return issue("only an error doc may omit the funnel");
     if (doc.funnel.shown !== shown) issue("funnel.shown must equal the card count");
+    if (doc.bySource) {
+      const sum = (pick: (count: SourceCount) => number): number =>
+        doc.bySource?.reduce((total, count) => total + pick(count), 0) ?? 0;
+      if (sum((count) => count.in) !== doc.funnel.scanned)
+        issue("bySource in-counts must add up to funnel.scanned");
+      if (sum((count) => count.shown) !== shown)
+        issue("bySource shown-counts must add up to the card count");
+    }
     const expected = shown === 0 ? "empty" : shown < doc.header.timelineSize ? "short" : "ok";
     if (doc.status.state !== expected) issue(`status must be "${expected}" for ${shown} cards`);
   });
@@ -129,6 +165,10 @@ export interface TimelineDocSource {
   funnel: FunnelCounts;
   settings: { timelineSize: number };
   collection?: { lastCapturedAt: string };
+  /** `bySource` is copied into the doc when present. */
+  metrics?: { bySource?: readonly SourceCount[] | undefined };
+  /** Enabled sources that delivered nothing (the collector knows; the pipeline does not). */
+  missingSources?: readonly MissingSource[];
 }
 
 function countWords(text: string | undefined): number {
@@ -169,7 +209,9 @@ export function toTimelineDoc(source: TimelineDocSource, now: Date = new Date())
     },
     cards,
     funnel: source.funnel,
+    ...(source.metrics?.bySource ? { bySource: source.metrics.bySource } : {}),
     status: { state },
+    ...(source.missingSources?.length ? { missingSources: source.missingSources } : {}),
   });
 }
 

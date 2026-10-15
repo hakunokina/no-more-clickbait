@@ -154,6 +154,16 @@ export const InstagramMediaSchema = z.object({
   url: z.string().url(),
   /** video: a playable rendition. */
   videoUrl: z.string().url().optional(),
+  /** video: every delivered rendition (`videoUrl` is the widest), widest first. */
+  videoVariants: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional(),
+      }),
+    )
+    .optional(),
   altText: z.string().optional(),
   /** Original pixel size (aspect ratio before load). */
   width: z.number().int().positive().optional(),
@@ -195,8 +205,41 @@ export const InstagramPostSchema = z.object({
     .optional(),
   /** True when Instagram labelled the post "Sponsored" (an ad). */
   promoted: z.boolean().default(false),
+  /**
+   * True when Instagram slipped the post in as "Suggested for you" (an
+   * account the user does not follow), not a post of the followed feed.
+   */
+  suggested: z.boolean().optional(),
+  /** Detected language of the caption, as `Post.lang` ("und" when undetermined). */
+  lang: z.string().optional(),
+  /** Co-authors of a collab post (the main author is `authorHandle`), in order. */
+  coauthors: z
+    .array(z.object({ handle: z.string().min(1), name: z.string().optional() }))
+    .optional(),
+  /** Tagged location's display name. */
+  location: z.string().min(1).optional(),
+  /**
+   * Present when the post carries the "Paid partnership" label. Not an
+   * ad (`promoted`): shown, with its label. `partner` is the brand when
+   * delivered.
+   */
+  paidPartnership: z.object({ partner: z.string().min(1).optional() }).optional(),
 });
 export type InstagramPost = z.infer<typeof InstagramPostSchema>;
+
+/**
+ * What a generic item's content is, as its source states it (never
+ * guessed from image proportions): `link` points elsewhere (an article,
+ * a Reddit link post), `text` is a text post (Reddit self post), `image`
+ * and `video` are posts whose media is the content itself.
+ */
+export const GenericItemKindSchema = z.enum(["link", "text", "image", "video"]);
+export type GenericItemKind = z.infer<typeof GenericItemKindSchema>;
+
+const HttpUrlSchema = z
+  .string()
+  .url()
+  .refine((url) => /^https?:\/\//i.test(url), "url must be http(s)");
 
 /**
  * Anything that is neither X nor Instagram: a Reddit post, a page a
@@ -215,19 +258,32 @@ export const GenericItemSchema = z.object({
   title: z.string().optional(),
   text: z.string().optional(),
   /** The item itself (the Reddit thread, the article). */
-  url: z
-    .string()
-    .url()
-    .refine((url) => /^https?:\/\//i.test(url), "url must be http(s)"),
+  url: HttpUrlSchema,
+  /**
+   * The external target when `url` is the item's own page on a
+   * discussion site (a Reddit link post's article). Absent when `url`
+   * already is the content (an article from a site rule or feed).
+   */
+  linkUrl: HttpUrlSchema.optional(),
   /** Display domain, e.g. "news.example" or "reddit.com". */
   domain: z.string().min(1),
+  kind: GenericItemKindSchema.optional(),
+  /** Detected/declared language, as `Post.lang` ("und" when undetermined). */
+  lang: z.string().optional(),
+  /** Label the source attached to the item (a Reddit flair). */
+  flair: z.string().min(1).optional(),
+  /** Icon of the site or community (favicon, subreddit icon). */
+  siteIconUrl: HttpUrlSchema.optional(),
   author: z.string().optional(),
   /** The community it was posted in, e.g. "r/science". */
   community: z.string().optional(),
   /** ISO 8601 timestamp of when it was published, when known. */
   publishedAt: z.string().datetime().optional(),
-  /** Preview/thumbnail image, when delivered. */
-  image: SizedImageSchema.optional(),
+  /**
+   * Preview/thumbnail image, when delivered. `altText` only as the
+   * source gives it; the title is no substitute.
+   */
+  image: SizedImageSchema.extend({ altText: z.string().optional() }).optional(),
   engagement: z
     .object({
       /** Net votes/points (Reddit scores can go below zero). */
@@ -580,6 +636,112 @@ export const SyncedSettingsSchema = SettingsFieldsSchema.pick({
 });
 export type SyncedSettings = z.infer<typeof SyncedSettingsSchema>;
 
+interface ChoiceSettingField<V extends string = string> {
+  kind: "choice";
+  default: V;
+  options: readonly { value: V; label: string }[];
+  label: string;
+  description: string;
+}
+
+/**
+ * The extension's collection switches the desktop app can change too,
+ * with the same UI-copy shape as SYNCED_SETTING_FIELDS. Choice values
+ * are the schema's enum values (a test keeps them in step).
+ */
+export const EXTENSION_SETTING_FIELDS = {
+  modeBEnabled: {
+    kind: "boolean",
+    default: false,
+    label: "Mode B: collect automatically in a hidden window",
+    description:
+      "Off by default, and risky: X is opened out of sight and scrolled automatically until " +
+      "enough posts are gathered. Automated browsing sits in a grey area of X's Terms of " +
+      "Service and may put your account at risk. Turning it on needs the browser's “alarms” " +
+      "permission, which only the extension's options page can ask for.",
+  },
+  modeBStrategy: {
+    kind: "choice",
+    default: "minimized-window",
+    options: [
+      { value: "minimized-window", label: "Minimized window" },
+      { value: "offscreen-window", label: "Small window in the screen corner (visible)" },
+    ],
+    label: "Where Mode B collects",
+    description:
+      "Use the corner window if the minimized one stops loading posts. Browsers keep at " +
+      "least half of a window on screen, so the corner window stays partly visible.",
+  },
+  modeBPacing: {
+    kind: "choice",
+    default: "normal",
+    options: [
+      { value: "normal", label: "Normal" },
+      { value: "fast", label: "Fast" },
+    ],
+    label: "Mode B scroll pace",
+    description: "Fast scrolls twice as quickly, but may be more likely to be noticed by X.",
+  },
+  devCaptureEnabled: {
+    kind: "boolean",
+    default: false,
+    label: "Developer capture: save raw timeline responses locally",
+    description:
+      "Off by default. Raw timeline responses are written outside the repo for debugging. " +
+      "They are personal data — never share or commit them. Toggling it starts a new count.",
+  },
+} as const satisfies {
+  modeBEnabled: BooleanSettingField;
+  modeBStrategy: ChoiceSettingField<ModeBSurface>;
+  modeBPacing: ChoiceSettingField<ModeBPacing>;
+  devCaptureEnabled: BooleanSettingField;
+};
+
+export type ExtensionSettingKey = keyof typeof EXTENSION_SETTING_FIELDS;
+
+/**
+ * Every setting the desktop app shows and may change: the synced
+ * pipeline settings plus the extension's collection switches. The
+ * extension stays their owner (chrome.storage); the native host keeps
+ * the desktop's copy in settings.json.
+ */
+export const ManagedSettingsSchema = SettingsFieldsSchema.pick({
+  collectTarget: true,
+  timelineSize: true,
+  maxClickbait: true,
+  minReadValue: true,
+  minReadForVerify: true,
+  maxVerifications: true,
+  verifyEnabled: true,
+  modeBEnabled: true,
+  modeBStrategy: true,
+  modeBPacing: true,
+  devCaptureEnabled: true,
+});
+export type ManagedSettings = z.infer<typeof ManagedSettingsSchema>;
+
+/**
+ * When and where a settings set was last saved. Two copies (extension,
+ * settings.json, a desktop change waiting for the browser) are
+ * reconciled by it: the later save wins.
+ */
+export const SettingsStampSchema = z.object({
+  updatedAt: z.string().datetime(),
+  source: z.enum(["extension", "desktop"]),
+});
+export type SettingsStamp = z.infer<typeof SettingsStampSchema>;
+
+/** Stamp of settings saved before stamps existed: older than any real save. */
+export const UNSTAMPED: SettingsStamp = {
+  updatedAt: "1970-01-01T00:00:00.000Z",
+  source: "extension",
+};
+
+/** True when `a` was saved strictly later than `b` (ties are not newer). */
+export function isNewerStamp(a: SettingsStamp, b: SettingsStamp): boolean {
+  return Date.parse(a.updatedAt) > Date.parse(b.updatedAt);
+}
+
 /** Hard ceiling for one framed native-messaging message (extension + host). */
 export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
@@ -766,6 +928,21 @@ export const CollectionStartResultSchema = z.object({
 });
 export type CollectionStartResult = z.infer<typeof CollectionStartResultSchema>;
 
+/**
+ * The extension's answer to the desktop's `settings-push`: the settings
+ * it now has (the pushed ones, or its own later save) for the host to
+ * save and the desktop to show.
+ */
+export const SettingsPushResultSchema = z.object({
+  type: z.literal("settings-push-result"),
+  outcome: z.enum(["applied", "kept-newer"]),
+  settings: ManagedSettingsSchema,
+  stamp: SettingsStampSchema,
+  /** Mode B was asked for but stays off: its optional permission is missing. */
+  modeBPermissionMissing: z.boolean().optional(),
+});
+export type SettingsPushResult = z.infer<typeof SettingsPushResultSchema>;
+
 /** Messages from the browser extension to the desktop app (via native host). */
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
@@ -779,8 +956,17 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   CollectionCompleteSchema,
   CollectionStartResultSchema,
   CollectionProgressSchema,
-  /** The user's synced settings, saved by the host for the desktop pipeline. */
-  z.object({ type: z.literal("settings-sync"), settings: SyncedSettingsSchema }),
+  /**
+   * The user's settings, saved by the host for the desktop (older
+   * extensions send only the synced ones; the rest take defaults).
+   * Without a stamp they count as older than any stamped save.
+   */
+  z.object({
+    type: z.literal("settings-sync"),
+    settings: ManagedSettingsSchema,
+    stamp: SettingsStampSchema.optional(),
+  }),
+  SettingsPushResultSchema,
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
@@ -814,8 +1000,17 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mode-b-run-recorded") }),
   /** Ack of `collection-complete`, `collection-start-result` and `collection-progress`. */
   z.object({ type: z.literal("collection-recorded") }),
-  /** Ack of `settings-sync`: the host saved them. */
+  /** Ack of `settings-sync` / `settings-push-result`: the host handled them. */
   z.object({ type: z.literal("settings-synced") }),
+  /**
+   * Push: settings changed in the desktop app. The extension applies
+   * them unless its own copy is newer, then answers `settings-push-result`.
+   */
+  z.object({
+    type: z.literal("settings-push"),
+    settings: ManagedSettingsSchema,
+    stamp: SettingsStampSchema,
+  }),
   /** Push: the desktop asks the extension to start collecting. */
   z.object({
     type: z.literal("start-collection"),

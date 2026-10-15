@@ -17,6 +17,8 @@ await build({
     "content",
     "reddit-injected",
     "reddit-content",
+    "instagram-injected",
+    "instagram-content",
     "background",
     "options",
     "popup",

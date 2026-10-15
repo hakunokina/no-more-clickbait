@@ -140,6 +140,21 @@ export const FunnelCountsSchema = z
   );
 export type FunnelCounts = z.infer<typeof FunnelCountsSchema>;
 
+/**
+ * One source's share of a run: how many of its posts were scanned and
+ * how many made the timeline. `label` is `feedSourceLabel` of the posts.
+ */
+export const SourceCountSchema = z
+  .object({
+    label: z.string().min(1),
+    /** Posts of this source entering the pipeline (`FunnelCounts.scanned` share). */
+    in: z.number().int().nonnegative(),
+    /** Of those, in the final timeline (`FunnelCounts.shown` share). */
+    shown: z.number().int().nonnegative(),
+  })
+  .refine((count) => count.shown <= count.in, "shown cannot exceed in");
+export type SourceCount = z.infer<typeof SourceCountSchema>;
+
 export const RunMetricsSchema = z.object({
   collection: CollectionMetricsSchema.optional(),
   /** Pipeline stage timings in milliseconds, keyed by stage name. */
@@ -153,6 +168,12 @@ export const RunMetricsSchema = z.object({
   postsSelected: z.number().int().nonnegative(),
   /** Per-bucket fate of every scanned post (absent in older runs). */
   funnel: FunnelCountsSchema.optional(),
+  /**
+   * Scanned/shown per source, in order of first appearance in the input
+   * (absent in older runs). A source that delivered nothing is not
+   * listed: its absence is a collection failure, not a zero.
+   */
+  bySource: z.array(SourceCountSchema).optional(),
 });
 export type RunMetrics = z.infer<typeof RunMetricsSchema>;
 
@@ -204,6 +225,7 @@ export class RunMetricsCollector {
   postsAfterHardFilter = 0;
   postsSelected = 0;
   funnel: FunnelCounts | undefined;
+  bySource: SourceCount[] | undefined;
   collection: CollectionMetrics | undefined;
 
   recordLlmCall(call: LlmCallMetrics): void {
@@ -223,6 +245,7 @@ export class RunMetricsCollector {
       postsAfterHardFilter: this.postsAfterHardFilter,
       postsSelected: this.postsSelected,
       ...(this.funnel ? { funnel: { ...this.funnel } } : {}),
+      ...(this.bySource ? { bySource: this.bySource.map((count) => ({ ...count })) } : {}),
     };
   }
 }

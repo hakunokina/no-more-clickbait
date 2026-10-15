@@ -165,6 +165,77 @@ describe("toTimelineDoc", () => {
       }),
     ).toThrow(/funnel.shown/);
   });
+
+  it("carries the per-source split and missing sources, omitting them when absent", () => {
+    const bySource = [
+      { label: "x", in: 3, shown: 2 },
+      { label: "reddit", in: 2, shown: 0 },
+    ];
+    const missingSources = [{ label: "instagram", reason: "Instagram toplanamadı" }];
+    const source = {
+      selected: [ranked("a"), ranked("b")],
+      funnel: funnel(2),
+      settings: { timelineSize: 2 },
+    };
+    const doc = toTimelineDoc({ ...source, metrics: { bySource }, missingSources }, now);
+    expect(doc.bySource).toEqual(bySource);
+    expect(doc.missingSources).toEqual(missingSources);
+    expect(TimelineDocSchema.parse(doc)).toEqual(doc);
+    const plain = toTimelineDoc({ ...source, missingSources: [] }, now);
+    expect(plain).not.toHaveProperty("bySource");
+    expect(plain).not.toHaveProperty("missingSources");
+  });
+
+  it("refuses repeated source labels and a source both delivered and missing", () => {
+    const source = {
+      selected: [ranked("a"), ranked("b")],
+      funnel: funnel(2),
+      settings: { timelineSize: 2 },
+    };
+    const twice = [
+      { label: "x", in: 3, shown: 2 },
+      { label: "x", in: 2, shown: 0 },
+    ];
+    expect(() => toTimelineDoc({ ...source, metrics: { bySource: twice } }, now)).toThrow(
+      /bySource labels must be unique/,
+    );
+    expect(() =>
+      toTimelineDoc(
+        { ...source, missingSources: [{ label: "reddit" }, { label: "reddit" }] },
+        now,
+      ),
+    ).toThrow(/missingSources labels must be unique/);
+    expect(() =>
+      toTimelineDoc(
+        {
+          ...source,
+          metrics: { bySource: [{ label: "x", in: 5, shown: 2 }] },
+          missingSources: [{ label: "x" }],
+        },
+        now,
+      ),
+    ).toThrow(/both in bySource and missingSources/);
+  });
+
+  it("refuses a per-source split that does not add up to the funnel", () => {
+    const source = {
+      selected: [ranked("a"), ranked("b")],
+      funnel: funnel(2),
+      settings: { timelineSize: 2 },
+    };
+    expect(() =>
+      toTimelineDoc(
+        { ...source, metrics: { bySource: [{ label: "x", in: 4, shown: 2 }] } },
+        now,
+      ),
+    ).toThrow(/funnel.scanned/);
+    expect(() =>
+      toTimelineDoc(
+        { ...source, metrics: { bySource: [{ label: "x", in: 5, shown: 1 }] } },
+        now,
+      ),
+    ).toThrow(/card count/);
+  });
 });
 
 describe("errorTimelineDoc", () => {

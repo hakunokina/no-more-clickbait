@@ -7,11 +7,13 @@ import {
   type CollectionProgress,
   type CollectionStartResult,
   type FeedBatch,
+  type ManagedSettings,
   type ModeBRunSummary,
   type OversizedCapture,
   type PostBatch,
   type RawCapture,
-  type SyncedSettings,
+  type SettingsPushResult,
+  type SettingsStamp,
 } from "@nmc/core";
 
 export interface BridgeHandlers {
@@ -35,8 +37,10 @@ export interface BridgeHandlers {
   onCollectionStartResult?: (result: CollectionStartResult) => Promise<void> | void;
   /** Relays a Mode B run's count so far to the desktop app. */
   onCollectionProgress?: (progress: CollectionProgress) => Promise<void> | void;
-  /** Saves the user's synced pipeline settings for the desktop. */
-  onSettingsSync?: (settings: SyncedSettings) => Promise<void> | void;
+  /** Saves the user's settings for the desktop (settings.json). */
+  onSettingsSync?: (settings: ManagedSettings, stamp?: SettingsStamp) => Promise<void> | void;
+  /** Saves the settings the extension holds after a desktop push, and tells the desktop. */
+  onSettingsPushResult?: (result: SettingsPushResult) => Promise<void> | void;
 }
 
 const EMPTY_STATS: CaptureStats = {
@@ -128,7 +132,14 @@ export async function handleBridgeMessage(
       if (!handlers.onSettingsSync) {
         return { type: "error", message: "settings sync is not configured on this host" };
       }
-      await handlers.onSettingsSync(parsed.data.settings);
+      await handlers.onSettingsSync(parsed.data.settings, parsed.data.stamp);
+      return { type: "settings-synced" };
+    }
+    case "settings-push-result": {
+      if (!handlers.onSettingsPushResult) {
+        return { type: "error", message: "settings sync is not configured on this host" };
+      }
+      await handlers.onSettingsPushResult(parsed.data);
       return { type: "settings-synced" };
     }
     case "collection-complete": {

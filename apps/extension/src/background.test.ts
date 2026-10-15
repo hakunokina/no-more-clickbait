@@ -300,6 +300,43 @@ describe("background worker", () => {
     expect(fake.chrome.notifications.create).not.toHaveBeenCalled();
   });
 
+  it("forwards Instagram captures only with developer capture on, apart from X's counts", async () => {
+    // Made-up body, no real data.
+    const instagramCapture = {
+      kind: "instagram-capture",
+      operation: "ssr",
+      bodyText: '{"xdt_api__v1__feed__timeline__connection":{"edges":[]}}',
+    };
+    fake.chrome.runtime.onMessage.emit(instagramCapture, { id: "test", tab: { id: USER_TAB } });
+    await settle();
+    expect(postedTypes(currentPort())).toEqual(["ping"]);
+
+    await setCapture(true);
+    await settle();
+    fake.chrome.runtime.onMessage.emit(instagramCapture, { id: "test", tab: { id: USER_TAB } });
+    await settle();
+    const port = currentPort();
+    expect(port.posted).toEqual([
+      { type: "ping" },
+      expect.objectContaining({
+        type: "raw-capture",
+        source: "instagram",
+        operation: "ssr",
+        bodyText: instagramCapture.bodyText,
+      }),
+    ]);
+
+    port.onMessage.emit({
+      type: "capture-accepted",
+      source: "instagram",
+      sequence: 1,
+      stats: stats(5),
+    });
+    await settle();
+    expect(fake.badge.text).toBe("");
+    expect(fake.chrome.notifications.create).not.toHaveBeenCalled();
+  });
+
   it("turns the badge green at the target and back to default on reset", async () => {
     await setCapture(true, 10);
     await settle();
@@ -344,7 +381,7 @@ describe("background worker", () => {
     expect(postedTypes(currentPort())).toEqual(["ping", "raw-capture", "post-batch"]);
   });
 
-  it("syncs the pipeline settings to the desktop once per browser start", async () => {
+  it("syncs the managed settings to the desktop once per browser start", async () => {
     await setSettings({ maxClickbait: 5, devCaptureEnabled: true });
     expect(fake.chrome.runtime.sendNativeMessage).not.toHaveBeenCalled();
     fake.chrome.runtime.onStartup.emit();
@@ -352,9 +389,136 @@ describe("background worker", () => {
     expect(fake.chrome.runtime.sendNativeMessage).toHaveBeenCalledTimes(1);
     const [host, message] = fake.chrome.runtime.sendNativeMessage.mock.calls[0] ?? [];
     expect(host).toBe("io.github.hakunokina.no_more_clickbait");
-    expect(message).toMatchObject({ type: "settings-sync", settings: { maxClickbait: 5 } });
-    // Only pipeline settings travel — no capture/Mode B flags.
-    expect(message).not.toHaveProperty("settings.devCaptureEnabled");
+    expect(message).toMatchObject({
+      type: "settings-sync",
+      settings: { maxClickbait: 5, devCaptureEnabled: true },
+      // Saved before stamps existed: older than any stamped save.
+      stamp: { updatedAt: "1970-01-01T00:00:00.000Z" },
+    });
+    // Deprecated fields stay in the extension.
+    expect(message).not.toHaveProperty("settings.modeBTarget");
+  });
+
+  it("reports its settings each time the desktop link comes up", async () => {
+    const stamp = { updatedAt: "2026-10-15T10:00:00.000Z", source: "extension" };
+    await fake.chrome.storage.local.set({
+      "nmc-settings": { maxClickbait: 4 },
+      "nmc-settings-stamp": stamp,
+    });
+    await settle();
+    const port = currentPort();
+    const up = { type: "link-status", desktopConnected: true, extensionConnected: true };
+    port.onMessage.emit({ ...up, desktopConnected: false });
+    port.onMessage.emit(up);
+    await settle();
+    port.onMessage.emit(up);
+    await settle();
+    const reports = () => port.posted.filter((message) => message.type === "settings-sync");
+    expect(reports()).toEqual([
+      { type: "settings-sync", settings: expect.objectContaining({ maxClickbait: 4 }), stamp },
+    ]);
+    port.onMessage.emit({ ...up, desktopConnected: false });
+    await settle();
+    port.onMessage.emit(up);
+    await settle();
+    expect(reports()).toHaveLength(2);
+  });
+
+  it("reports an Options save to the linked desktop, but not a desktop push or while unlinked", async () => {
+    await settle();
+    const port = currentPort();
+    const reports = () => port.posted.filter((message) => message.type === "settings-sync");
+    const optionsSave = async (maxClickbait: number, updatedAt: string) => {
+      await fake.chrome.storage.local.set({
+        "nmc-settings": { maxClickbait },
+        "nmc-settings-stamp": { updatedAt, source: "extension" },
+      });
+      await settle();
+    };
+    // Not linked to the desktop: the one-shot sync covers settings.json.
+    await optionsSave(4, "2026-10-15T10:00:00.000Z");
+    expect(reports()).toHaveLength(0);
+
+    port.onMessage.emit({
+      type: "link-status",
+      desktopConnected: true,
+      extensionConnected: true,
+    });
+    await settle();
+    expect(reports()).toHaveLength(1);
+    const stamp = { updatedAt: "2026-10-15T10:01:00.000Z", source: "extension" };
+    await optionsSave(6, stamp.updatedAt);
+    expect(reports()).toHaveLength(2);
+    expect(reports().at(-1)).toEqual({
+      type: "settings-sync",
+      settings: expect.objectContaining({ maxClickbait: 6 }),
+      stamp,
+    });
+
+    // A desktop push is answered by its push-result, not reported again.
+    await fake.chrome.storage.local.set({
+      "nmc-settings-stamp": { updatedAt: "2026-10-15T10:02:00.000Z", source: "desktop" },
+    });
+    await settle();
+    expect(reports()).toHaveLength(2);
+  });
+
+  it("applies a desktop push and answers on the port; the push itself needs no answer", async () => {
+    await setSettings({ maxClickbait: 7 });
+    await settle();
+    const port = currentPort();
+    const stamp = { updatedAt: "2026-10-15T10:05:00.000Z", source: "desktop" };
+    const settings = {
+      collectTarget: 300,
+      timelineSize: 40,
+      maxClickbait: 3,
+      minReadValue: 2,
+      minReadForVerify: 4,
+      maxVerifications: 20,
+      verifyEnabled: true,
+      modeBEnabled: true,
+      modeBStrategy: "offscreen-window",
+      modeBPacing: "fast",
+      devCaptureEnabled: false,
+    };
+    port.onMessage.emit({ type: "settings-push", settings, stamp });
+    await settle();
+    expect(fake.local.get("nmc-settings")).toMatchObject(settings);
+    expect(fake.local.get("nmc-settings-stamp")).toEqual(stamp);
+    expect(port.posted.at(-1)).toEqual({
+      type: "settings-push-result",
+      outcome: "applied",
+      settings,
+      stamp,
+    });
+  });
+
+  it("keeps Mode B off when a desktop push turns it on without the permission", async () => {
+    fake.granted.delete("alarms");
+    await settle();
+    currentPort().onMessage.emit({
+      type: "settings-push",
+      settings: {
+        collectTarget: 250,
+        timelineSize: 50,
+        maxClickbait: 7,
+        minReadValue: 2,
+        minReadForVerify: 4,
+        maxVerifications: 20,
+        verifyEnabled: true,
+        modeBEnabled: true,
+        modeBStrategy: "minimized-window",
+        modeBPacing: "normal",
+        devCaptureEnabled: false,
+      },
+      stamp: { updatedAt: "2026-10-15T10:05:00.000Z", source: "desktop" },
+    });
+    await settle();
+    expect(fake.local.get("nmc-settings")).toMatchObject({ modeBEnabled: false });
+    expect(currentPort().posted.at(-1)).toMatchObject({
+      type: "settings-push-result",
+      modeBPermissionMissing: true,
+    });
   });
 
   it("warns instead of failing when the host is missing at startup", async () => {

@@ -1,4 +1,10 @@
-import { ModeBPacingSchema, ModeBSurfaceSchema } from "@nmc/core";
+import {
+  ModeBPacingSchema,
+  ModeBSurfaceSchema,
+  SettingsStampSchema,
+  type Settings,
+  type SettingsStamp,
+} from "@nmc/core";
 import { bindModeBControls, requestModeBPermissions } from "./mode-b-view.js";
 import {
   fillPipelineFields,
@@ -12,7 +18,7 @@ import {
   defaultSyncedSettings,
   readPipelineForm,
 } from "./pipeline-form.js";
-import { loadSettings, saveSettings } from "./settings.js";
+import { loadSettings, saveSettings, SETTINGS_STAMP_KEY } from "./settings.js";
 import { createSettingsSyncer, describeSyncResult, sendNativeOnce } from "./settings-sync.js";
 import { SitesSection } from "./sites/sites-section.js";
 import { fetchText } from "./sites/fetch-text.js";
@@ -48,17 +54,42 @@ async function init(): Promise<void> {
     return;
   }
   let settings = await loadSettings();
-  modeB.checked = settings.modeBEnabled;
-  modeBStrategy.value = settings.modeBStrategy;
-  modeBPacing.value = settings.modeBPacing;
-  devCapture.checked = settings.devCaptureEnabled;
   const controls = renderPipelineFields(pipelineFields);
-  fillPipelineFields(controls, settings);
+  const fill = (values: Settings): void => {
+    modeB.checked = values.modeBEnabled;
+    modeBStrategy.value = values.modeBStrategy;
+    modeBPacing.value = values.modeBPacing;
+    devCapture.checked = values.devCaptureEnabled;
+    fillPipelineFields(controls, values);
+  };
+  fill(settings);
+  /** The form holds edits not saved yet; a desktop change must not wipe them. */
+  let dirty = false;
+  form.addEventListener("input", () => {
+    dirty = true;
+  });
+  // A change made in the desktop app shows up here at once.
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    const stamp = SettingsStampSchema.safeParse(changes[SETTINGS_STAMP_KEY]?.newValue);
+    if (areaName !== "local" || !stamp.success || stamp.data.source !== "desktop") return;
+    void loadSettings().then((loaded) => {
+      settings = loaded;
+      syncStatus.textContent = "";
+      if (dirty) {
+        status.textContent =
+          "Changed in the desktop app. Your unsaved edits are kept: Save keeps them, reloading this page shows the desktop's values.";
+        return;
+      }
+      fill(loaded);
+      status.textContent = "Updated from the desktop app.";
+    });
+  });
   controls.get("verifyEnabled")?.input.addEventListener("change", () => {
     reflectVerifyEnabled(controls);
   });
   pipelineDefaults.addEventListener("click", () => {
     fillPipelineFields(controls, defaultSyncedSettings());
+    dirty = true;
     status.textContent = "Defaults restored in the form — press Save to keep them.";
   });
   bindModeBControls({ button: modeBRun, status: modeBStatus, lastRun: modeBLastRun });
@@ -78,6 +109,7 @@ async function init(): Promise<void> {
     // Asked while the click still counts as a user gesture.
     const permission = modeB.checked ? requestModeBPermissions() : Promise.resolve(true);
     void (async () => {
+      let stamp: SettingsStamp;
       const granted = await permission;
       if (!granted) modeB.checked = false;
       const strategy = ModeBSurfaceSchema.safeParse(modeBStrategy.value);
@@ -90,7 +122,9 @@ async function init(): Promise<void> {
           modeBPacing: pacing.success ? pacing.data : settings.modeBPacing,
           devCaptureEnabled: devCapture.checked,
         };
-        await saveSettings(settings);
+        stamp = { updatedAt: new Date().toISOString(), source: "extension" };
+        await saveSettings(settings, stamp);
+        dirty = false;
         status.textContent = granted
           ? "Saved."
           : "Saved, but Mode B stays off: the browser did not grant its “alarms” permission.";
@@ -99,7 +133,7 @@ async function init(): Promise<void> {
         return;
       }
       syncStatus.textContent = "";
-      const synced = await syncSettings(settings);
+      const synced = await syncSettings(settings, stamp);
       syncStatus.textContent = describeSyncResult(synced);
     })();
   });

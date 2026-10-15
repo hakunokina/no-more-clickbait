@@ -177,6 +177,33 @@ describe("PostSessionStore", () => {
     ]);
   });
 
+  it("records the collecting browser with the mode, waiting for a slow identity before completing", async () => {
+    let resolveBrowser: (family: "brave") => void = () => undefined;
+    const browser = new Promise<"brave">((resolve) => {
+      resolveBrowser = resolve;
+    });
+    const store = new PostSessionStore(root, () => clock);
+    const marked = store.markMode("B", browser);
+    const added = store.addBatch(batch(clock, ["1"]));
+    const completed = store.complete({
+      mode: "B",
+      reason: "target",
+      uniquePostCount: 1,
+      responseCount: 1,
+    });
+    resolveBrowser("brave");
+    await Promise.all([marked, added, completed]);
+    const unknown = new PostSessionStore(root, () => "2026-01-01T11:00:00.000Z");
+    await unknown.markMode("B", Promise.resolve("other"));
+    await unknown.addBatch(batch(clock, ["2"]));
+
+    const sessions = await listSessions(root);
+    expect(sessions.map((s) => s.info)).toEqual([
+      { mode: "B", startedAt: clock, browser: "brave" },
+      { mode: "B", startedAt: "2026-01-01T11:00:00.000Z" },
+    ]);
+  });
+
   /** A session folder holding one batch file, optionally complete/processed. */
   async function session(
     hour: number,

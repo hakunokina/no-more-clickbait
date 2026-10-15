@@ -1,6 +1,12 @@
 import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { toTimelineDoc, type Settings, type TimelineDoc } from "@nmc/core";
+import {
+  toTimelineDoc,
+  type MissingSource,
+  type Settings,
+  type SourceCount,
+  type TimelineDoc,
+} from "@nmc/core";
 import {
   listSessions,
   loadSession,
@@ -111,6 +117,28 @@ export function planCompletion(mode: "A" | "B", reason: string): "build" | "ask"
   if (mode === "A") return "ask";
   if (reason === "cancelled") return "drop";
   return BUILD_AFTER_STOP.has(reason) ? "build" : "ask";
+}
+
+/**
+ * Sources a desktop run collects from: the extension's X home timeline
+ * (custom sites join here once the desktop collects them).
+ */
+const RUN_SOURCES: readonly string[] = ["x"];
+
+/**
+ * Enabled sources that delivered nothing while others did (a partial
+ * timeline). A run where nothing delivered has no missing sources:
+ * that is an empty or error timeline, not a partial one.
+ */
+export function missingSourcesOf(
+  enabled: readonly string[],
+  bySource: readonly SourceCount[] | undefined,
+): MissingSource[] {
+  const delivered = new Set(bySource?.map((count) => count.label));
+  if (delivered.size === 0) return [];
+  return enabled
+    .filter((label) => !delivered.has(label))
+    .map((label) => ({ label, reason: "Nothing was collected from this source." }));
 }
 
 export class SessionController {
@@ -298,6 +326,8 @@ export class SessionController {
       }));
       return;
     }
+    // Settings are the settings manager's (main routes them there).
+    if (event.type === "settings-state") return;
     this.#deps.log?.(
       `collection complete: mode ${event.mode}, ${event.uniquePostCount} posts, reason ${event.reason}`,
     );
@@ -680,6 +710,8 @@ export class SessionController {
           funnel: outcome.result.funnel,
           settings,
           ...(collection ? { collection } : {}),
+          metrics: outcome.result.metrics,
+          missingSources: missingSourcesOf(RUN_SOURCES, outcome.result.metrics.bySource),
         },
         new Date(this.#now()),
       );

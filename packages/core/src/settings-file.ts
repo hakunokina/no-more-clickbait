@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { SettingsSchema, type Settings } from "./schemas.js";
+import {
+  SettingsSchema,
+  SettingsStampSchema,
+  type Settings,
+  type SettingsStamp,
+} from "./schemas.js";
 
 /**
  * Reads user settings from a JSON file on the desktop side (Node only;
@@ -19,6 +24,8 @@ export interface LoadedSettings {
   found: boolean;
   /** Set when the file was unreadable, not JSON, or had invalid fields. */
   warning?: string;
+  /** When and where the settings were saved; absent in files written before stamps. */
+  stamp?: SettingsStamp;
 }
 
 const DEFAULTS = (): Settings => SettingsSchema.parse({});
@@ -56,8 +63,13 @@ export async function loadSettings(path: string): Promise<LoadedSettings> {
     };
   }
   const candidate: Record<string, unknown> = { ...json };
+  const stampParsed = SettingsStampSchema.safeParse({
+    updatedAt: candidate["updatedAt"],
+    source: candidate["source"],
+  });
+  const stamp = stampParsed.success ? { stamp: stampParsed.data } : {};
   const parsed = SettingsSchema.safeParse(candidate);
-  if (parsed.success) return { settings: parsed.data, found: true };
+  if (parsed.success) return { settings: parsed.data, found: true, ...stamp };
 
   const invalid = [
     ...new Set(parsed.error.issues.map((issue) => String(issue.path[0] ?? "(root)"))),
@@ -67,6 +79,7 @@ export async function loadSettings(path: string): Promise<LoadedSettings> {
   return {
     settings: repaired.success ? repaired.data : DEFAULTS(),
     found: true,
+    ...stamp,
     warning: `invalid settings reset to defaults: ${invalid.join(", ")}`,
   };
 }

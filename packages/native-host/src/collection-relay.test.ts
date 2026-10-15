@@ -79,4 +79,23 @@ describe("createCollectionRelay", () => {
     expect(oldSession?.info).toBeNull();
     expect(oldSent).toHaveLength(1);
   });
+
+  it("puts the host's browser into the Mode B tag", async () => {
+    const root = await freshRoot();
+    const store = new PostSessionStore(root, () => clock);
+    const relay = createCollectionRelay(
+      store,
+      () => undefined,
+      () => Promise.resolve("edge"),
+    );
+    await relay.onCollectionProgress({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 1,
+      target: 100,
+    });
+    await store.addBatch(batch(clock, ["1"]));
+    const [session] = await listSessions(root);
+    expect(session?.info).toEqual({ mode: "B", startedAt: clock, browser: "edge" });
+  });
 });

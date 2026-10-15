@@ -2,14 +2,17 @@ import { genericItemIdFromText, genericItemIdFromUrl } from "../feed-item.js";
 import type { GenericItem } from "../schemas.js";
 import {
   documentBase,
+  ELEMENT_NODE,
   MAX_AUTHOR_CHARS,
   MAX_TEXT_CHARS,
   MAX_TITLE_CHARS,
+  normalizeLang,
   normalizeText,
   resolveHttpUrl,
   selectAll,
   visibleText,
   type DomElement,
+  type DomNode,
   type DomQueryRoot,
 } from "./dom.js";
 import {
@@ -142,6 +145,7 @@ export function extractItems(
   const invalid = new Set(invalidSelectors);
   const fields = rule.fields ?? {};
   const sourceLabel = ruleSourceLabel(rule);
+  const siteIconUrl = readSiteIcon(root, base);
   const seen = new Set<string>();
   const items: GenericItem[] = [];
 
@@ -190,6 +194,7 @@ export function extractItems(
     const publishedAt = timeEl ? readTime(timeEl, fields.time?.attr, skip) : undefined;
     const imageEl = pick(fields.image);
     const image = imageEl ? readImage(imageEl, fields.image?.attr, base) : undefined;
+    const lang = readLang(card);
 
     const id = link
       ? genericItemIdFromUrl(link)
@@ -207,13 +212,17 @@ export function extractItems(
       sourceLabel,
       url,
       domain: new URL(url).hostname,
+      // A card with a link points to its article; without one it is the text itself.
+      kind: link ? "link" : "text",
       promoted: false,
     };
+    if (lang) item.lang = lang;
     if (title) item.title = title;
     if (text) item.text = text;
     if (author) item.author = author;
     if (publishedAt) item.publishedAt = publishedAt;
-    if (image) item.image = { url: image };
+    if (image) item.image = image;
+    if (siteIconUrl) item.siteIconUrl = siteIconUrl;
     items.push(item);
 
     if (title) coverage.title += 1;
@@ -288,13 +297,60 @@ function readTime(
   return Number.isNaN(time) ? undefined : new Date(time).toISOString();
 }
 
-function readImage(el: DomElement, attr: string | undefined, base: string): string | undefined {
+/**
+ * The card's language: the nearest `lang` attribute up the tree (the
+ * page's `<html lang>`), crossing shadow roots to their host.
+ */
+function readLang(card: DomElement): string | undefined {
+  for (
+    let node: DomElement | null = card;
+    node;
+    node = node.parentElement ?? shadowHost(node)
+  ) {
+    const lang = node.getAttribute("lang");
+    if (lang !== null) return normalizeLang(lang);
+  }
+  return undefined;
+}
+
+/** The element a shadow root's top element lives under; null in the document. */
+function shadowHost(node: DomElement): DomElement | null {
+  const root = node.getRootNode?.();
+  const host = root && "host" in root ? (root as { host: unknown }).host : null;
+  return typeof host === "object" &&
+    host !== null &&
+    (host as DomNode).nodeType === ELEMENT_NODE
+    ? (host as DomElement)
+    : null;
+}
+
+/** The page's declared icon (`<link rel="icon">`), when the root holds the document head. */
+function readSiteIcon(root: DomQueryRoot, base: string): string | undefined {
+  try {
+    return resolveHttpUrl(
+      root.querySelector('link[rel~="icon"][href]')?.getAttribute("href"),
+      base,
+    );
+  } catch {
+    // A root that cannot run selectors has no head to read.
+    return undefined;
+  }
+}
+
+/** An image and, when the element states one, its alt text (`alt=""` is decorative: none). */
+function readImage(
+  el: DomElement,
+  attr: string | undefined,
+  base: string,
+): { url: string; altText?: string } | undefined {
   const candidates = attr ? [attr] : ["src", "data-src", "srcset", "data-srcset"];
   for (const name of candidates) {
     const raw = el.getAttribute(name);
     const value = name.endsWith("srcset") ? largestFromSrcset(raw) : raw;
     const url = resolveHttpUrl(value, base);
-    if (url) return url;
+    if (!url) continue;
+    const altText = normalizeText(el.getAttribute("alt") ?? "", MAX_TITLE_CHARS);
+    return altText ? { url, altText } : { url };
   }
   if (!attr && el.tagName.toUpperCase() !== "IMG") {
     try {
