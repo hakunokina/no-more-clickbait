@@ -971,6 +971,40 @@ describe("custom sites in the background worker's collections", () => {
     expect(state.lastItemCount).toBe(3);
   });
 
+  it("still reports the sites when the worker restarted during a Mode B run", async () => {
+    await storeFeedSite();
+    await setSettings({
+      modeBEnabled: true,
+      collectTarget: 100,
+      modeBStrategy: "minimized-window",
+    });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    // The service worker is stopped and started again mid-run: memory is
+    // gone, storage stays.
+    const before = fake;
+    fake = fakeChrome();
+    for (const [key, value] of before.local) fake.local.set(key, value);
+    for (const [key, value] of before.sessionArea) fake.sessionArea.set(key, value);
+    for (const name of before.granted) fake.granted.add(name);
+    vi.stubGlobal("chrome", fake.chrome);
+    vi.resetModules();
+    await import("./background.js");
+    await settle();
+    modeBCommand("stop");
+    await settle();
+    expect(fake.ports.flatMap((port) => port.posted)).toContainEqual(
+      expect.objectContaining({
+        type: "collection-complete",
+        reason: "cancelled",
+        sites: [
+          expect.objectContaining({ siteId: "news.example.invalid/world", itemCount: 3 }),
+        ],
+      }),
+    );
+  });
+
   it("leaves completion as before when no site is set up", async () => {
     await setSettings({ collectTarget: 4 });
     await settle();

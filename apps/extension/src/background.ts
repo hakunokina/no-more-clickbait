@@ -357,15 +357,37 @@ function sendFeedBatch(batch: FeedBatch): boolean {
 }
 
 let siteRun: Promise<SiteCollectOutcome[]> | null = null;
+/**
+ * session: the outcomes of the collection's finished site run. A Mode B
+ * run outlives the service worker (watchdog), and the in-memory run with
+ * it; completion then reports what was kept here.
+ */
+const SITE_RUN_OUTCOMES_KEY = "nmc.siteRunOutcomes";
 
 function startSiteRun(): void {
-  siteRun ??= collectSitesForCollection(sendFeedBatch);
+  if (siteRun) return;
+  siteRun = chrome.storage.session
+    .remove(SITE_RUN_OUTCOMES_KEY)
+    .catch(() => undefined)
+    .then(() => collectSitesForCollection(sendFeedBatch))
+    .then(async (outcomes) => {
+      await chrome.storage.session
+        .set({ [SITE_RUN_OUTCOMES_KEY]: outcomes })
+        .catch(() => undefined);
+      return outcomes;
+    });
 }
 
 async function finishSiteRun(): Promise<SiteCollectOutcome[]> {
   const run = siteRun;
   siteRun = null;
-  return run ? await run : [];
+  const stored = await chrome.storage.session
+    .get(SITE_RUN_OUTCOMES_KEY)
+    .then((items) => items[SITE_RUN_OUTCOMES_KEY] as SiteCollectOutcome[] | undefined)
+    .catch(() => undefined);
+  const outcomes = run ? await run : (stored ?? []);
+  await chrome.storage.session.remove(SITE_RUN_OUTCOMES_KEY).catch(() => undefined);
+  return outcomes;
 }
 
 installSiteWorker({ sendBatch: sendFeedBatch });
@@ -520,7 +542,12 @@ async function startModeB(target?: number): Promise<void> {
   await chrome.action.setBadgeBackgroundColor({ color: RUNNING_BADGE_COLOR });
   // Custom sites are collected alongside the run, into its session.
   startSiteRun();
-  await modeB.start(start);
+  await modeB.start(start).catch((error: unknown) => {
+    // Thrown before a run existed: nothing will complete this collection,
+    // so the next one must not inherit its site run.
+    siteRun = null;
+    throw error;
+  });
 }
 
 /** The desktop app asked for a new timeline ("Collect new timeline"). */

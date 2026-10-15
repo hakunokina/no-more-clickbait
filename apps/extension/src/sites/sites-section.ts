@@ -713,6 +713,12 @@ export class SitesSection {
     );
   }
 
+  /** Options is closing (pagehide): a delete waiting on its Undo becomes final now. */
+  finishPendingNow(): void {
+    clearTimeout(this.toastTimer);
+    this.finishPending();
+  }
+
   /** The undo window closed: the delete becomes final. */
   private finishPending(): void {
     const finalize = this.finalizeFn;
@@ -1048,10 +1054,14 @@ export class SitesSection {
   }
 
   private async finalizeDelete(rule: SiteRule): Promise<void> {
-    await clearRequestBuffer(this.deps.session, rule.id).catch(() => undefined);
+    // Both requests leave synchronously, so a closing page still sends them.
     const unused = unusedOrigins(rule, this.rules);
-    if (unused.length > 0)
-      await this.deps.permissions.remove({ origins: unused }).catch(() => false);
+    const released =
+      unused.length > 0
+        ? this.deps.permissions.remove({ origins: unused }).catch(() => false)
+        : undefined;
+    await clearRequestBuffer(this.deps.session, rule.id).catch(() => undefined);
+    await released;
   }
 
   private async collectVisible(rule: SiteRule): Promise<void> {

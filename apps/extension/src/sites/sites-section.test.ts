@@ -301,6 +301,20 @@ describe("Options › Sites", () => {
     );
   });
 
+  it("makes a pending delete final when Options closes inside the Undo window", async () => {
+    await setup();
+    const rule = siteRule();
+    await saveSiteRule(t.local, rule);
+    await updateSiteState(t.local, rule.id, { enabled: true, permissionGranted: true });
+    await t.section.refresh();
+    click(q("[data-act='delete']"));
+    await vi.waitFor(() => expect(q(".toast").hidden).toBe(false));
+    expect(t.permissions.removed).toEqual([]);
+    t.section.finishPendingNow();
+    // Sent at once, not after the Undo window.
+    expect(t.permissions.removed).toEqual([["https://news.example.invalid/*"]]);
+  });
+
   it("imports: lists schema errors, refuses duplicates, then asks permission and tests once", async () => {
     await saveSiteRule(t.local, siteRule());
     await t.section.refresh();

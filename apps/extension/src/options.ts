@@ -165,6 +165,8 @@ async function initSites(): Promise<void> {
     copy: (text) => navigator.clipboard.writeText(text),
   });
   await sites.refresh();
+  // Closing Options inside a delete's Undo window still gives the permission back.
+  window.addEventListener("pagehide", () => sites.finishPendingNow());
   // The picker saves through the worker; the list follows storage.
   chrome.storage.onChanged.addListener((changes, area) => {
     const keys = Object.keys(changes);

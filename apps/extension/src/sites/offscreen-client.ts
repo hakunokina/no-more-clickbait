@@ -3,8 +3,9 @@ import type { ExtractResult, SiteRule } from "@nmc/core";
 /**
  * The worker's way to a DOM: MV3 service workers have no `DOMParser`,
  * so HTML is parsed in the extension's offscreen document (offscreen.ts),
- * which runs the core rule engine on it. Created on first use and kept;
- * the browser closes it on its own when idle.
+ * which runs the core rule engine on it. Created on first use and kept
+ * (a DOM_PARSER document is not closed for idleness); if it is gone
+ * anyway (closed, crashed), the next query creates it again.
  */
 
 export const OFFSCREEN_URL = "offscreen.html";
@@ -38,6 +39,17 @@ async function ensureOffscreen(): Promise<void> {
   await creating;
 }
 
+/** Sends the query; `undefined` when no document is there to answer. */
+async function ask(query: OffscreenExtractQuery): Promise<OffscreenExtractAnswer | undefined> {
+  try {
+    return (await chrome.runtime.sendMessage(query)) as OffscreenExtractAnswer | undefined;
+  } catch (error) {
+    // Chrome rejects (rather than answering undefined) when nothing listens.
+    if (/receiving end does not exist/i.test(String(error))) return undefined;
+    throw error;
+  }
+}
+
 /** Runs the rule on fetched HTML in the offscreen document. */
 export async function extractInOffscreen(
   html: string,
@@ -46,12 +58,12 @@ export async function extractInOffscreen(
 ): Promise<ExtractResult> {
   await ensureOffscreen();
   const query: OffscreenExtractQuery = { kind: "offscreen-extract", html, pageUrl, rule };
-  let answer = (await chrome.runtime.sendMessage(query)) as OffscreenExtractAnswer | undefined;
+  let answer = await ask(query);
   if (!answer) {
-    // The document may have been closed by the browser between uses.
+    // The document went away between uses: open it again, once.
     creating = null;
     await ensureOffscreen();
-    answer = (await chrome.runtime.sendMessage(query)) as OffscreenExtractAnswer | undefined;
+    answer = await ask(query);
   }
   if (!answer?.ok) throw new Error(answer?.message ?? "the offscreen document did not answer");
   return { items: answer.items, stats: answer.stats };

@@ -20,6 +20,11 @@ export async function fetchText(url: string): Promise<FetchResult> {
     });
     if (!response.ok)
       return { ok: false, status: response.status, message: response.statusText };
+    // Refused before the download when the server says how big it is.
+    if (Number(response.headers.get("content-length")) > MAX_FETCH_CHARS) {
+      controller.abort();
+      return { ok: false, message: "the page is too large" };
+    }
     const text = await response.text();
     if (text.length > MAX_FETCH_CHARS) return { ok: false, message: "the page is too large" };
     return { ok: true, text, finalUrl: response.url || url };
