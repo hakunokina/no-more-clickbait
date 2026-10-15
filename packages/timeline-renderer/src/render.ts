@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   isGenericItem,
   isInstagramPost,
+  feedSourceLabel,
   isXCard,
   platformOf,
   scoreOutOfTen,
@@ -267,6 +268,11 @@ function langAttr(lang: string | undefined): string {
   if (!lang || NON_LANGUAGES.has(lang) || !/^[a-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(lang))
     return "";
   return ` lang="${esc(lang)}"`;
+}
+
+/** Instagram/generic text: its own language when valid, else "und" (unknown). */
+function langOrUnd(lang: string | undefined): string {
+  return langAttr(lang) || ' lang="und"';
 }
 
 /** X serves 48px `_normal` avatars; `_bigger` (73px) keeps 40px sharp on HiDPI. */
@@ -795,6 +801,23 @@ function renderIgCard(
   const caption = post.caption.trim();
   const long = caption.length > IG_LONG_CAPTION;
   const m = post.metrics ?? {};
+  const coauthors = (post.coauthors ?? [])
+    .map(({ handle: co }) =>
+      IG_HANDLE.test(co)
+        ? ` ve <a class="ig__handle" href="https://www.instagram.com/${co}/" target="_blank" rel="noopener noreferrer">${esc(co)}</a>`
+        : ` ve <span class="ig__handle">${esc(co)}</span>`,
+    )
+    .join("");
+  // A paid partnership is not an ad (ads never reach the feed): shown, labelled.
+  const partner = post.paidPartnership?.partner?.trim();
+  const sub = [
+    post.paidPartnership
+      ? `<span class="ig__paid">Ücretli ortaklık</span>${partner ? ` · ${esc(partner)}` : ""}`
+      : "",
+    post.location?.trim() ? esc(post.location.trim()) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     `<article class="post post--ig" id="${pid}" tabindex="0" aria-posinset="${card.rank}" aria-setsize="${total}" aria-labelledby="${pid}-name"${caption ? ` aria-describedby="${pid}-text"` : ""}>` +
     (mixed ? sourceLine("instagram") : "") +
@@ -803,11 +826,14 @@ function renderIgCard(
       ? `<a class="ig__handle" id="${pid}-name" href="${esc(profile)}" target="_blank" rel="noopener noreferrer">${esc(handle)}</a>`
       : `<span class="ig__handle" id="${pid}-name">${esc(handle)}</span>`) +
     (post.authorVerified ? VERIFIED_BADGE : "") +
+    coauthors +
     `<span class="post__dot" aria-hidden="true">·</span>${timeTag(ctx, post.publishedAt)}` +
-    `</div></div></div>` +
+    `</div>` +
+    (sub ? `<p class="ig__sub">${sub}</p>` : "") +
+    `</div></div>` +
     igMedia(pid, post, postUrl) +
     (caption
-      ? `<p class="ig__caption${long ? " is-clamped" : ""}" id="${pid}-text" lang="und"><b>${esc(handle)}</b> ${esc(caption)}</p>`
+      ? `<p class="ig__caption${long ? " is-clamped" : ""}" id="${pid}-text"${langOrUnd(post.lang)}><b>${esc(handle)}</b> ${esc(caption)}</p>`
       : "") +
     (long ? moreButton(`${pid}-text`) : "") +
     renderVerify(pid, card.verification) +
@@ -836,9 +862,13 @@ function isReddit(item: GenericItem): boolean {
   return item.sourceLabel === "reddit";
 }
 
-/** The link target's host as parsed, not the page's own domain text: where a click goes. */
-function genericHost(item: GenericItem, url: URL | undefined): string {
-  return url?.hostname.replace(/^www\./, "") ?? item.domain;
+/** A link's host as parsed, not the page's own domain text: where a click goes. */
+function genericHost(item: GenericItem, raw: string): string {
+  try {
+    return new URL(raw).hostname.replace(/^www\./, "") || item.domain;
+  } catch {
+    return item.domain;
+  }
 }
 
 function renderGenericCard(
@@ -850,7 +880,10 @@ function renderGenericCard(
   const pid = `p${card.rank}`;
   const reddit = isReddit(post);
   const url = safeUrl(post.url);
-  const host = genericHost(post, url);
+  // The domain row goes where the link goes: the outside target of a Reddit link post.
+  const targetRaw = post.linkUrl ?? post.url;
+  const target = safeUrl(targetRaw);
+  const host = genericHost(post, targetRaw);
   const place = post.community?.trim() || post.domain;
   // Round = a person, square = a site or community.
   const badge = reddit
@@ -868,12 +901,17 @@ function renderGenericCard(
   const long = text.length > GENERIC_LONG_TEXT;
   const titleId = `${pid}-title`;
   const textId = `${pid}-text`;
-  // A Reddit post's own domain repeats the place row; every other item shows where it goes.
-  const domain = reddit
-    ? ""
-    : url
-      ? `<a class="gen__domain" href="${esc(url.href)}" target="_blank" rel="noopener noreferrer">${icon("link")}<span>${esc(host)}</span><span class="sr-only"> (yeni pencerede)</span></a>`
-      : `<span class="gen__domain">${icon("link")}<span>${esc(host)}</span></span>`;
+  // A Reddit self post's domain repeats the place row; every link shows where it goes.
+  const domain =
+    reddit && post.linkUrl === undefined
+      ? ""
+      : target
+        ? `<a class="gen__domain" href="${esc(target.href)}" target="_blank" rel="noopener noreferrer">${icon("link")}<span>${esc(host)}</span><span class="sr-only"> (yeni pencerede)</span></a>`
+        : `<span class="gen__domain">${icon("link")}<span>${esc(host)}</span></span>`;
+  const lang = langOrUnd(post.lang);
+  const flair = post.flair?.trim()
+    ? `<span class="flair"><span class="sr-only">Etiket: </span>${esc(post.flair.trim())}</span>`
+    : "";
   const { score, comments } = post.engagement ?? {};
   return (
     `<article class="post post--gen" id="${pid}" tabindex="0" aria-posinset="${card.rank}" aria-setsize="${total}" aria-labelledby="${title ? titleId : `${pid}-place`}"${text ? ` aria-describedby="${textId}"` : ""}>` +
@@ -884,9 +922,9 @@ function renderGenericCard(
       : "") +
     `</div>` +
     `<div class="gen__body"><div>` +
-    (title ? `<p class="gen__title" id="${titleId}" lang="und">${esc(title)}</p>` : "") +
+    (title ? `<p class="gen__title" id="${titleId}"${lang}>${esc(title)}${flair}</p>` : "") +
     (text
-      ? `<p class="gen__text${title ? "" : " gen__text--lead"}${long ? " is-clamped" : ""}" id="${textId}" lang="und">${esc(text)}</p>`
+      ? `<p class="gen__text${title ? "" : " gen__text--lead"}${long ? " is-clamped" : ""}" id="${textId}"${lang}>${esc(text)}</p>`
       : "") +
     (long ? moreButton(textId) : "") +
     `</div></div>` +
@@ -923,17 +961,38 @@ function renderCard(ctx: Ctx, card: TimelineCard, total: number, mixed: boolean)
   return renderXCard(ctx, { ...card, post }, total, mixed);
 }
 
-/** "X, Instagram ve Reddit": the feed's sources in order of first appearance. */
-function sourceNames(cards: readonly TimelineCard[]): string {
-  const names = new Set<string>();
-  for (const { post } of cards) {
-    if (isInstagramPost(post)) names.add("Instagram");
-    else if (isGenericItem(post))
-      names.add(isReddit(post) ? "Reddit" : genericHost(post, safeUrl(post.url)));
-    else names.add("X");
-  }
-  const list = [...names];
-  return list.length > 1 ? `${list.slice(0, -1).join(", ")} ve ${list.at(-1)}` : (list[0] ?? "");
+const SOURCE_NAMES: Record<string, string> = { x: "X", instagram: "Instagram", reddit: "Reddit" };
+
+/**
+ * A source label ("x", "instagram", "reddit", "custom:<rule>") as the
+ * reader knows it: a custom site by its host when one of its items is
+ * in the feed, else by the rule's name.
+ */
+function sourceName(label: string, cards: readonly TimelineCard[]): string {
+  const known = SOURCE_NAMES[label];
+  if (known) return known;
+  const item = cards.find(({ post }) => isGenericItem(post) && post.sourceLabel === label)?.post;
+  return item && isGenericItem(item) ? genericHost(item, item.url) : label.replace(/^custom:/, "");
+}
+
+/** "X, Instagram ve Reddit". */
+function listNames(names: readonly string[]): string {
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} ve ${names.at(-1)}` : (names[0] ?? "");
+}
+
+/** The run's sources: the funnel's split when the doc has one, else the shown cards'. */
+function sourceLabels(doc: TimelineDoc, cards: readonly TimelineCard[]): string[] {
+  if (doc.bySource) return doc.bySource.map((count) => count.label);
+  return [...new Set(cards.map(({ post }) => feedSourceLabel(post)))];
+}
+
+/** "Instagram (Oturum kapalı) ve blog": the sources that brought nothing this run. */
+function missingNames(doc: TimelineDoc, cards: readonly TimelineCard[]): string {
+  return listNames(
+    (doc.missingSources ?? []).map(
+      ({ label, reason }) => `${sourceName(label, cards)}${reason?.trim() ? ` (${reason.trim()})` : ""}`,
+    ),
+  );
 }
 
 /* ── Done, tally, states ─────────────────────────────────────── */
@@ -941,9 +1000,9 @@ function sourceNames(cards: readonly TimelineCard[]): string {
 type TallyRow = [op: string, label: string, hint: string, value: number, mod?: string];
 
 /** Taranan − each bucket = Gösterilen; optional buckets only when non-zero. */
-function tallyRows(f: FunnelCounts, timelineSize: number): TallyRow[] {
+function tallyRows(f: FunnelCounts, timelineSize: number, scannedHint: string): TallyRow[] {
   const rows: (TallyRow | false)[] = [
-    ["", "Taranan", "Ana akıştan toplanan gönderi", f.scanned, "sum"],
+    ["", "Taranan", scannedHint, f.scanned, "sum"],
     ["−", "Reklam", "", f.ads],
     ["−", "Tekrar", "Aynı gönderi ya da yeniden paylaşımı", f.duplicates],
     ["−", "Clickbait", "Tık tuzağı olarak elenen", f.clickbait],
@@ -967,8 +1026,8 @@ function tallyRows(f: FunnelCounts, timelineSize: number): TallyRow[] {
   return rows.filter((row): row is TallyRow => row !== false);
 }
 
-function renderTally(f: FunnelCounts, timelineSize: number): string {
-  const rows = tallyRows(f, timelineSize).map(([op, label, hint, value, mod = ""]) => {
+function renderTally(f: FunnelCounts, timelineSize: number, scannedHint: string): string {
+  const rows = tallyRows(f, timelineSize, scannedHint).map(([op, label, hint, value, mod = ""]) => {
     const cls = mod
       .split(" ")
       .filter(Boolean)
@@ -989,7 +1048,20 @@ function collectButton(ctx: Ctx, primary: boolean): string {
     : `<button class="btn btn--ghost" type="button" data-action="collect">Yeni akış topla</button>`;
 }
 
-function renderDone(ctx: Ctx, doc: TimelineDoc, shown: number): string {
+/** "X 150 · Instagram 40 · Reddit 40" under Taranan, when more than one source was scanned. */
+function scannedHint(doc: TimelineDoc, cards: readonly TimelineCard[]): string {
+  const split = doc.bySource ?? [];
+  return split.length > 1
+    ? split.map((count) => `${sourceName(count.label, cards)} ${count.in}`).join(" · ")
+    : "Ana akıştan toplanan gönderi";
+}
+
+function renderDone(
+  ctx: Ctx,
+  doc: TimelineDoc,
+  cards: readonly TimelineCard[],
+  shown: number,
+): string {
   const lead =
     shown === 0
       ? "Bugün okumaya değer bir gönderi çıkmadı. Bu da bir sonuç."
@@ -1001,7 +1073,9 @@ function renderDone(ctx: Ctx, doc: TimelineDoc, shown: number): string {
     `<section class="done" id="done" tabindex="-1" aria-labelledby="done-h">` +
     `<div class="done__icon" aria-hidden="true">${icon("check")}</div><h2 id="done-h">Bitti</h2>` +
     `<p class="done__lead">${lead}</p>` +
-    (doc.funnel ? renderTally(doc.funnel, doc.header.timelineSize) : "") +
+    (doc.funnel
+      ? renderTally(doc.funnel, doc.header.timelineSize, scannedHint(doc, cards))
+      : "") +
     collectButton(ctx, true) +
     `<p class="done__foot">${captured}Yeni akış yalnız sen isteyince hazırlanır.</p></section>`
   );
@@ -1014,6 +1088,8 @@ function renderError(
   detail: string | undefined,
 ): string {
   const scanned = doc.funnel?.scanned;
+  const missing = missingNames(doc, []);
+  const details = [detail, missing && `Toplanamayan kaynak: ${missing}`].filter(Boolean).join("\n");
   const kept =
     scanned !== undefined
       ? ` Toplanan ${scanned} gönderi duruyor; yeniden denemek için yeniden toplamak gerekmez.`
@@ -1025,8 +1101,8 @@ function renderError(
     `<section class="state state--error" role="alert" aria-labelledby="er-h">` +
     `<div class="state__icon" aria-hidden="true">${icon("alert")}</div><h2 id="er-h">Akış hazırlanamadı</h2>` +
     `<p>${esc(reason)}${kept}</p>` +
-    (detail
-      ? `<details class="error-detail"><summary>Teknik ayrıntı</summary><pre>${esc(detail)}</pre></details>`
+    (details
+      ? `<details class="error-detail"><summary>Teknik ayrıntı</summary><pre>${esc(details)}</pre></details>`
       : "") +
     buttons +
     `</section>`
@@ -1055,8 +1131,16 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
   // The schema already forbids them; a contradicted post never reaches the feed.
   const cards = doc.cards.filter((card) => card.verification?.status !== "false_or_disputed");
   const total = cards.length;
-  // Source lines and the source list only when the feed mixes platforms.
+  // Source lines only when the feed mixes platforms; the source list when the run read several.
   const mixed = new Set(cards.map((card) => platformOf(card.post))).size > 1;
+  const sources = sourceLabels(doc, cards);
+  const sourceList =
+    sources.length > 1 ? ` Kaynaklar: ${esc(listNames(sources.map((l) => sourceName(l, cards))))}.` : "";
+  // Some sources brought nothing, the others made the feed: said up front.
+  const missing = missingNames(doc, cards);
+  const missingNote = missing
+    ? `<p class="short-note">${esc(missing)} toplanamadı. Akış öteki kaynaklardan hazırlandı.</p>`
+    : "";
   const assets = pageAssets(cards);
   const state = doc.status.state;
   const scanned = doc.funnel?.scanned;
@@ -1068,20 +1152,21 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
     main = renderError(ctx, doc, doc.status.reason, doc.status.detail);
   } else if (total === 0) {
     meta = `<b>0 gönderi</b>${scanned !== undefined ? ` · ${scanned} gönderi tarandı` : ""}`;
-    main = renderDone(ctx, doc, 0);
+    main = missingNote + renderDone(ctx, doc, cards, 0);
   } else {
     meta =
       `<b>${total} gönderi</b> · ≈ ${readingMinutes(doc, cards)} dk okuma` +
       (scanned !== undefined ? ` · ${scanned} gönderiden seçildi` : "");
     main =
+      missingNote +
       (state === "short"
         ? `<p class="short-note">Bugün yalnız ${total} gönderi eşiği geçti (hedef ${doc.header.timelineSize}). Akış kısa bitiyor; doldurmak için eşik düşürülmedi.</p>`
         : "") +
-      `<p class="intro">Okuma değerine göre sıralı — en değerli üstte.${mixed ? ` Kaynaklar: ${esc(sourceNames(cards))}.` : ""} Reklam, tekrar ve clickbait çıkarıldı.</p>` +
+      `<p class="intro">Okuma değerine göre sıralı — en değerli üstte.${sourceList} Reklam, tekrar ve clickbait çıkarıldı.</p>` +
       `<div class="feed" role="feed" aria-busy="false" aria-label="Akış, ${total} gönderi">` +
       cards.map((card, i) => renderCard(ctx, { ...card, rank: i + 1 }, total, mixed)).join("") +
       `</div>` +
-      renderDone(ctx, doc, total);
+      renderDone(ctx, doc, cards, total);
   }
 
   const title = `${ctx.title.format(new Date(doc.header.generatedAt))} akışı`;

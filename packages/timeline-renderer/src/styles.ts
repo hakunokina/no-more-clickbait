@@ -320,6 +320,8 @@ export const CARDS_CSS = `
 .ig__line { display: flex; align-items: center; gap: 0 var(--s1); min-width: 0; line-height: 1.3; }
 .ig__handle { color: var(--text); font-weight: 700; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 a.ig__handle:hover { text-decoration: underline; }
+.ig__sub { margin: 1px 0 0; color: var(--muted); font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig__paid { color: var(--text); }
 .ig__media { display: block; position: relative; margin-top: var(--s3); border: 1px solid var(--border); border-radius: var(--r-media); overflow: hidden; background: var(--media-bg); }
 .ig__frame { position: relative; width: 100%; max-height: min(80vh, 720px); overflow: hidden; }
 .ig__ratio { display: block; width: 100%; height: auto; }
@@ -377,6 +379,10 @@ a.ig__handle:hover { text-decoration: underline; }
 .gen__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .gen__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); margin-top: var(--s1); align-items: start; }
 .gen__title { margin: 0; font-size: var(--fs-title); line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
+.flair {
+  display: inline-block; vertical-align: 2px; margin-left: var(--s1); padding: 0 6px; border: 1px solid var(--border);
+  border-radius: var(--r-pill); color: var(--muted); font-size: .75rem; font-weight: 600; line-height: 1.5; white-space: nowrap;
+}
 .gen__text { margin: var(--s1) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .gen__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
 .gen__text--lead { margin-top: 0; }

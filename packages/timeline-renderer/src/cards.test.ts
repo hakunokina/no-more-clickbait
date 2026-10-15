@@ -42,8 +42,9 @@ const genCard = cardOf<GenericItem>(isGenericItem);
 
 /** A one-card doc (schema bypassed on purpose: the renderer must hold on its own). */
 function single(card: TimelineCard): TimelineDoc {
+  const { bySource: _split, missingSources: _missing, ...rest } = mixed;
   return {
-    ...mixed,
+    ...rest,
     cards: [{ ...card, rank: 1 }],
     header: { ...mixed.header, timelineSize: 1 },
     funnel: mixed.funnel && { ...mixed.funnel, shown: 1 },
@@ -80,9 +81,33 @@ describe("mixed feed", () => {
     expect(article(html, "p1")).toContain('<span class="sr-only">Kaynak: </span>X</span>');
     expect(article(html, "p4")).toContain('<span class="sr-only">Kaynak: </span>Instagram</span>');
     expect(article(html, "p2")).not.toContain('class="src"');
+    // The run's sources in the funnel's order; a custom site by its host.
     expect(html).toContain(
-      "Kaynaklar: X, Reddit, news.example.invalid ve Instagram. Reklam, tekrar ve clickbait çıkarıldı.",
+      "Kaynaklar: X, Reddit, Instagram ve news.example.invalid. Reklam, tekrar ve clickbait çıkarıldı.",
     );
+  });
+
+  it("splits Taranan by source and says which source brought nothing", () => {
+    expect(html).toContain(
+      '<span>Taranan<span class="tally__hint">X 90 · Reddit 20 · Instagram 30 · news.example.invalid 10</span>',
+    );
+    expect(html).toContain(
+      '<p class="short-note">blog (Site yanıt vermedi) toplanamadı. Akış öteki kaynaklardan hazırlandı.</p>',
+    );
+    const error = render({
+      ...mixed,
+      cards: [],
+      bySource: undefined,
+      status: { state: "error", reason: "Claude yanıt vermedi.", detail: "scorer: zaman aşımı" },
+    });
+    expect(error).toContain("<pre>scorer: zaman aşımı\nToplanamayan kaynak: blog (Site yanıt vermedi)</pre>");
+    expect(error).not.toContain('class="short-note"');
+  });
+
+  it("never loads a generic item's image or site icon", () => {
+    expect(html).not.toContain("news.example.invalid/img/");
+    expect(html).not.toContain("favicon");
+    expect(html).not.toContain("icons.example.invalid");
   });
 
   it("adds the cards' style and script, and Instagram's CDNs, to its own CSP", () => {
@@ -149,7 +174,13 @@ describe("Instagram card", () => {
     expect(art).toContain('<div class="car__dots" aria-hidden="true"><i data-on></i><i></i><i></i></div>');
     // 1080×1350 = 4:5: every frame in the first frame's ratio.
     expect(count(art, 'viewBox="0 0 1000 1250"')).toBe(3);
-    expect(art).toContain('<p class="ig__caption" id="p1-text" lang="und"><b>synthetic_ig_1</b> ');
+    expect(art).toContain('<p class="ig__caption" id="p1-text" lang="tr"><b>synthetic_ig_1</b> ');
+    expect(art).toContain(
+      ' ve <a class="ig__handle" href="https://www.instagram.com/synthetic_ig_partner/" target="_blank" rel="noopener noreferrer">synthetic_ig_partner</a>',
+    );
+    expect(art).toContain(
+      '<p class="ig__sub"><span class="ig__paid">Ücretli ortaklık</span> · Değirmen Un · Sentetik Park</p>',
+    );
     expect(art).toContain(">Instagram'da aç<");
     expect(art).toContain('href="https://www.instagram.com/p/SYNTHCAR01/"');
     expect(art).toContain('data-k="likes"');
@@ -231,12 +262,20 @@ describe("generic card", () => {
       '<span class="gen__place" id="p1-place"><span class="sr-only">Reddit, </span>r/synthetic_science</span>',
     );
     expect(reddit).toContain("u/synthetic_redditor");
-    expect(reddit).toMatch(/<p class="gen__title" id="p1-title" lang="und">Sentetik/);
+    expect(reddit).toMatch(
+      /<p class="gen__title" id="p1-title" lang="tr">Sentetik[^<]*<span class="flair"><span class="sr-only">Etiket: <\/span>Sağlık<\/span><\/p>/,
+    );
     expect(reddit).not.toContain("is-clamped");
     expect(reddit).toContain('aria-labelledby="p1-title" aria-describedby="p1-text"');
-    // Reddit's own post: the place row already says where it is.
-    expect(reddit).not.toContain("gen__domain");
-    expect(reddit).toContain(">Kaynağa git<");
+    // A link post: the domain row goes to the outside link, "Kaynağa git" to the thread.
+    expect(reddit).toContain(
+      '<a class="gen__domain" href="https://science.example.invalid/2026/yuruyus-uyku" target="_blank" rel="noopener noreferrer">',
+    );
+    expect(reddit).toContain("<span>science.example.invalid</span>");
+    expect(reddit).toMatch(/href="https:\/\/www\.reddit\.com\/r\/synthetic_science\/[^"]*"[^>]*>Kaynağa git</);
+    // A self post (no outside link): the place row already says where it is.
+    const self = article(render(single({ ...genCard, post: { ...genCard.post, linkUrl: undefined } })), "p1");
+    expect(self).not.toContain("gen__domain");
     expect(reddit).toContain('data-k="score"');
   });
 
@@ -260,6 +299,7 @@ describe("generic card", () => {
           post: {
             ...genCard.post,
             title: undefined,
+            lang: undefined,
             text: "uzun ".repeat(80),
             engagement: { score: -312, comments: 0 },
           },
@@ -270,7 +310,7 @@ describe("generic card", () => {
     expect(out).toContain("<span class=\"sr-only\">Puan: </span>−312</li>");
     expect(out).toContain("<span class=\"sr-only\">Yorum: </span>0</li>");
     expect(out).toContain('aria-labelledby="p1-place"');
-    expect(out).toContain('class="gen__text gen__text--lead is-clamped"');
+    expect(out).toContain('class="gen__text gen__text--lead is-clamped" id="p1-text" lang="und"');
     expect(out).toContain("Devamını oku");
   });
 
@@ -287,6 +327,9 @@ describe("generic card", () => {
           community: evil,
           domain: evil,
           url: "http://plain.example.invalid/a",
+          linkUrl: "javascript:alert(2)",
+          flair: evil,
+          lang: 'tr" onmouseover="alert(3)',
           image: { url: "https://pbs.twimg.com/media/not-for-generic.jpg" },
         },
       }),
