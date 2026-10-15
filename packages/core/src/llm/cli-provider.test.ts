@@ -21,10 +21,20 @@ interface FakeScript {
 /** A fake child process: no real CLI is ever invoked in tests. */
 function fakeSpawn(handler: (args: readonly string[], stdin: string) => FakeScript): {
   spawnFn: SpawnFn;
-  calls: { command: string; args: readonly string[]; stdin: string }[];
+  calls: {
+    command: string;
+    args: readonly string[];
+    stdin: string;
+    env?: Record<string, string>;
+  }[];
 } {
-  const calls: { command: string; args: readonly string[]; stdin: string }[] = [];
-  const spawnFn: SpawnFn = (command, args) => {
+  const calls: {
+    command: string;
+    args: readonly string[];
+    stdin: string;
+    env?: Record<string, string>;
+  }[] = [];
+  const spawnFn: SpawnFn = (command, args, env) => {
     const child = new EventEmitter() as EventEmitter & {
       stdout: PassThrough;
       stderr: PassThrough;
@@ -40,7 +50,7 @@ function fakeSpawn(handler: (args: readonly string[], stdin: string) => FakeScri
         cb();
       },
       final(cb) {
-        calls.push({ command, args, stdin });
+        calls.push({ command, args, stdin, ...(env ? { env } : {}) });
         const script = handler(args, stdin);
         queueMicrotask(() => {
           if (script.spawnError) {
@@ -161,10 +171,114 @@ describe("createClaudeCliProvider (fake process)", () => {
 
   it("checkAvailable is ok when version + auth pass", async () => {
     const { spawnFn } = fakeSpawn((args) =>
-      args.includes("--version") ? { stdout: "1.2.3" } : { stdout: "{}" },
+      args.includes("--version")
+        ? { stdout: "1.2.3" }
+        : { stdout: JSON.stringify({ loggedIn: true }) },
     );
     const provider = createClaudeCliProvider({ spawnFn });
     expect(await provider.checkAvailable()).toEqual({ ok: true, version: "1.2.3" });
+  });
+
+  it("maps an auth complaint on stdout to CliNotAuthenticatedError even when stderr is noise", async () => {
+    const { spawnFn } = fakeSpawn(() => ({
+      stdout: JSON.stringify({
+        type: "result",
+        is_error: true,
+        result: "Not logged in. Please run /login",
+      }),
+      stderr: "Warning: some unrelated deprecation notice",
+      exitCode: 1,
+    }));
+    const provider = createClaudeCliProvider({ spawnFn });
+    await expect(provider.complete({ prompt: "x" })).rejects.toBeInstanceOf(
+      CliNotAuthenticatedError,
+    );
+  });
+
+  it("checkAvailable reads loggedIn:false as not-authenticated (exit 0 is not enough)", async () => {
+    const { spawnFn } = fakeSpawn((args) =>
+      args.includes("--version")
+        ? { stdout: "1.2.3" }
+        : { stdout: JSON.stringify({ loggedIn: false }) },
+    );
+    const provider = createClaudeCliProvider({ spawnFn });
+    expect(await provider.checkAvailable()).toMatchObject({
+      ok: false,
+      reason: "not-authenticated",
+    });
+  });
+
+  it("disables the user's MCP servers: strict empty --mcp-config on every call", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    const provider = createClaudeCliProvider({
+      spawnFn,
+      extraArgs: ["--append-system-prompt", "x"],
+    });
+    await provider.complete({ prompt: "score" });
+    const args = calls[0]?.args ?? [];
+    expect(args).toContain("--strict-mcp-config");
+    expect(args[args.indexOf("--mcp-config") + 1]).toBe('{"mcpServers":{}}');
+    // Restriction flags come AFTER extraArgs, so last-wins CLI parsing
+    // cannot let an integrator-supplied arg loosen them.
+    const extraAt = args.indexOf("--append-system-prompt");
+    expect(args.indexOf("--tools")).toBeGreaterThan(extraAt);
+    expect(args.indexOf("--strict-mcp-config")).toBeGreaterThan(extraAt);
+  });
+
+  it("rejects extraArgs that try to override the tool/MCP restrictions or model/effort", () => {
+    const { spawnFn } = fakeSpawn(() => ({ stdout: okJson }));
+    for (const extraArgs of [
+      ["--tools", "default"],
+      ["--tools=default"],
+      ["--allowedTools", "Bash"],
+      ["--mcp-config", "evil.json"],
+      ["--strict-mcp-config=false"],
+      ["--model", "other"],
+      ["--effort=max"],
+    ]) {
+      expect(() => createClaudeCliProvider({ spawnFn, extraArgs })).toThrow(/extraArgs/);
+    }
+  });
+
+  it("pins model and effort when given, and omits both by default", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    await createClaudeCliProvider({
+      spawnFn,
+      model: "claude-opus-5-5",
+      effort: "low",
+    }).complete({
+      prompt: "score",
+    });
+    await createClaudeCliProvider({ spawnFn }).complete({ prompt: "score" });
+    const pinned = calls[0]?.args ?? [];
+    expect(pinned[pinned.indexOf("--model") + 1]).toBe("claude-opus-5-5");
+    expect(pinned[pinned.indexOf("--effort") + 1]).toBe("low");
+    expect(calls[1]?.args).not.toContain("--model");
+    expect(calls[1]?.args).not.toContain("--effort");
+  });
+
+  it("rejects a model value that could be read as a flag", () => {
+    const { spawnFn } = fakeSpawn(() => ({ stdout: okJson }));
+    for (const model of ["", "--tools"]) {
+      expect(() => createClaudeCliProvider({ spawnFn, model })).toThrow(/model/);
+    }
+  });
+
+  it("passes maxOutputTokens to the child via CLAUDE_CODE_MAX_OUTPUT_TOKENS", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    const provider = createClaudeCliProvider({ spawnFn, maxOutputTokens: 16000 });
+    await provider.complete({ prompt: "score" });
+    expect(calls[0]?.env).toMatchObject({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: "16000" });
+  });
+
+  it("leaves the child's env untouched without maxOutputTokens and rejects bad values", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    const provider = createClaudeCliProvider({ spawnFn });
+    await provider.complete({ prompt: "score" });
+    expect(calls[0]?.env).toBeUndefined();
+    expect(() => createClaudeCliProvider({ spawnFn, maxOutputTokens: 0 })).toThrow(
+      /maxOutputTokens/,
+    );
   });
 
   it("wraps garbage output in CliRunError", async () => {

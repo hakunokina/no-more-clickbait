@@ -23,7 +23,8 @@ report — a description with synthetic examples is enough.
 - **Feed content is treated as hostile**: schema-validated at every
   process boundary,
   and the LLM receives the narrowest tool permissions per job (none for
-  scoring; `WebSearch`/`WebFetch` only for verification) to limit
+  scoring; `WebSearch`/`WebFetch` only for verification), with the
+  user's MCP servers disabled for these calls, to limit
   prompt-injection blast radius.
 - **Extension permissions are minimal**: `storage`, `nativeMessaging`,
   X host access, and `tabs` only as an _optional_ permission for the

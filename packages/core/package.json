@@ -12,6 +12,10 @@
     "./llm": {
       "types": "./dist/llm/index.d.ts",
       "import": "./dist/llm/index.js"
+    },
+    "./scorer": {
+      "types": "./dist/scorer/index.d.ts",
+      "import": "./dist/scorer/index.js"
     }
   },
   "scripts": {
