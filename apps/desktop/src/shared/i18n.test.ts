@@ -27,6 +27,9 @@ describe("desktop messages", () => {
       const html = readFileSync(new URL(`../renderer/${page}`, import.meta.url), "utf8");
       const keys = [...html.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1] ?? "");
       expect(keys.length, page).toBeGreaterThan(0);
+      // Hidden until localizePage words it (no English flash for Turkish).
+      expect(html, page).toContain('<html lang="en" data-i18n-pending>');
+      expect(html, page).toContain("[data-i18n-pending] body { visibility: hidden; }");
       for (const key of keys) {
         for (const lang of ["en", "tr"] as const) {
           const value = (DESKTOP_MESSAGES[lang] as Record<string, unknown>)[key];
@@ -52,9 +55,17 @@ describe("desktop messages", () => {
   });
 
   it("reads a saved run error back into its note, English or not", () => {
-    const saved = say("en", note("errCliFailed"));
-    expect(runErrorNote(saved)).toEqual(note("errCliFailed"));
-    expect(runErrorNote("something else")).toEqual(note("errLastRunFailed"));
+    // By key, even when the English wording changed since.
+    expect(runErrorNote({ note: "errCliFailed", message: "reworded" })).toEqual(
+      note("errCliFailed"),
+    );
+    // Older records: by the English message.
+    expect(runErrorNote({ message: say("en", note("errCliFailed")) })).toEqual(
+      note("errCliFailed"),
+    );
+    expect(runErrorNote({ note: "notARunError", message: "something else" })).toEqual(
+      note("errLastRunFailed"),
+    );
     expect(runErrorNote(undefined)).toEqual(note("errLastRunFailed"));
   });
 

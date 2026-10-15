@@ -217,4 +217,5 @@ function render(status: DesktopStatus): void {
 }
 
 nmc.onStatus(render);
-void nmc.getStatus().then(render);
+// Without a status the page still shows, in English.
+void nmc.getStatus().then(render, () => localizePage(document, "en"));

@@ -63,7 +63,7 @@ function renderBrowsers(status: SettingsStatus): void {
 }
 
 function render(status: SettingsStatus): void {
-  if (status.lang !== lang || document.documentElement.lang !== lang) {
+  if (status.lang !== lang || document.documentElement.hasAttribute("data-i18n-pending")) {
     lang = status.lang;
     localizePage(document, lang, messages(lang).settingsWindowTitle);
     form.setLanguage(lang);
@@ -113,4 +113,5 @@ choiceSelect.addEventListener("change", () => {
 });
 
 window.nmc.onSettingsStatus(render);
-void window.nmc.getSettingsStatus().then(render);
+// Without a status the page still shows, in English.
+void window.nmc.getSettingsStatus().then(render, () => localizePage(document, lang));

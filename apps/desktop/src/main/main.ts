@@ -147,12 +147,7 @@ function applyLanguage(): void {
   if (next === lang) return;
   lang = next;
   if (tray) setTrayMenu();
-  void controller
-    .setLang(next)
-    .then((rewritten) => {
-      if (rewritten && controller.timelinePath) reader.reloadTimeline(controller.timelinePath);
-    })
-    .catch((error: unknown) => log(`language: ${String(error)}`));
+  void controller.setLang(next).catch((error: unknown) => log(`language: ${String(error)}`));
 }
 
 function settingsStatus(): SettingsStatus {
@@ -221,6 +216,7 @@ const controller = new SessionController({
     const m = messages(lang);
     notify(m.notifyReady, m.notifyReadyBody(selected), () => reader.open(timelinePath));
   },
+  onTimelineRewritten: (timelinePath) => reader.reloadTimeline(timelinePath),
   log,
 });
 
@@ -494,6 +490,8 @@ void app.whenReady().then(async () => {
   await pruneSessions(root).catch(() => undefined);
   browserChoice = await loadBrowserChoice();
   await settingsManager.init().catch((error: unknown) => log(`settings: ${String(error)}`));
+  // Also when init failed (no state push): a "system" user still gets the OS language.
+  applyLanguage();
   await refreshBrowsers().catch((error: unknown) => log(`browsers: ${String(error)}`));
   await startLink();
   // A collection may have finished while the app was closed.

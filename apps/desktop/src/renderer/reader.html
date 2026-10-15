@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-i18n-pending>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,6 +9,8 @@
     />
     <title>No More Clickbait — timeline</title>
     <style>
+      /* No words until the language is known (localizePage clears it). */
+      [data-i18n-pending] body { visibility: hidden; }
       /* Tokens from docs/design/timeline-mockup.md */
       :root {
         color-scheme: light dark;
