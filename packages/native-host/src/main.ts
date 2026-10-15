@@ -87,6 +87,9 @@ function dispatch(raw: string): void {
         process.stderr.write("native-host: batch after collection-complete dropped\n");
       }
     },
+    onFeedBatch: async (batch) => {
+      await sessionStore.addFeedBatch(batch);
+    },
     onCollectionComplete: async ({ mode, reason, uniquePostCount, responseCount, target }) => {
       const counts = { mode, reason, uniquePostCount, responseCount };
       const sessionId = await sessionStore.complete({
