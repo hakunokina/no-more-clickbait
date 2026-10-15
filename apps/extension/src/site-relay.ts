@@ -6,7 +6,7 @@ import {
   type SiteRequestCaptureMessage,
 } from "./sites/hook-protocol.js";
 import { hookTargetsFor, type HookTarget } from "./sites/hook-targets.js";
-import { SITE_RULES_KEY, SITE_STATES_KEY } from "./sites/storage-keys.js";
+import { SITE_RULES_KEY, siteStatesIn } from "./sites/storage-keys.js";
 
 /**
  * Isolated-world side of the "more" capture (registered next to
@@ -18,8 +18,8 @@ import { SITE_RULES_KEY, SITE_STATES_KEY } from "./sites/storage-keys.js";
 let targets: HookTarget[] = [];
 
 async function arm(): Promise<void> {
-  const stored = await chrome.storage.local.get([SITE_RULES_KEY, SITE_STATES_KEY]);
-  targets = hookTargetsFor(stored[SITE_RULES_KEY], stored[SITE_STATES_KEY], location.href);
+  const stored = await chrome.storage.local.get(null);
+  targets = hookTargetsFor(stored[SITE_RULES_KEY], siteStatesIn(stored), location.href);
   const message: SiteHookArmMessage = {
     source: PAGE_MESSAGE_SOURCE,
     kind: "site-hook-arm",

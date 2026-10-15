@@ -1,74 +1,78 @@
 import { feedItemKey, GenericItemSchema, type GenericItem } from "@nmc/core";
+import { withKeyLock } from "./key-lock.js";
 import type { RequestBuffer } from "./site-collect.js";
 import type { StorageArea } from "./site-store.js";
-import { SITE_REQUEST_BUFFER_KEY } from "./storage-keys.js";
+import { requestBufferKey } from "./storage-keys.js";
 
 /**
  * Items from a site's own "more" responses, captured while the user
  * browsed it, kept in `chrome.storage.session` until the next collect
  * takes them — once: taking empties the buffer, so an item never enters
  * two feeds. At most `MAX_BUFFERED_ITEMS` per site; the oldest go first.
+ * One key per site and one step at a time per key (`withKeyLock`): two
+ * captures landing together, or a take racing an add, lose nothing and
+ * never bring a taken item back.
  */
 
 export const MAX_BUFFERED_ITEMS = 500;
 
-type Buffers = Record<string, { items: unknown[]; lastAt?: string }>;
+interface StoredBuffer {
+  items?: unknown[];
+  lastAt?: string;
+}
 
-async function readAll(area: StorageArea): Promise<Buffers> {
-  const stored = (await area.get([SITE_REQUEST_BUFFER_KEY]))[SITE_REQUEST_BUFFER_KEY];
-  return typeof stored === "object" && stored !== null ? (stored as Buffers) : {};
+async function read(area: StorageArea, key: string): Promise<StoredBuffer | undefined> {
+  const stored = (await area.get([key]))[key];
+  return typeof stored === "object" && stored !== null ? (stored as StoredBuffer) : undefined;
 }
 
 function validItems(raw: unknown[] | undefined): GenericItem[] {
-  return (raw ?? []).flatMap((value) => {
+  return (Array.isArray(raw) ? raw : []).flatMap((value) => {
     const parsed = GenericItemSchema.safeParse(value);
     return parsed.success ? [parsed.data] : [];
   });
 }
 
 /** Adds items (repeats by `feedItemKey` skipped); returns how many the buffer now holds. */
-export async function addToRequestBuffer(
+export function addToRequestBuffer(
   area: StorageArea,
   siteId: string,
   items: GenericItem[],
   nowIso: string,
 ): Promise<number> {
-  const all = await readAll(area);
-  const current = validItems(all[siteId]?.items);
-  const seen = new Set(current.map(feedItemKey));
-  for (const item of items) {
-    const key = feedItemKey(item);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    current.push(item);
-  }
-  const kept = current.slice(-MAX_BUFFERED_ITEMS);
-  await area.set({
-    [SITE_REQUEST_BUFFER_KEY]: { ...all, [siteId]: { items: kept, lastAt: nowIso } },
+  const key = requestBufferKey(siteId);
+  return withKeyLock(key, async () => {
+    const current = validItems((await read(area, key))?.items);
+    const seen = new Set(current.map(feedItemKey));
+    for (const item of items) {
+      const itemKey = feedItemKey(item);
+      if (seen.has(itemKey)) continue;
+      seen.add(itemKey);
+      current.push(item);
+    }
+    const kept = current.slice(-MAX_BUFFERED_ITEMS);
+    await area.set({ [key]: { items: kept, lastAt: nowIso } });
+    return kept.length;
   });
-  return kept.length;
 }
 
 /** Takes the site's buffered items and empties its buffer. */
-export async function takeRequestBuffer(
+export function takeRequestBuffer(
   area: StorageArea,
   siteId: string,
 ): Promise<RequestBuffer | null> {
-  const all = await readAll(area);
-  const entry = all[siteId];
-  if (!entry) return null;
-  const next = { ...all };
-  delete next[siteId];
-  await area.set({ [SITE_REQUEST_BUFFER_KEY]: next });
-  const items = validItems(entry.items);
-  return entry.lastAt ? { items, lastAt: entry.lastAt } : { items };
+  const key = requestBufferKey(siteId);
+  return withKeyLock(key, async () => {
+    const entry = await read(area, key);
+    if (!entry) return null;
+    await area.remove([key]);
+    const items = validItems(entry.items);
+    return entry.lastAt ? { items, lastAt: entry.lastAt } : { items };
+  });
 }
 
 /** Drops a deleted rule's buffer. */
-export async function clearRequestBuffer(area: StorageArea, siteId: string): Promise<void> {
-  const all = await readAll(area);
-  if (!(siteId in all)) return;
-  const next = { ...all };
-  delete next[siteId];
-  await area.set({ [SITE_REQUEST_BUFFER_KEY]: next });
+export function clearRequestBuffer(area: StorageArea, siteId: string): Promise<void> {
+  const key = requestBufferKey(siteId);
+  return withKeyLock(key, () => area.remove([key]));
 }

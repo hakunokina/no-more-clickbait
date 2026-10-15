@@ -40,9 +40,9 @@ export function genericItem(id: string, sourceLabel = "custom:News — World"): 
 /** A `chrome.storage` area in memory (values deep-copied like the real one). */
 export class MemoryArea implements StorageArea {
   data: Record<string, unknown> = {};
-  get(keys: string[]): Promise<Record<string, unknown>> {
+  get(keys: string[] | null): Promise<Record<string, unknown>> {
     const out: Record<string, unknown> = {};
-    for (const key of keys) {
+    for (const key of keys ?? Object.keys(this.data)) {
       if (key in this.data) out[key] = structuredClone(this.data[key]);
     }
     return Promise.resolve(out);

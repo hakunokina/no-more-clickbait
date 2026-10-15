@@ -7,7 +7,11 @@ import {
   importSiteRule,
   loadSiteRules,
   loadSiteStates,
+  migrateLegacySiteStates,
+  mutateSiteState,
+  putSiteState,
   recordCollect,
+  removeSiteState,
   rowStatus,
   saveSiteRule,
   updateSiteState,
@@ -44,6 +48,53 @@ describe("rule and state storage", () => {
     expect((await loadSiteStates(area))["x"]).toEqual({
       enabled: false,
       permissionGranted: true,
+    });
+  });
+
+  it("keeps one key per site, so two sites finishing together keep both results", async () => {
+    const area = new MemoryArea();
+    await putSiteState(area, "a", on);
+    await putSiteState(area, "b", on);
+    await Promise.all([
+      mutateSiteState(area, "a", (s) => recordCollect(s, "ok", 5, NOW)),
+      mutateSiteState(area, "b", (s) => recordCollect(s, "broken", 0, NOW)),
+    ]);
+    const states = await loadSiteStates(area);
+    expect(states["a"]).toMatchObject({ lastStatus: "ok", lastItemCount: 5 });
+    expect(states["b"]).toMatchObject({ lastStatus: "broken", consecutiveZero: 1 });
+    expect(Object.keys(area.data).sort()).toEqual(["nmc.siteState.a", "nmc.siteState.b"]);
+  });
+
+  it("applies same-site writes one after another on the freshest value", async () => {
+    const area = new MemoryArea();
+    await putSiteState(area, "a", on);
+    await Promise.all([
+      mutateSiteState(area, "a", (s) => recordCollect(s, "ok", 0, NOW)),
+      updateSiteState(area, "a", { lastBrowseAt: NOW }),
+      mutateSiteState(area, "a", (s) => recordCollect(s, "ok", 0, NOW)),
+    ]);
+    expect((await loadSiteStates(area))["a"]).toMatchObject({
+      lastBrowseAt: NOW,
+      consecutiveZero: 2,
+    });
+    await removeSiteState(area, "a");
+    expect(await loadSiteStates(area)).toEqual({});
+  });
+
+  it("moves the old shared map to per-site keys; a newer per-site state wins", async () => {
+    const area = new MemoryArea();
+    area.data["nmc.siteStates"] = {
+      a: { enabled: false, permissionGranted: true },
+      b: { enabled: true, permissionGranted: false },
+      junk: "x",
+    };
+    await putSiteState(area, "b", on);
+    await migrateLegacySiteStates(area);
+    await migrateLegacySiteStates(area);
+    expect(area.data["nmc.siteStates"]).toBeUndefined();
+    expect(await loadSiteStates(area)).toEqual({
+      a: { enabled: false, permissionGranted: true },
+      b: on,
     });
   });
 });

@@ -5,7 +5,13 @@ import {
   type SiteRule,
   type SiteRuleInput,
 } from "@nmc/core";
-import { SITE_RULES_KEY, SITE_STATES_KEY } from "./storage-keys.js";
+import { withKeyLock } from "./key-lock.js";
+import {
+  LEGACY_SITE_STATES_KEY,
+  SITE_RULES_KEY,
+  siteStateKey,
+  siteStatesIn,
+} from "./storage-keys.js";
 
 /**
  * Custom site rules + their runtime state in `chrome.storage.local`.
@@ -15,11 +21,11 @@ import { SITE_RULES_KEY, SITE_STATES_KEY } from "./storage-keys.js";
  * wrong elements (design: docs/design/rule-picker.md).
  */
 
-export { SITE_RULES_KEY, SITE_STATES_KEY };
+export { SITE_RULES_KEY };
 
-/** Minimal `chrome.storage` area surface (fakeable in tests). */
+/** Minimal `chrome.storage` area surface (fakeable in tests); `null` reads the whole area. */
 export interface StorageArea {
-  get(keys: string[]): Promise<Record<string, unknown>>;
+  get(keys: string[] | null): Promise<Record<string, unknown>>;
   set(items: Record<string, unknown>): Promise<void>;
   remove(keys: string[]): Promise<void>;
 }
@@ -105,14 +111,18 @@ export async function deleteSiteRule(area: StorageArea, id: string): Promise<voi
   await area.set({ [SITE_RULES_KEY]: all });
 }
 
+function asSiteState(value: unknown): SiteState | undefined {
+  return isRecord(value) && typeof value["enabled"] === "boolean"
+    ? ({ permissionGranted: false, ...value } as SiteState)
+    : undefined;
+}
+
+/** Every stored site state (one key per site; see `SITE_STATE_PREFIX`). */
 export async function loadSiteStates(area: StorageArea): Promise<Record<string, SiteState>> {
-  const stored = (await area.get([SITE_STATES_KEY]))[SITE_STATES_KEY];
-  if (!isRecord(stored)) return {};
   const states: Record<string, SiteState> = {};
-  for (const [id, value] of Object.entries(stored)) {
-    if (isRecord(value) && typeof value["enabled"] === "boolean") {
-      states[id] = { permissionGranted: false, ...value } as SiteState;
-    }
+  for (const [id, value] of Object.entries(siteStatesIn(await area.get(null)))) {
+    const state = asSiteState(value);
+    if (state) states[id] = state;
   }
   return states;
 }
@@ -121,15 +131,31 @@ export function stateOf(states: Record<string, SiteState>, id: string): SiteStat
   return states[id] ?? defaultSiteState();
 }
 
-export async function updateSiteState(
+/**
+ * Read-modify-write of one site's state on its freshest stored value
+ * (never on a copy read before a long collect), one step at a time per
+ * site within this context.
+ */
+export function mutateSiteState(
+  area: StorageArea,
+  id: string,
+  change: (current: SiteState) => SiteState,
+): Promise<SiteState> {
+  const key = siteStateKey(id);
+  return withKeyLock(key, async () => {
+    const current = asSiteState((await area.get([key]))[key]) ?? defaultSiteState();
+    const next = change(current);
+    await area.set({ [key]: next });
+    return next;
+  });
+}
+
+export function updateSiteState(
   area: StorageArea,
   id: string,
   patch: Partial<SiteState>,
 ): Promise<SiteState> {
-  const states = await loadSiteStates(area);
-  const next: SiteState = { ...defaultSiteState(), ...states[id], ...patch };
-  await area.set({ [SITE_STATES_KEY]: { ...states, [id]: next } });
-  return next;
+  return mutateSiteState(area, id, (current) => ({ ...current, ...patch }));
 }
 
 /** Replaces one state as a whole (undo of a delete puts the old one back). */
@@ -138,16 +164,32 @@ export async function putSiteState(
   id: string,
   state: SiteState,
 ): Promise<void> {
-  const states = await loadSiteStates(area);
-  await area.set({ [SITE_STATES_KEY]: { ...states, [id]: state } });
+  await mutateSiteState(area, id, () => state);
 }
 
-export async function removeSiteState(area: StorageArea, id: string): Promise<void> {
-  const states = await loadSiteStates(area);
-  if (!(id in states)) return;
-  const next = { ...states };
-  delete next[id];
-  await area.set({ [SITE_STATES_KEY]: next });
+export function removeSiteState(area: StorageArea, id: string): Promise<void> {
+  const key = siteStateKey(id);
+  return withKeyLock(key, () => area.remove([key]));
+}
+
+/**
+ * Moves states from the pre-#2023 shared map to per-site keys (a state
+ * already under its own key wins), then drops the map. Idempotent.
+ */
+export async function migrateLegacySiteStates(area: StorageArea): Promise<void> {
+  const legacy = (await area.get([LEGACY_SITE_STATES_KEY]))[LEGACY_SITE_STATES_KEY];
+  if (legacy === undefined) return;
+  if (isRecord(legacy)) {
+    for (const [id, value] of Object.entries(legacy)) {
+      const state = asSiteState(value);
+      const key = siteStateKey(id);
+      if (!state) continue;
+      await withKeyLock(key, async () => {
+        if ((await area.get([key]))[key] === undefined) await area.set({ [key]: state });
+      });
+    }
+  }
+  await area.remove([LEGACY_SITE_STATES_KEY]);
 }
 
 /** Export: the rule as pretty JSON (state stays local). */

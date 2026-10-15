@@ -9,7 +9,7 @@ import { isSiteRequestCaptureMessage } from "./hook-protocol.js";
 import { extractInOffscreen } from "./offscreen-client.js";
 import { addToRequestBuffer, takeRequestBuffer } from "./request-buffer.js";
 import { fetchText } from "./fetch-text.js";
-import { collectSite, type CollectDeps } from "./site-collect.js";
+import { collectSite, type CollectDeps, type RequestBuffer } from "./site-collect.js";
 import { hookOrigins, syncHookRegistrations } from "./site-hooks.js";
 import {
   isSiteWorkerMessage,
@@ -23,18 +23,14 @@ import { runOneSite, runSites } from "./site-run.js";
 import {
   loadSiteRules,
   loadSiteStates,
-  putSiteState,
+  migrateLegacySiteStates,
+  mutateSiteState,
   saveSiteRule,
   stateOf,
   updateSiteState,
   type SiteState,
 } from "./site-store.js";
-import {
-  SITE_NEW_RULE_KEY,
-  SITE_PICKER_TABS_KEY,
-  SITE_RULES_KEY,
-  SITE_STATES_KEY,
-} from "./storage-keys.js";
+import { SITE_NEW_RULE_KEY, SITE_PICKER_TABS_KEY, touchesSites } from "./storage-keys.js";
 
 /**
  * The worker side of custom sites: opens the picker in a tab, stores
@@ -46,6 +42,11 @@ import {
 
 const local = chrome.storage.local;
 const session = chrome.storage.session;
+
+function restoreRequestBuffer(siteId: string, buffer: RequestBuffer): Promise<void> {
+  const at = buffer.lastAt ?? new Date().toISOString();
+  return addToRequestBuffer(session, siteId, buffer.items, at).then(() => undefined);
+}
 
 const collectDeps: CollectDeps = {
   fetchText,
@@ -122,18 +123,18 @@ async function saveFromPicker(
   const rule = await saveSiteRule(local, parsed.data);
   const probe = await probeRule(rule);
   const granted = await hasSitePermission(chrome.permissions, rule);
-  const previous = (await loadSiteStates(local))[rule.id];
-  const next: SiteState = {
-    ...previous,
-    enabled: previous?.enabled ?? true,
-    permissionGranted: granted,
-    savedItemCount: foundCount,
-  };
-  if (probe.staticWorked) next.staticKnownGood = true;
-  // A re-picked rule starts its health over.
-  delete next.lastStatus;
-  delete next.consecutiveZero;
-  await putSiteState(local, rule.id, next);
+  await mutateSiteState(local, rule.id, (previous) => {
+    const next: SiteState = {
+      ...previous,
+      permissionGranted: granted,
+      savedItemCount: foundCount,
+    };
+    if (probe.staticWorked) next.staticKnownGood = true;
+    // A re-picked rule starts its health over.
+    delete next.lastStatus;
+    delete next.consecutiveZero;
+    return next;
+  });
   await session.set({ [SITE_NEW_RULE_KEY]: rule.id });
   return { ok: true, id: rule.id, staticWorked: probe.staticWorked === true };
 }
@@ -191,12 +192,9 @@ async function collectVisible(
     {
       collect: { ...collectDeps, collectViaPage: (r) => collectViaPage(r, visible) },
       sendBatch,
-      // A one-off visible collect: the user's own page-method choice stays as it was.
-      saveState: (siteId, state) =>
-        putSiteState(local, siteId, {
-          ...state,
-          pageNoteAccepted: before.pageNoteAccepted ?? false,
-        }),
+      // Folded into the stored state, so the user's own page-method choice stays as it was.
+      updateState: (siteId, change) => mutateSiteState(local, siteId, change),
+      restoreRequestBuffer,
       now: () => new Date().toISOString(),
     },
   );
@@ -230,7 +228,7 @@ async function onRequestCapture(
   if (!urlMatchesPattern(rule.collect.request.match, url)) return;
   // Only the rule's own site may fill its buffer (the relay runs on every hooked site).
   if (!pageUrl || !sameHost(pageUrl, rule.url)) return;
-  const { items } = await extractInOffscreen(bodyText, pageUrl ?? rule.url, rule);
+  const { items } = await extractInOffscreen(bodyText, pageUrl, rule);
   const now = new Date().toISOString();
   if (items.length > 0) await addToRequestBuffer(session, siteId, items, now);
   await updateSiteState(local, siteId, { lastBrowseAt: now });
@@ -280,7 +278,8 @@ export async function collectSitesForCollection(
     return await runSites(rules, states, {
       collect: collectDeps,
       sendBatch,
-      saveState: (id, state) => putSiteState(local, id, state),
+      updateState: (id, change) => mutateSiteState(local, id, change),
+      restoreRequestBuffer,
       now: () => new Date().toISOString(),
     });
   } catch (error) {
@@ -293,15 +292,27 @@ export interface SiteWorkerHooks {
   sendBatch(batch: FeedBatch): boolean;
 }
 
-/** Extension pages only (no content script), or the picker in the tab it was opened in. */
+/**
+ * An extension page (Options, popup) by the sending document's URL — not
+ * by `sender.tab`: Options is an `options_page`, so it always runs in a
+ * tab. A content script (the picker) reports the web page's URL instead.
+ */
+export function fromExtensionPage(
+  sender: Pick<chrome.runtime.MessageSender, "id" | "url">,
+  extensionRoot: string,
+): boolean {
+  return sender.url?.startsWith(extensionRoot) === true;
+}
+
+/** Extension pages, or the picker in the tab it was opened in. */
 async function allowed(
   message: SiteWorkerMessage,
   sender: chrome.runtime.MessageSender,
 ): Promise<boolean> {
   if (sender.id !== chrome.runtime.id) return false;
-  const fromPage = !sender.tab;
+  const fromPage = fromExtensionPage(sender, chrome.runtime.getURL(""));
   const fromPicker = async (): Promise<boolean> =>
-    sender.tab?.id !== undefined && (await pickerTabs()).includes(sender.tab.id);
+    !fromPage && sender.tab?.id !== undefined && (await pickerTabs()).includes(sender.tab.id);
   switch (message.kind) {
     case "site-picker-open":
     case "site-collect-visible":
@@ -386,11 +397,13 @@ export function installSiteWorker(hooks: SiteWorkerHooks): void {
   chrome.permissions.onAdded.addListener(() => void syncSites());
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !(SITE_RULES_KEY in changes || SITE_STATES_KEY in changes)) return;
+    if (area !== "local" || !touchesSites(Object.keys(changes))) return;
     void (async () => {
       await syncRegistrations(await loadSiteRules(local), await loadSiteStates(local));
     })();
   });
 
-  void syncSites().catch(() => undefined);
+  void migrateLegacySiteStates(local)
+    .then(syncSites)
+    .catch(() => undefined);
 }

@@ -122,4 +122,37 @@ describe("'more' response capture", () => {
     await clearRequestBuffer(area, id);
     expect(await takeRequestBuffer(area, id)).toBeNull();
   });
+
+  it("loses nothing when captures and takes overlap", async () => {
+    const area = new MemoryArea();
+    const at = "2026-10-15T08:00:00Z";
+    // Two "more" responses landing together on one site.
+    await Promise.all([
+      addToRequestBuffer(area, "a", [genericItem("a1")], at),
+      addToRequestBuffer(area, "a", [genericItem("a2")], at),
+      addToRequestBuffer(area, "b", [genericItem("b1")], at),
+    ]);
+    // Two sites taken in parallel: neither brings the other's items back.
+    const [a, b] = await Promise.all([
+      takeRequestBuffer(area, "a"),
+      takeRequestBuffer(area, "b"),
+    ]);
+    expect(a?.items.map((item) => item.id)).toEqual([
+      genericItem("a1").id,
+      genericItem("a2").id,
+    ]);
+    expect(b?.items).toHaveLength(1);
+    expect(await takeRequestBuffer(area, "a")).toBeNull();
+    expect(await takeRequestBuffer(area, "b")).toBeNull();
+    // A capture right behind a take stays for the next collect.
+    await addToRequestBuffer(area, "a", [genericItem("a3")], at);
+    const [taken] = await Promise.all([
+      takeRequestBuffer(area, "a"),
+      addToRequestBuffer(area, "a", [genericItem("a4")], at),
+    ]);
+    expect(taken?.items.map((item) => item.id)).toEqual([genericItem("a3").id]);
+    expect((await takeRequestBuffer(area, "a"))?.items.map((item) => item.id)).toEqual([
+      genericItem("a4").id,
+    ]);
+  });
 });

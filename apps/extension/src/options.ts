@@ -22,7 +22,7 @@ import { loadSettings, saveSettings, SETTINGS_STAMP_KEY } from "./settings.js";
 import { createSettingsSyncer, describeSyncResult, sendNativeOnce } from "./settings-sync.js";
 import { SitesSection } from "./sites/sites-section.js";
 import { fetchText } from "./sites/fetch-text.js";
-import { SITE_NEW_RULE_KEY, SITE_RULES_KEY, SITE_STATES_KEY } from "./sites/storage-keys.js";
+import { SITE_NEW_RULE_KEY, touchesSites } from "./sites/storage-keys.js";
 
 const modeB = document.querySelector<HTMLInputElement>("#mode-b");
 const modeBStrategy = document.querySelector<HTMLSelectElement>("#mode-b-strategy");
@@ -169,7 +169,7 @@ async function initSites(): Promise<void> {
   chrome.storage.onChanged.addListener((changes, area) => {
     const keys = Object.keys(changes);
     if (
-      (area === "local" && (keys.includes(SITE_RULES_KEY) || keys.includes(SITE_STATES_KEY))) ||
+      (area === "local" && touchesSites(keys)) ||
       (area === "session" &&
         keys.includes(SITE_NEW_RULE_KEY) &&
         changes[SITE_NEW_RULE_KEY]?.newValue)

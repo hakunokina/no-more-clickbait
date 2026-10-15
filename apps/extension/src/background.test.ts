@@ -86,10 +86,14 @@ function fakeChrome() {
     },
     storage: {
       local: {
-        get: (keys: string | string[]) =>
+        get: (keys: string | string[] | null) =>
           Promise.resolve(
             Object.fromEntries(
-              [keys].flat().flatMap((key) => (local.has(key) ? [[key, local.get(key)]] : [])),
+              keys === null
+                ? [...local]
+                : [keys]
+                    .flat()
+                    .flatMap((key) => (local.has(key) ? [[key, local.get(key)]] : [])),
             ),
           ),
         set: (items: Record<string, unknown>) => {
@@ -98,6 +102,10 @@ function fakeChrome() {
             local.set(key, newValue);
             storageOnChanged.emit({ [key]: { oldValue, newValue } }, "local");
           }
+          return Promise.resolve();
+        },
+        remove: (keys: string | string[]) => {
+          for (const key of [keys].flat()) local.delete(key);
           return Promise.resolve();
         },
       },
@@ -147,12 +155,6 @@ function fakeChrome() {
       }) => Promise.resolve([...permissions, ...origins].every((name) => granted.has(name))),
       onAdded: event(),
       onRemoved: event(),
-    },
-    // Custom sites (none stored here): their "more" hook registration.
-    scripting: {
-      getRegisteredContentScripts: () => Promise.resolve([]),
-      registerContentScripts: vi.fn(() => Promise.resolve()),
-      unregisterContentScripts: vi.fn(() => Promise.resolve()),
     },
     alarms: {
       create: vi.fn(() => Promise.resolve()),
@@ -916,9 +918,7 @@ describe("custom sites in the background worker's collections", () => {
           updatedAt: "2026-10-15T10:00:00.000Z",
         },
       },
-      "nmc.siteStates": {
-        "news.example.invalid/world": { enabled: true, permissionGranted: true },
-      },
+      "nmc.siteState.news.example.invalid/world": { enabled: true, permissionGranted: true },
     });
     vi.stubGlobal(
       "fetch",
@@ -965,11 +965,10 @@ describe("custom sites in the background worker's collections", () => {
       ],
     });
     expect(fake.badge.text).toBe("4");
-    const states = fake.local.get("nmc.siteStates") as Record<
-      string,
-      { lastItemCount?: number }
-    >;
-    expect(states["news.example.invalid/world"]?.lastItemCount).toBe(3);
+    const state = fake.local.get("nmc.siteState.news.example.invalid/world") as {
+      lastItemCount?: number;
+    };
+    expect(state.lastItemCount).toBe(3);
   });
 
   it("leaves completion as before when no site is set up", async () => {
@@ -993,5 +992,63 @@ describe("custom sites in the background worker's collections", () => {
     await settle();
     expect(sendResponse).toHaveBeenCalledWith({ ok: false, message: "not allowed" });
     expect(fake.local.get("nmc.siteRules")).toBeUndefined();
+  });
+
+  function ask(message: unknown, sender: Record<string, unknown>): ReturnType<typeof vi.fn> {
+    const sendResponse = vi.fn();
+    fake.chrome.runtime.onMessage.listeners.forEach((listener) =>
+      listener(message, sender, sendResponse),
+    );
+    return sendResponse;
+  }
+
+  it("answers Options, which always runs in a tab (options_page)", async () => {
+    // What Chrome reports for an options_page: a tab, and the extension's own URL.
+    const options = {
+      id: "test",
+      url: "chrome-extension://test/options.html#sites",
+      tab: { id: 12, url: "chrome-extension://test/options.html#sites" },
+    };
+    const probe = ask({ kind: "site-probe", rule: {} }, options);
+    const visible = ask(
+      { kind: "site-collect-visible", id: "missing.example.invalid" },
+      options,
+    );
+    await settle();
+    expect(probe).toHaveBeenCalledWith({ ok: false, count: 0, message: "invalid rule" });
+    expect(visible).toHaveBeenCalledWith({ ok: false, count: 0, message: "rule not found" });
+  });
+
+  it("refuses the extension-page commands from a web page's content script", async () => {
+    const page = {
+      id: "test",
+      url: "https://news.example.invalid/world",
+      tab: { id: 12, url: "https://news.example.invalid/world" },
+    };
+    const open = ask(
+      { kind: "site-picker-open", target: { url: "https://a.example.invalid/", pattern: "a" } },
+      page,
+    );
+    const probe = ask({ kind: "site-probe", rule: {} }, page);
+    await settle();
+    expect(open).toHaveBeenCalledWith({ ok: false, message: "not allowed" });
+    expect(probe).toHaveBeenCalledWith({ ok: false, message: "not allowed" });
+    expect(fake.chrome.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it("moves states from the old shared map to one key per site", async () => {
+    // A worker starting over storage written before per-site keys.
+    fake = fakeChrome();
+    vi.stubGlobal("chrome", fake.chrome);
+    fake.local.set("nmc.siteStates", {
+      "news.example.invalid/world": { enabled: false, permissionGranted: true },
+    });
+    vi.resetModules();
+    await import("./background.js");
+    await settle();
+    expect(fake.local.has("nmc.siteStates")).toBe(false);
+    expect(fake.local.get("nmc.siteState.news.example.invalid/world")).toMatchObject({
+      enabled: false,
+    });
   });
 });

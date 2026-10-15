@@ -3,6 +3,7 @@ import {
   collectSite,
   type CollectContext,
   type CollectDeps,
+  type RequestBuffer,
   type SiteCollectResult,
 } from "./site-collect.js";
 import { recordCollect, stateOf, type SiteState } from "./site-store.js";
@@ -24,7 +25,13 @@ export const FEED_BATCH_SIZE = 200;
 export interface SiteRunDeps {
   collect: CollectDeps;
   sendBatch(batch: FeedBatch): boolean;
-  saveState(id: string, state: SiteState): Promise<void>;
+  /**
+   * Folds the collect into the site's freshest stored state (not the copy
+   * read when the run started: the user may toggle or revoke meanwhile).
+   */
+  updateState(id: string, change: (current: SiteState) => SiteState): Promise<SiteState>;
+  /** Puts "more" items back when their collect timed out (they were never sent). */
+  restoreRequestBuffer?(siteId: string, buffer: RequestBuffer): Promise<void>;
   now(): string;
   timeoutMs?: number;
 }
@@ -58,9 +65,26 @@ export async function runOneSite(
   const timeout = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
+  // A timed-out collect keeps running unseen: its "more" items must not
+  // vanish with it — what it took goes back, and it takes nothing after.
+  let abandoned = false;
+  const taken: RequestBuffer[] = [];
+  const giveBack = async (buffer: RequestBuffer): Promise<void> => {
+    await deps.restoreRequestBuffer?.(rule.id, buffer).catch(() => undefined);
+  };
+  const collect: CollectDeps = {
+    ...deps.collect,
+    async takeRequestBuffer(siteId) {
+      if (abandoned) return null;
+      const buffer = await deps.collect.takeRequestBuffer(siteId);
+      if (buffer && abandoned) await giveBack(buffer);
+      else if (buffer) taken.push(buffer);
+      return buffer;
+    },
+  };
   let result: SiteCollectResult | "timeout";
   try {
-    result = await Promise.race([collectSite(rule, deps.collect, contextFor(state)), timeout]);
+    result = await Promise.race([collectSite(rule, collect, contextFor(state)), timeout]);
   } catch (error) {
     result = { method: "static", items: [], verdict: "fetch-error", message: String(error) };
   } finally {
@@ -68,8 +92,11 @@ export async function runOneSite(
   }
   const now = deps.now();
   if (result === "timeout") {
-    const next = recordCollect(state, "fetch-error", 0, now, { message: "timed out" });
-    await deps.saveState(rule.id, next).catch(() => undefined);
+    abandoned = true;
+    for (const buffer of taken) await giveBack(buffer);
+    const next = await saveCollect(rule.id, state, deps, (current) =>
+      recordCollect(current, "fetch-error", 0, now, { message: "timed out" }),
+    );
     return {
       outcome: {
         siteId: rule.id,
@@ -86,13 +113,25 @@ export async function runOneSite(
     const items = result.items.slice(i, i + FEED_BATCH_SIZE);
     if (deps.sendBatch({ siteId: rule.id, capturedAt: now, items })) sent += items.length;
   }
-  let next = recordCollect(state, result.verdict, result.items.length, now, {
-    method: result.method,
-    ...(result.message ? { message: result.message } : {}),
+  const done = result;
+  const next = await saveCollect(rule.id, state, deps, (current) => {
+    const recorded = recordCollect(current, done.verdict, done.items.length, now, {
+      method: done.method,
+      ...(done.message ? { message: done.message } : {}),
+    });
+    return done.staticWorked ? { ...recorded, staticKnownGood: true } : recorded;
   });
-  if (result.staticWorked) next = { ...next, staticKnownGood: true };
-  await deps.saveState(rule.id, next).catch(() => undefined);
   return { outcome: outcomeOf(rule.id, result, sent), state: next, result };
+}
+
+/** Stores the collect; if storage fails, the run still answers with the folded state. */
+async function saveCollect(
+  id: string,
+  state: SiteState,
+  deps: SiteRunDeps,
+  change: (current: SiteState) => SiteState,
+): Promise<SiteState> {
+  return deps.updateState(id, change).catch(() => change(state));
 }
 
 function outcomeOf(
