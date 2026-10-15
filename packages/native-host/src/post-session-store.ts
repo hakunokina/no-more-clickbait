@@ -167,8 +167,10 @@ export class PostSessionStore {
         this.#sessionId = newSessionId(this.#now());
         await mkdir(join(this.#root, this.#sessionId, "batches"), { recursive: true });
         await pruneSessions(this.#root, this.#keep, this.#sessionId);
-        await this.#writeInfo();
       }
+      // Before the batch: a session.json write that failed earlier is
+      // retried here, so the Mode B tag is not lost for this session.
+      await this.#writeInfo();
       this.#batchCount += 1;
       const name = `${String(this.#batchCount).padStart(4, "0")}.json`;
       await writeJsonAtomic(join(this.#root, this.#sessionId, "batches", name), batch);
@@ -197,16 +199,20 @@ export class PostSessionStore {
    */
   async markMode(mode: SessionInfo["mode"]): Promise<void> {
     return this.#enqueue(async () => {
-      if (this.#completed || this.#info) return;
-      this.#info = { mode, startedAt: this.#now() };
+      if (this.#completed) return;
+      if (!this.#info) this.#info = { mode, startedAt: this.#now() };
+      // Written every time until it sticks: a failed write is retried by
+      // the next mark or batch.
       await this.#writeInfo();
     });
   }
 
   async #writeInfo(): Promise<void> {
     if (!this.#info || !this.#sessionId || this.#infoWritten) return;
-    this.#infoWritten = true;
+    // Flag only after a successful write: a failed write must be retried
+    // by the next batch, or this Mode B session would never be counted.
     await writeJsonAtomic(join(this.#root, this.#sessionId, "session.json"), this.#info);
+    this.#infoWritten = true;
   }
 
   #enqueue<T>(work: () => Promise<T>): Promise<T> {

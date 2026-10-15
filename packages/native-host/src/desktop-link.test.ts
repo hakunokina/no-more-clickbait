@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { access, mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -109,9 +109,23 @@ describe("desktop link", () => {
 
   it("rewrites the token while a host briefly holds it open", async () => {
     // Windows: replacing an open file fails with EPERM until it is closed.
+    // The rewrite is released only once its rename is under way (the .tmp
+    // is on disk), so the first attempts really hit the open handle instead
+    // of racing a fixed timeout.
     const reader = await open(tokenPath, "r");
-    setTimeout(() => void reader.close(), 50);
-    const fresh = await writeLinkToken(tokenPath);
+    const rewriting = writeLinkToken(tokenPath);
+    const started = Date.now();
+    while (Date.now() - started < 2_000) {
+      try {
+        await access(`${tokenPath}.tmp`);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await reader.close();
+    const fresh = await rewriting;
     await expect(readLinkToken(tokenPath)).resolves.toBe(fresh);
   });
 

@@ -238,11 +238,16 @@ export class SessionController {
   }
 
   handleHostEvent(event: HostEvent): void {
-    // Cancelling: only the run's end (collection-complete) matters now.
-    if (
-      this.#status.collection.state === "cancelling" &&
-      event.type !== "collection-complete"
-    ) {
+    // Cancelling: only the run's end (collection-complete) matters now —
+    // plus a refusal, which ends "cancelling" at once instead of leaving
+    // the user on "Cancelling…" until the timeout. A late "started"/"busy"
+    // belongs to a run that no longer exists and stays ignored.
+    const endsCancelling =
+      event.type === "collection-complete" ||
+      (event.type === "collection-start-result" &&
+        event.outcome !== "started" &&
+        event.outcome !== "busy");
+    if (this.#status.collection.state === "cancelling" && !endsCancelling) {
       return;
     }
     if (event.type === "collection-start-result") {
@@ -318,7 +323,12 @@ export class SessionController {
   }): Promise<void> {
     // Batches of ads/repeats only leave a folder but no post to build from.
     const empty = done.sessionId === null || done.uniquePostCount === 0;
-    const plan = empty ? "drop" : planCompletion(done.mode, done.reason);
+    let plan = empty ? "drop" : planCompletion(done.mode, done.reason);
+    if (plan === "build" && this.#status.collection.state === "cancelling") {
+      // The user already cancelled: a late complete (e.g. target-reached
+      // racing the stop) waits for their go instead of spending LLM.
+      plan = "ask";
+    }
     const reached = done.reason === "target-reached";
     const counted = done.target
       ? `${done.uniquePostCount} of ${done.target}`

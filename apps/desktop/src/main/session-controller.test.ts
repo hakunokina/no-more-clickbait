@@ -556,6 +556,39 @@ describe("SessionController", () => {
     expect(c.status.run.stage).toBe("idle");
   });
 
+  it("asks instead of building when a complete races a cancel", async () => {
+    const c = controller();
+    await c.startCollection();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 120 });
+    expect(c.cancel()).toBe(true);
+    expect(c.status.collection.state).toBe("cancelling");
+
+    // The stop loses the race: the run reaches its target first.
+    const id = await stoppedSession("target-reached", 3);
+    c.handleHostEvent(completeEvent(id, "target-reached", 3));
+    await expect.poll(() => c.status.pending?.sessionId).toBe(id);
+    expect(c.status.run.stage).toBe("idle"); // no LLM run started
+    expect(ready).toEqual([]);
+    expect(asked).toEqual([{ sessionId: id, uniquePostCount: 3 }]);
+    expect((await listSessions(root))[0]?.processed).toBeNull();
+    expect(c.status.collection.state).toBe("idle");
+  });
+
+  it("ends cancelling at once on the extension's refusal", async () => {
+    const c = controller();
+    await c.startCollection();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 120 });
+    expect(c.cancel()).toBe(true);
+
+    // A late "started" belongs to a run that no longer exists: ignored.
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 120 });
+    expect(c.status.collection.state).toBe("cancelling");
+
+    c.handleHostEvent({ type: "collection-start-result", outcome: "mode-b-off", target: 120 });
+    expect(c.status.collection).toMatchObject({ state: "refused" });
+    expect(c.status.collection.message).toMatch(/Browse x\.com\/home/);
+  });
+
   it("counts a collection as cancelled when the extension does not confirm or is gone", async () => {
     const c = controller(undefined, { collectionTimeoutsMs: { answerMs: 20 } });
     await c.startCollection();

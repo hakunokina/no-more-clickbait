@@ -1,5 +1,6 @@
 import type { BridgeReply, CaptureSource } from "@nmc/core";
 import { CaptureStore } from "./capture-store.js";
+import { createCollectionRelay } from "./collection-relay.js";
 import { LinkClient } from "./desktop-link.js";
 import { MessageDecoder, encodeMessage } from "./framing.js";
 import { handleBridgeMessage } from "./handler.js";
@@ -69,10 +70,7 @@ function startDesktopLink(): void {
 
 const decoder = new MessageDecoder();
 
-/** Only a Mode B run reports a start or progress: tag this session. */
-function markModeB(): void {
-  sessionStore.markMode("B").catch(() => undefined);
-}
+const relay = createCollectionRelay(sessionStore, (message) => link?.send(message));
 
 /**
  * In-flight message handlers. When stdin closes the process must not
@@ -103,14 +101,8 @@ function dispatch(raw: string): void {
         ...(target !== undefined ? { target } : {}),
       });
     },
-    onCollectionStartResult: (result) => {
-      if (result.outcome === "started") markModeB();
-      link?.send(result);
-    },
-    onCollectionProgress: (progress) => {
-      markModeB();
-      link?.send(progress);
-    },
+    onCollectionStartResult: relay.onCollectionStartResult,
+    onCollectionProgress: relay.onCollectionProgress,
     onRawCapture: async (capture) => ({
       sequence: await captureStore(capture.source).store(capture),
     }),
