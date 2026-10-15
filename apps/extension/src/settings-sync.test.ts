@@ -1,4 +1,9 @@
-import { SettingsSchema, type BridgeMessage, type Settings, type SettingsStamp } from "@nmc/core";
+import {
+  SettingsSchema,
+  type BridgeMessage,
+  type Settings,
+  type SettingsStamp,
+} from "@nmc/core";
 import { describe, expect, it, vi } from "vitest";
 import {
   applySettingsPush,
@@ -170,7 +175,10 @@ describe("applySettingsPush", () => {
     const own = SettingsSchema.parse({ maxClickbait: 6 });
     const { state, deps } = store(own, OWN);
     const result = await applySettingsPush(
-      { settings: { ...own, maxClickbait: 2 }, stamp: at("2026-10-15T09:00:00.000Z", "desktop") },
+      {
+        settings: { ...own, maxClickbait: 2 },
+        stamp: at("2026-10-15T09:00:00.000Z", "desktop"),
+      },
       deps,
     );
     expect(result).toMatchObject({

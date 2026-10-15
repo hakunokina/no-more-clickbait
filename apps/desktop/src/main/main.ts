@@ -122,7 +122,8 @@ function sendToCollectBrowser(command: DesktopCommand): boolean {
 }
 
 const settingsManager = new SettingsManager({
-  sendPush: (settings, stamp) => sendToCollectBrowser({ type: "settings-push", settings, stamp }),
+  sendPush: (settings, stamp) =>
+    sendToCollectBrowser({ type: "settings-push", settings, stamp }),
   onState: () => broadcastSettings(),
 });
 
@@ -142,8 +143,7 @@ function settingsStatus(): SettingsStatus {
       systemDefault: browser.family === systemDefaultBrowser,
     })),
     collectBrowserLabel: resolved ? browserLabel(resolved.family) : null,
-    collectBrowserProblem:
-      collectBrowser && !collectBrowser.ok ? collectBrowser.reason : null,
+    collectBrowserProblem: collectBrowser && !collectBrowser.ok ? collectBrowser.reason : null,
   };
 }
 
@@ -466,9 +466,7 @@ void app.whenReady().then(async () => {
   monitor.once("ready-to-show", () => monitor?.show());
   await pruneSessions(root).catch(() => undefined);
   browserChoice = await loadBrowserChoice();
-  await settingsManager
-    .init()
-    .catch((error: unknown) => log(`settings: ${String(error)}`));
+  await settingsManager.init().catch((error: unknown) => log(`settings: ${String(error)}`));
   await refreshBrowsers().catch((error: unknown) => log(`browsers: ${String(error)}`));
   await startLink();
   // A collection may have finished while the app was closed.

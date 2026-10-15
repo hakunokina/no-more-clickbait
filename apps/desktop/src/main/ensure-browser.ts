@@ -1,7 +1,4 @@
-import {
-  browserLabel,
-  type CollectBrowserResolution,
-} from "./browser-choice.js";
+import { browserLabel, type CollectBrowserResolution } from "./browser-choice.js";
 import type { InstalledBrowser } from "./windows-browsers.js";
 
 /**
@@ -13,8 +10,7 @@ import type { InstalledBrowser } from "./windows-browsers.js";
  */
 
 export type EnsureBrowserResult =
-  | { ok: true; launched: boolean }
-  | { ok: false; reason: string };
+  { ok: true; launched: boolean } | { ok: false; reason: string };
 
 export interface EnsureBrowserDeps {
   resolution: CollectBrowserResolution;

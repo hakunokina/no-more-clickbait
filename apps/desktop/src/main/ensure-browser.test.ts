@@ -65,6 +65,9 @@ describe("ensureCollectBrowser", () => {
       },
       waitForConnection: () => Promise.resolve(false),
     });
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("could not be started") });
+    expect(result).toMatchObject({
+      ok: false,
+      reason: expect.stringContaining("could not be started"),
+    });
   });
 });

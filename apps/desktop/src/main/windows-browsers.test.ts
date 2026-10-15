@@ -18,9 +18,7 @@ function fakeReader(entries: {
 }): RegistryReader {
   return {
     readString: (hive, key, valueName) =>
-      Promise.resolve(
-        entries.values?.[`${hive}\\${key}::${valueName ?? ""}`] ?? null,
-      ),
+      Promise.resolve(entries.values?.[`${hive}\\${key}::${valueName ?? ""}`] ?? null),
     listSubkeys: (hive, key) => Promise.resolve(entries.subkeys?.[`${hive}\\${key}`] ?? []),
   };
 }
@@ -90,7 +88,7 @@ describe("installed browsers", () => {
 describe("reg.exe output parsing", () => {
   it("reads named and default values", () => {
     const out =
-      "\r\nHKEY_CURRENT_USER\\Software\\X\r\n    ProgId    REG_SZ    BraveOHTML\r\n    (Default)    REG_SZ    \"C:\\\\brave.exe\"\r\n";
+      '\r\nHKEY_CURRENT_USER\\Software\\X\r\n    ProgId    REG_SZ    BraveOHTML\r\n    (Default)    REG_SZ    "C:\\\\brave.exe"\r\n';
     expect(parseRegValue(out, "ProgId")).toBe("BraveOHTML");
     expect(parseRegValue(out, null)).toBe('"C:\\\\brave.exe"');
     expect(parseRegValue(out, "Missing")).toBeNull();
@@ -108,7 +106,9 @@ describe("reg.exe output parsing", () => {
       calls.push(args);
       return Promise.resolve("    ProgId    REG_SZ    ChromeHTML\r\n");
     });
-    await expect(reader.readString("HKCU", "Software\\X", "ProgId")).resolves.toBe("ChromeHTML");
+    await expect(reader.readString("HKCU", "Software\\X", "ProgId")).resolves.toBe(
+      "ChromeHTML",
+    );
     await reader.listSubkeys("HKLM", "SOFTWARE\\Y");
     expect(calls[0]).toEqual(["query", "HKCU\\Software\\X", "/v", "ProgId"]);
     expect(calls[1]).toEqual(["query", "HKLM\\SOFTWARE\\Y"]);
@@ -124,8 +124,8 @@ describe("waitForConnection", () => {
   });
 
   it("times out with false", async () => {
-    await expect(waitForConnection(() => false, { timeoutMs: 20, intervalMs: 5 })).resolves.toBe(
-      false,
-    );
+    await expect(
+      waitForConnection(() => false, { timeoutMs: 20, intervalMs: 5 }),
+    ).resolves.toBe(false);
   });
 });

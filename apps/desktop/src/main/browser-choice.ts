@@ -110,7 +110,10 @@ export function resolveCollectBrowser(
  * executable match wins; a host that could not report its path is
  * matched by family. Two installs of one family stay told apart by path.
  */
-export function hostMatchesBrowser(identity: BrowserIdentity, browser: InstalledBrowser): boolean {
+export function hostMatchesBrowser(
+  identity: BrowserIdentity,
+  browser: InstalledBrowser,
+): boolean {
   if (identity.family !== browser.family) return false;
   if (!identity.exePath) return true;
   return identity.exePath.toLowerCase() === browser.exePath.toLowerCase();

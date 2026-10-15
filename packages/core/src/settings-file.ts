@@ -1,5 +1,10 @@
 import { readFile } from "node:fs/promises";
-import { SettingsSchema, SettingsStampSchema, type Settings, type SettingsStamp } from "./schemas.js";
+import {
+  SettingsSchema,
+  SettingsStampSchema,
+  type Settings,
+  type SettingsStamp,
+} from "./schemas.js";
 
 /**
  * Reads user settings from a JSON file on the desktop side (Node only;

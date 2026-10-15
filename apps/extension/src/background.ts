@@ -33,7 +33,12 @@ import {
   type ModeBStart,
 } from "./mode-b.js";
 import { NativeChannel } from "./native-channel.js";
-import { loadSettings, loadSettingsStamp, saveSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
+import {
+  loadSettings,
+  loadSettingsStamp,
+  saveSettings,
+  SETTINGS_STORAGE_KEY,
+} from "./settings.js";
 import {
   applySettingsPush,
   NATIVE_HOST_NAME,
@@ -559,7 +564,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 /** Tells the desktop app the settings this extension holds, and when they were saved. */
 async function reportSettingsToDesktop(): Promise<void> {
   const [settings, stamp] = await Promise.all([loadSettings(), loadSettingsStamp()]);
-  sendToDesktop({ type: "settings-sync", settings: ManagedSettingsSchema.parse(settings), stamp });
+  sendToDesktop({
+    type: "settings-sync",
+    settings: ManagedSettingsSchema.parse(settings),
+    stamp,
+  });
 }
 
 /** Pushes are applied one at a time, each against the settings the last one left. */
@@ -571,9 +580,13 @@ function applyPushedSettings(settings: unknown, stamp: SettingsStamp): void {
       const result = await applySettingsPush(
         { settings: ManagedSettingsSchema.parse(settings), stamp },
         {
-          load: async () => ({ settings: await loadSettings(), stamp: await loadSettingsStamp() }),
+          load: async () => ({
+            settings: await loadSettings(),
+            stamp: await loadSettingsStamp(),
+          }),
           save: saveSettings,
-          modeBPermitted: () => chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }),
+          modeBPermitted: () =>
+            chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }),
         },
       );
       sendToDesktop(result);

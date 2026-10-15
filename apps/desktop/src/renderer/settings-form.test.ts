@@ -9,7 +9,12 @@ describe("settings form model", () => {
       Object.keys(ManagedSettingsSchema.parse({})).sort(),
     );
     const collect = models.find((m) => m.key === "collectTarget");
-    expect(collect).toMatchObject({ kind: "integer", min: 1, max: 10_000, label: "Posts to collect" });
+    expect(collect).toMatchObject({
+      kind: "integer",
+      min: 1,
+      max: 10_000,
+      label: "Posts to collect",
+    });
     const pacing = models.find((m) => m.key === "modeBPacing");
     expect(pacing).toMatchObject({ kind: "choice" });
     for (const model of models) expect(model.description.length).toBeGreaterThan(10);

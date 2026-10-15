@@ -21,7 +21,14 @@ import { z } from "zod";
  *   not a launcher shell.
  */
 
-export const BrowserFamilySchema = z.enum(["brave", "chrome", "edge", "vivaldi", "opera", "other"]);
+export const BrowserFamilySchema = z.enum([
+  "brave",
+  "chrome",
+  "edge",
+  "vivaldi",
+  "opera",
+  "other",
+]);
 export type BrowserFamily = z.infer<typeof BrowserFamilySchema>;
 
 export const BrowserIdentitySchema = z.object({

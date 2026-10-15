@@ -66,7 +66,11 @@ describe("identifyBrowser", () => {
       identifyBrowser(1, () => Promise.reject(new Error("no powershell")), "win32"),
     ).resolves.toEqual(UNKNOWN_BROWSER);
     await expect(
-      identifyBrowser(1, () => Promise.resolve([{ name: "brave.exe", exePath: null }]), "linux"),
+      identifyBrowser(
+        1,
+        () => Promise.resolve([{ name: "brave.exe", exePath: null }]),
+        "linux",
+      ),
     ).resolves.toEqual(UNKNOWN_BROWSER);
   });
 });

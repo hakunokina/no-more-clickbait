@@ -1,5 +1,5 @@
 import { UNSTAMPED, type BridgeReply, type CaptureSource } from "@nmc/core";
-import { identifyBrowser } from "./browser-identity.js";
+import { identifyBrowser, type BrowserIdentity } from "./browser-identity.js";
 import { CaptureStore } from "./capture-store.js";
 import { createCollectionRelay } from "./collection-relay.js";
 import { LinkClient } from "./desktop-link.js";
@@ -49,6 +49,13 @@ function captureStore(source: CaptureSource = "x"): CaptureStore {
 const sessionStore = new PostSessionStore();
 let link: LinkClient | null = null;
 let browserGone = false;
+/** Asked once and only by the long-lived port (one-shot hosts spawn nothing). */
+let browserIdentity: Promise<BrowserIdentity> | null = null;
+
+function hostBrowser(): Promise<BrowserIdentity> {
+  browserIdentity ??= identifyBrowser();
+  return browserIdentity;
+}
 
 process.stdout.on("error", () => {
   browserGone = true;
@@ -62,7 +69,7 @@ function pushToExtension(message: BridgeReply): void {
 function startDesktopLink(): void {
   if (link) return;
   link = new LinkClient({
-    browser: identifyBrowser(),
+    browser: hostBrowser(),
     // Desktop commands are extension pushes of the same shape.
     onCommand: pushToExtension,
     onConnectionChanged: (desktopConnected) => {
@@ -77,7 +84,11 @@ function startDesktopLink(): void {
 
 const decoder = new MessageDecoder();
 
-const relay = createCollectionRelay(sessionStore, (message) => link?.send(message));
+const relay = createCollectionRelay(
+  sessionStore,
+  (message) => link?.send(message),
+  () => hostBrowser().then((identity) => identity.family),
+);
 
 /**
  * In-flight message handlers. When stdin closes the process must not

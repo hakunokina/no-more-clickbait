@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { z } from "zod";
 import { PostBatchSchema, type CollectionMetrics, type Post, type PostBatch } from "@nmc/core";
+import { BrowserFamilySchema, type BrowserFamily } from "./browser-identity.js";
 import { desktopDataDir, SessionIdSchema } from "./desktop-link.js";
 
 /**
@@ -60,6 +61,8 @@ export const SessionInfoSchema = z.object({
   mode: z.enum(["A", "B"]),
   /** When the host learned the mode. */
   startedAt: z.string().datetime(),
+  /** The browser that collected it (family only, no install path); absent when unknown. */
+  browser: BrowserFamilySchema.optional(),
 });
 export type SessionInfo = z.infer<typeof SessionInfoSchema>;
 
@@ -195,12 +198,25 @@ export class PostSessionStore {
   /**
    * Records the session's collection mode in session.json (the only
    * writer). Before the first batch there is no folder yet: it is
-   * written with it. The first mode recorded stays.
+   * written with it. The first mode recorded stays. `browser` is the
+   * host's own browser (identified once per process; the queue waits
+   * for it so the tag is never written without it); `other` is left out.
    */
-  async markMode(mode: SessionInfo["mode"]): Promise<void> {
+  async markMode(
+    mode: SessionInfo["mode"],
+    browser?: Promise<BrowserFamily> | BrowserFamily,
+  ): Promise<void> {
     return this.#enqueue(async () => {
       if (this.#completed) return;
-      if (!this.#info) this.#info = { mode, startedAt: this.#now() };
+      if (!this.#info) {
+        const startedAt = this.#now();
+        const family = await Promise.resolve(browser).catch(() => undefined);
+        this.#info = {
+          mode,
+          startedAt,
+          ...(family !== undefined && family !== "other" ? { browser: family } : {}),
+        };
+      }
       // Written every time until it sticks: a failed write is retried by
       // the next mark or batch.
       await this.#writeInfo();

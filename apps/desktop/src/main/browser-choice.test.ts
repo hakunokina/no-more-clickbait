@@ -72,9 +72,9 @@ describe("resolveCollectBrowser", () => {
 
 describe("hostMatchesBrowser", () => {
   it("matches by exact executable when the host reported one", () => {
-    expect(hostMatchesBrowser({ family: "brave", exePath: "c:\\brave\\BRAVE.EXE" }, BRAVE)).toBe(
-      true,
-    );
+    expect(
+      hostMatchesBrowser({ family: "brave", exePath: "c:\\brave\\BRAVE.EXE" }, BRAVE),
+    ).toBe(true);
     expect(
       hostMatchesBrowser({ family: "brave", exePath: "C:\\BraveOrigin\\brave.exe" }, BRAVE),
     ).toBe(false);

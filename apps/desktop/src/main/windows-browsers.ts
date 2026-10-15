@@ -30,7 +30,11 @@ const START_MENU_INTERNET = "SOFTWARE\\Clients\\StartMenuInternet";
 
 /** The ProgId of the user's default https handler (e.g. "BraveOHTML"), or null. */
 export async function defaultBrowserProgId(reader: RegistryReader): Promise<string | null> {
-  const latest = await reader.readString("HKCU", `${HTTPS_ASSOCIATIONS}\\UserChoiceLatest\\ProgId`, "ProgId");
+  const latest = await reader.readString(
+    "HKCU",
+    `${HTTPS_ASSOCIATIONS}\\UserChoiceLatest\\ProgId`,
+    "ProgId",
+  );
   if (latest) return latest;
   return reader.readString("HKCU", `${HTTPS_ASSOCIATIONS}\\UserChoice`, "ProgId");
 }

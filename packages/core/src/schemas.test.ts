@@ -314,7 +314,9 @@ describe("collection and settings bridge messages", () => {
       settings,
       stamp,
     });
-    expect(BridgeReplySchema.safeParse({ type: "settings-push", settings }).success).toBe(false);
+    expect(BridgeReplySchema.safeParse({ type: "settings-push", settings }).success).toBe(
+      false,
+    );
     const result = {
       type: "settings-push-result",
       outcome: "applied",

@@ -116,7 +116,9 @@ describe("SettingsManager", () => {
     await mgr.change(changed);
     mgr.setBrowserConnected(true);
     pushes = [];
-    await mgr.handleSettingsState(stateEvent({ settings: defaults, stamp: stamp(T1, "extension") }));
+    await mgr.handleSettingsState(
+      stateEvent({ settings: defaults, stamp: stamp(T1, "extension") }),
+    );
     // Already sent on connect; the report does not displace the pending change.
     expect(mgr.state.settings).toEqual(changed);
     expect(mgr.state.pending).toBe(true);

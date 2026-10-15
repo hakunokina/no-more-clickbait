@@ -14,7 +14,14 @@ import {
  */
 
 export type SettingFieldModel =
-  | { key: string; kind: "integer"; min: number; max: number; label: string; description: string }
+  | {
+      key: string;
+      kind: "integer";
+      min: number;
+      max: number;
+      label: string;
+      description: string;
+    }
   | { key: string; kind: "boolean"; label: string; description: string }
   | {
       key: string;
@@ -44,7 +51,13 @@ function toModel(key: string, field: unknown): SettingFieldModel {
     };
   }
   if (f.kind === "choice") {
-    return { key, kind: "choice", options: f.options!, label: f.label, description: f.description };
+    return {
+      key,
+      kind: "choice",
+      options: f.options!,
+      label: f.label,
+      description: f.description,
+    };
   }
   return { key, kind: "boolean", label: f.label, description: f.description };
 }
@@ -185,9 +198,10 @@ export function buildSettingsForm(
     read() {
       const values: Record<string, string | boolean> = {};
       for (const [key, input] of inputs) {
-        values[key] = input instanceof HTMLInputElement && input.type === "checkbox"
-          ? input.checked
-          : input.value;
+        values[key] =
+          input instanceof HTMLInputElement && input.type === "checkbox"
+            ? input.checked
+            : input.value;
       }
       return parseSettingForm(values);
     },
