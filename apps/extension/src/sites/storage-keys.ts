@@ -8,3 +8,5 @@ export const SITE_STATES_KEY = "nmc.siteStates";
 export const SITE_REQUEST_BUFFER_KEY = "nmc.siteRequestBuffer";
 /** session: the rule id Options should highlight after the picker saved it. */
 export const SITE_NEW_RULE_KEY = "nmc.siteNewRule";
+/** session: tab ids the picker was opened in (only they may save through it). */
+export const SITE_PICKER_TABS_KEY = "nmc.sitePickerTabs";

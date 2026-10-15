@@ -124,6 +124,14 @@ function fakeChrome() {
     permissions: {
       contains: ({ permissions }: { permissions: string[] }) =>
         Promise.resolve(permissions.every((name) => granted.has(name))),
+      onAdded: event(),
+      onRemoved: event(),
+    },
+    // Custom sites (none stored here): their "more" hook registration.
+    scripting: {
+      getRegisteredContentScripts: () => Promise.resolve([]),
+      registerContentScripts: vi.fn(() => Promise.resolve()),
+      unregisterContentScripts: vi.fn(() => Promise.resolve()),
     },
     alarms: {
       create: vi.fn(() => Promise.resolve()),
