@@ -234,6 +234,13 @@ export const ModeBStrategySchema = z.enum([
 ]);
 export type ModeBStrategy = z.infer<typeof ModeBStrategySchema>;
 
+/**
+ * How a Mode B run paces its scroll steps: `response` waits for X to
+ * answer each jump before the next one; `fixed` jumps on a short timer.
+ */
+export const ModeBPacingSchema = z.enum(["response", "fixed"]);
+export type ModeBPacing = z.infer<typeof ModeBPacingSchema>;
+
 interface IntegerSettingField {
   kind: "integer";
   min: number;
@@ -510,6 +517,16 @@ export const ModeBRunSummarySchema = z.object({
   responseCount: z.number().int().nonnegative(),
   uniquePostCount: z.number().int().nonnegative(),
   stopReason: ModeBStopReasonSchema,
+  /** Fields below were added later; summaries stored before lack them. */
+  pacing: ModeBPacingSchema.optional(),
+  /** Scroll steps per minute, from the first step to the end. */
+  scrollsPerMinute: z.number().nonnegative().optional(),
+  /** Steps after which a new response had arrived, the page's first one excluded. */
+  stepsWithNewResponse: z.number().int().nonnegative().optional(),
+  /** Mean time from a jump to the next response (response pacing only). */
+  avgResponseLatencyMs: z.number().int().nonnegative().optional(),
+  /** The browser's error text behind the stop (e.g. why the window did not open). */
+  error: z.string().max(500).optional(),
 });
 export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
 
