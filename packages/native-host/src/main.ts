@@ -1,5 +1,6 @@
 import type { BridgeReply, CaptureSource } from "@nmc/core";
 import { CaptureStore } from "./capture-store.js";
+import { createCollectionRelay } from "./collection-relay.js";
 import { LinkClient } from "./desktop-link.js";
 import { MessageDecoder, encodeMessage } from "./framing.js";
 import { handleBridgeMessage } from "./handler.js";
@@ -55,12 +56,8 @@ function pushToExtension(message: BridgeReply): void {
 function startDesktopLink(): void {
   if (link) return;
   link = new LinkClient({
-    onCommand: (command) => {
-      pushToExtension({
-        type: "start-collection",
-        ...(command.target !== undefined ? { target: command.target } : {}),
-      });
-    },
+    // Desktop commands are extension pushes of the same shape.
+    onCommand: pushToExtension,
     onConnectionChanged: (desktopConnected) => {
       pushToExtension({ type: "link-status", desktopConnected, extensionConnected: true });
     },
@@ -72,6 +69,8 @@ function startDesktopLink(): void {
 }
 
 const decoder = new MessageDecoder();
+
+const relay = createCollectionRelay(sessionStore, (message) => link?.send(message));
 
 /**
  * In-flight message handlers. When stdin closes the process must not
@@ -102,12 +101,8 @@ function dispatch(raw: string): void {
         ...(target !== undefined ? { target } : {}),
       });
     },
-    onCollectionStartResult: (result) => {
-      link?.send(result);
-    },
-    onCollectionProgress: (progress) => {
-      link?.send(progress);
-    },
+    onCollectionStartResult: relay.onCollectionStartResult,
+    onCollectionProgress: relay.onCollectionProgress,
     onRawCapture: async (capture) => ({
       sequence: await captureStore(capture.source).store(capture),
     }),

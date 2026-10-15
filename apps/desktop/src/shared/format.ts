@@ -41,6 +41,7 @@ export function describeRun(status: DesktopStatus): string {
       return "Run cancelled";
     case "idle":
       if (collection.state === "requested") return "Asking the extension to collect…";
+      if (collection.state === "cancelling") return "Cancelling the collection…";
       if (collection.state === "collecting") {
         if (collection.count !== null && collection.target) {
           return `Collecting in the browser… ${formatCount(collection.count)} / ${formatCount(collection.target)} posts`;
@@ -84,12 +85,12 @@ export function describeStopReason(reason: string): string {
   return STOP_REASONS[reason] ?? reason;
 }
 
-/** Monitor note on sessions whose collection never completed; empty when none. */
+/** Monitor note on Mode B sessions whose collection never completed; empty when none. */
 export function describeUnfinished(status: DesktopStatus): string {
   const { count, newestAt } = status.unfinished;
   if (count === 0) return "";
   const when = newestAt ? ` (latest started ${new Date(newestAt).toLocaleString()})` : "";
   return count === 1
-    ? `1 earlier collection never finished${when}. Its posts stay on disk; it is not built.`
-    : `${count} earlier collections never finished${when}. Their posts stay on disk; they are not built.`;
+    ? `1 earlier collection was not completed${when}. Its posts stay on disk; it is not built.`
+    : `${count} earlier collections were not completed${when}. Their posts stay on disk; they are not built.`;
 }
