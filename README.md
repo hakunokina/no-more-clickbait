@@ -188,6 +188,16 @@ the payload shape and measure collection time:
    without values) — no subreddit, user name or post title.
    **Rebuild the host (`pnpm build`) before opening a Reddit tab with
    capture on:** an older host files Reddit data into the X folder.
+6. Instagram (www.instagram.com, home feed `/` only) goes into a
+   `<session time>-instagram\` folder: the feed blocks embedded in the
+   page (`ssr`) and the home feed's `/graphql/query` responses (labelled
+   by transport, e.g. `graphql-query:xhr-text`). The host parses them:
+   `uniquePostCount` is distinct organic posts (ads and repeats
+   dropped), and `summary.json`'s `instagram` block adds counts only —
+   feed slot mix (posts, suggested, ads, modules), post kinds, and
+   `captionless` / `shortCaption` (≤20 characters) with their ratios:
+   caption-less posts cannot be judged from text and are not shown.
+   Same rule: rebuild the host first.
 
 > **Raw captures are personal data.** They are your own home timeline as
 > X sent it to your browser. Keep them on your machine, never share
