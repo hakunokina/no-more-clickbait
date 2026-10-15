@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   CliNotAuthenticatedError,
   CliNotFoundError,
+  CliLlmProvider,
   CliRunError,
   createClaudeCliProvider,
   parseClaudeJsonOutput,
@@ -212,7 +213,7 @@ describe("createClaudeCliProvider (fake process)", () => {
     const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
     const provider = createClaudeCliProvider({
       spawnFn,
-      extraArgs: ["--append-system-prompt", "x"],
+      extraArgs: ["--add-dir", "x"],
     });
     await provider.complete({ prompt: "score" });
     const args = calls[0]?.args ?? [];
@@ -220,7 +221,7 @@ describe("createClaudeCliProvider (fake process)", () => {
     expect(args[args.indexOf("--mcp-config") + 1]).toBe('{"mcpServers":{}}');
     // Restriction flags come AFTER extraArgs, so last-wins CLI parsing
     // cannot let an integrator-supplied arg loosen them.
-    const extraAt = args.indexOf("--append-system-prompt");
+    const extraAt = args.indexOf("--add-dir");
     expect(args.indexOf("--tools")).toBeGreaterThan(extraAt);
     expect(args.indexOf("--strict-mcp-config")).toBeGreaterThan(extraAt);
   });
@@ -235,6 +236,11 @@ describe("createClaudeCliProvider (fake process)", () => {
       ["--strict-mcp-config=false"],
       ["--model", "other"],
       ["--effort=max"],
+      ["--system-prompt", "x"],
+      ["--append-system-prompt=x"],
+      ["--system-prompt-file", "p.txt"],
+      ["--setting-sources", "user"],
+      ["--settings", "{}"],
     ]) {
       expect(() => createClaudeCliProvider({ spawnFn, extraArgs })).toThrow(/extraArgs/);
     }
@@ -255,6 +261,64 @@ describe("createClaudeCliProvider (fake process)", () => {
     expect(pinned[pinned.indexOf("--effort") + 1]).toBe("low");
     expect(calls[1]?.args).not.toContain("--model");
     expect(calls[1]?.args).not.toContain("--effort");
+  });
+
+  it("passes the request's system prompt as --system-prompt, not via stdin", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    await createClaudeCliProvider({ spawnFn }).complete({
+      systemPrompt: "Sen bir puanlayıcısın.",
+      prompt: "veri",
+    });
+    await createClaudeCliProvider({ spawnFn }).complete({ prompt: "veri" });
+    const withPrompt = calls[0]?.args ?? [];
+    expect(withPrompt[withPrompt.indexOf("--system-prompt") + 1]).toBe("Sen bir puanlayıcısın.");
+    expect(calls[0]?.stdin).toBe("veri");
+    expect(calls[1]?.args).not.toContain("--system-prompt");
+  });
+
+  it("rejects a system prompt that is empty or could be read as a flag", async () => {
+    const { spawnFn } = fakeSpawn(() => ({ stdout: okJson }));
+    const provider = createClaudeCliProvider({ spawnFn });
+    for (const systemPrompt of ["", "  ", "--tools default"]) {
+      await expect(provider.complete({ systemPrompt, prompt: "x" })).rejects.toThrow(
+        /systemPrompt/,
+      );
+    }
+  });
+
+  it("prepends the system prompt to stdin for a CLI without system-prompt support", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    const provider = new CliLlmProvider(
+      {
+        id: "other-cli",
+        command: "other",
+        versionArgs: ["--version"],
+        buildArgs: () => ["run"],
+        parseOutput: parseClaudeJsonOutput,
+      },
+      { spawnFn },
+    );
+    await provider.complete({ systemPrompt: "TALIMAT", prompt: "veri" });
+    expect(calls[0]?.stdin).toBe("TALIMAT\n\nveri");
+  });
+
+  it("isolates the user's settings only when asked, and never on the auth check", async () => {
+    const { spawnFn, calls } = fakeSpawn((args) =>
+      args.includes("--version")
+        ? { stdout: "1.2.3" }
+        : args.includes("auth")
+          ? { stdout: JSON.stringify({ loggedIn: true }) }
+          : { stdout: okJson },
+    );
+    const isolated = createClaudeCliProvider({ spawnFn, isolateUserSettings: true });
+    await isolated.complete({ prompt: "x" });
+    expect(await isolated.checkAvailable()).toMatchObject({ ok: true });
+    await createClaudeCliProvider({ spawnFn }).complete({ prompt: "x" });
+    const completion = calls[0]?.args ?? [];
+    expect(completion[completion.indexOf("--setting-sources") + 1]).toBe("");
+    expect(calls[1]?.args).toEqual(["--version"]);
+    expect(calls[2]?.args).toEqual(["auth", "status"]);
+    expect(calls[3]?.args).not.toContain("--setting-sources");
   });
 
   it("rejects a model value that could be read as a flag", () => {

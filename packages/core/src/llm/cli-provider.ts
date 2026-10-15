@@ -12,7 +12,15 @@ import type { LlmCallMetrics } from "../metrics.js";
  */
 
 export interface LlmRequest {
+  /** The user message: the data to judge (fed via stdin). */
   prompt: string;
+  /**
+   * Instructions owned by the calling stage (Scorer, Verifier). A
+   * provider that supports a system prompt sends it as one, replacing
+   * the CLI's own agent prompt; a provider that does not prepends it to
+   * the user message — it is never silently dropped.
+   */
+  systemPrompt?: string;
   /**
    * Tools the CLI agent may use. Keep this as narrow as the job allows:
    * feed content is untrusted and a prompt-injection source. Scoring
@@ -92,6 +100,11 @@ export interface CliProviderSpec {
   command: string;
   /** argv for a non-interactive completion; the prompt is fed via stdin. */
   buildArgs(request: LlmRequest): string[];
+  /**
+   * True when `buildArgs` passes `request.systemPrompt` to the CLI.
+   * Otherwise the system prompt is prepended to the stdin message.
+   */
+  supportsSystemPrompt?: boolean;
   versionArgs: readonly string[];
   /** Optional argv reporting login state (see `parseAuthStatus`). */
   authCheckArgs?: readonly string[];
@@ -178,7 +191,7 @@ export class CliLlmProvider implements LlmProvider {
 
   async complete(request: LlmRequest): Promise<LlmResult> {
     const startedAt = Date.now();
-    const outcome = await this.#run(this.#spec.buildArgs(request), request.prompt);
+    const outcome = await this.#run(this.#spec.buildArgs(request), stdinMessage(this.#spec, request));
     const measuredMs = Date.now() - startedAt;
     if (outcome.exitCode !== 0) {
       // Only a failed run can signal an auth problem. On exit 0 the same
@@ -236,6 +249,11 @@ export class CliLlmProvider implements LlmProvider {
       child.stdin.end(stdinText);
     });
   }
+}
+
+function stdinMessage(spec: CliProviderSpec, request: LlmRequest): string {
+  if (request.systemPrompt === undefined || spec.supportsSystemPrompt) return request.prompt;
+  return `${request.systemPrompt}\n\n${request.prompt}`;
 }
 
 function firstLine(text: string): string {
@@ -351,6 +369,16 @@ export interface ClaudeCliOptions extends CliLlmProviderOptions {
    */
   effort?: ClaudeEffort;
   /**
+   * Load none of the user's/project's setting sources
+   * (`--setting-sources ""`): no CLAUDE.md, hooks, output style or
+   * other personal configuration reaches the call, so the judgement is
+   * the same on every machine and the user's private instructions never
+   * ride along with feed content. Auth is unaffected (OAuth/subscription
+   * login still works; measured with claude 2.1.300). Only completions
+   * get the flag — the `auth status` check runs unchanged.
+   */
+  isolateUserSettings?: boolean;
+  /**
    * Extra argv appended before the tool/MCP restriction flags. Flags
    * this provider owns are rejected (see RESERVED_FLAGS) — this is an
    * escape hatch for unrelated flags, not a way around the security
@@ -370,7 +398,9 @@ export type ClaudeEffort = "low" | "medium" | "high" | "xhigh" | "max";
  * accumulate rather than last-win (`--allowedTools`, `--mcp-config`),
  * so order alone is not a guarantee — reject them outright. Model and
  * effort have their own typed options; a second copy in extraArgs
- * would make the effective value depend on CLI parsing order.
+ * would make the effective value depend on CLI parsing order. The
+ * system-prompt and settings flags would let a caller slip the CLI's
+ * agent prompt or the user's settings (CLAUDE.md, hooks) back in.
  */
 const RESERVED_FLAGS = [
   "--tools",
@@ -380,6 +410,12 @@ const RESERVED_FLAGS = [
   "--strict-mcp-config",
   "--model",
   "--effort",
+  "--system-prompt",
+  "--system-prompt-file",
+  "--append-system-prompt",
+  "--append-system-prompt-file",
+  "--setting-sources",
+  "--settings",
 ] as const;
 
 function assertExtraArgsSafe(extraArgs: readonly string[]): void {
@@ -388,7 +424,8 @@ function assertExtraArgsSafe(extraArgs: readonly string[]): void {
     if ((RESERVED_FLAGS as readonly string[]).includes(flag)) {
       throw new Error(
         `extraArgs may not set "${flag}": tool/MCP restrictions keep feed content ` +
-          "away from tools and are not configurable; use the model/effort options instead.",
+          "away from tools and are not configurable; use the typed options " +
+          "(model, effort, isolateUserSettings, request.systemPrompt) instead.",
       );
     }
   }
@@ -443,11 +480,21 @@ export function createClaudeCliProvider(options: ClaudeCliOptions = {}): CliLlmP
       authCheckArgs: ["auth", "status"],
       parseAuthStatus: parseClaudeAuthStatus,
       authFailurePattern: /not logged in|please run \/login|authentication required/i,
+      supportsSystemPrompt: true,
       buildArgs: (request) => {
         const args = ["-p", "--output-format", outputFormat];
         if (outputFormat === "stream-json") args.push("--verbose");
         if (options.model !== undefined) args.push("--model", options.model);
         if (options.effort !== undefined) args.push("--effort", options.effort);
+        if (request.systemPrompt !== undefined) {
+          // Same flag-parsing concern as `model`: a leading "-" would be
+          // read as the next flag, an empty one leaves the CLI's default.
+          if (request.systemPrompt.trim() === "" || request.systemPrompt.startsWith("-")) {
+            throw new Error("systemPrompt must be non-empty text, not a flag");
+          }
+          args.push("--system-prompt", request.systemPrompt);
+        }
+        if (options.isolateUserSettings) args.push("--setting-sources", "");
         args.push(...extraArgs);
         // Restriction flags go LAST (after extraArgs). `--allowedTools`
         // only ADDS permissions; tools allowed in the user's own CLI

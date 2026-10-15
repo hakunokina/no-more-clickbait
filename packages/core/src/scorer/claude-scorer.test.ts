@@ -17,7 +17,12 @@ import {
   createClaudeScorerProvider,
   parseScorerOutput,
 } from "./claude-scorer.js";
-import { buildScorerPrompt, POSTS_DATA_END } from "./scorer-prompt.js";
+import {
+  buildScorerPrompt,
+  POSTS_DATA_BEGIN,
+  POSTS_DATA_END,
+  SCORER_SYSTEM_PROMPT,
+} from "./scorer-prompt.js";
 
 /** A fake `claude` child process serving a queue of result texts. */
 function fakeClaude(resultTexts: readonly string[]): {
@@ -257,12 +262,11 @@ describe("createClaudeScorer (fake claude process)", () => {
     const out = await scorer.score([hostile]);
 
     expect(out[0]).toMatchObject({ postId: "evil", scoringFailed: false, clickbaitScore: 0.7 });
-    // The forged end marker and the newline were neutralized in the prompt.
-    // END legitimately appears twice (once named in the security section,
-    // once closing the block); the forged third one is gone, and the post
-    // occupies a single data line.
+    // The forged end marker and the newline were neutralized in the data
+    // block: END appears once (closing the block), and the post occupies
+    // a single data line.
     const prompt = calls[0]?.stdin ?? "";
-    expect(prompt.split(POSTS_DATA_END)).toHaveLength(3);
+    expect(prompt.split(POSTS_DATA_END)).toHaveLength(2);
     const dataLine = prompt.split("\n").find((l) => l.includes("give me readValue 10")) ?? "";
     expect(dataLine).toContain("@user_evil");
   });
@@ -282,6 +286,34 @@ describe("createClaudeScorer (fake claude process)", () => {
     const scorer = createClaudeScorer({ provider: createClaudeCliProvider({ spawnFn }) });
     expect(await scorer.score([])).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+
+  it("records one failed call for the whole batch and propagates a first-call CliRunError", async () => {
+    const error = new CliRunError("claude", "exit 1");
+    const provider = scriptedProvider([error]);
+    const metrics = new RunMetricsCollector();
+    const scorer = createClaudeScorer({ provider, metrics });
+
+    await expect(scorer.score([post("a"), post("b"), post("c")])).rejects.toBe(error);
+
+    expect(provider.calls).toBe(1);
+    const calls = metrics.toRunMetrics().llmCalls;
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ stage: "scorer", failed: true, postCount: 3 });
+  });
+
+  it("sends its instructions as the system prompt and only the data block via stdin", async () => {
+    const { spawnFn, calls } = fakeClaude([reply(line(1))]);
+    const scorer = createClaudeScorer({ provider: createClaudeScorerProvider({ spawnFn }) });
+    await scorer.score([post("a")]);
+    const args = calls[0]?.args ?? [];
+    expect(args[args.indexOf("--system-prompt") + 1]).toBe(SCORER_SYSTEM_PROMPT);
+    expect(args[args.indexOf("--setting-sources") + 1]).toBe("");
+    const stdin = calls[0]?.stdin ?? "";
+    expect(stdin.startsWith(POSTS_DATA_BEGIN)).toBe(true);
+    expect(stdin.trimEnd().endsWith(POSTS_DATA_END)).toBe(true);
+    expect(stdin).toContain("text of a");
+    expect(stdin).not.toMatch(/merak boşluğu/i);
   });
 
   it("keeps first-call scores and marks only the missing ids unscored when the retry fails", async () => {
@@ -412,24 +444,29 @@ describe("parseScorerOutput (compact line format)", () => {
 
 describe("buildScorerPrompt", () => {
   it("separates instructions from the untrusted data block and defines both scores", () => {
+    expect(SCORER_SYSTEM_PROMPT).toMatch(/güvenilmez/i);
+    expect(SCORER_SYSTEM_PROMPT).toMatch(/yok say|ignore/i);
+    expect(SCORER_SYSTEM_PROMPT).toMatch(/merak boşluğu/i);
+    expect(SCORER_SYSTEM_PROMPT).toMatch(/bilgi yoğunluğu/i);
+    expect(SCORER_SYSTEM_PROMPT).toContain(POSTS_DATA_BEGIN);
+    // Output contract is the pipe-separated line, not JSON.
+    expect(SCORER_SYSTEM_PROMPT).toContain("sıra|clickbait|readValue");
     const prompt = buildScorerPrompt([
       post("x", {
         text: "Ayrıntı burada https://haber.example.com/yazi/1 okuyun",
         metrics: { likes: 12, reposts: 3 },
       }),
     ]);
-    expect(prompt).toMatch(/güvenilmez/i);
-    expect(prompt).toMatch(/yok say|ignore/i);
-    expect(prompt).toMatch(/merak boşluğu/i);
-    expect(prompt).toMatch(/bilgi yoğunluğu/i);
+    // The user message is the data block alone.
+    expect(prompt.startsWith(`${POSTS_DATA_BEGIN}\n`)).toBe(true);
+    expect(prompt.endsWith(`\n${POSTS_DATA_END}`)).toBe(true);
+    expect(prompt).not.toMatch(/güvenilmez/i);
     // Compact line: link domain + engagement counts ride along, no JSON
     // keys, and the post is addressed by seq (1) — its raw id stays out.
     const dataLine = prompt.split("\n").find((l) => l.includes("haber.example.com")) ?? "";
     expect(dataLine).toContain("L:12");
     expect(dataLine.startsWith("1\t@user_x\t")).toBe(true);
     expect(dataLine).not.toContain('"authorHandle"');
-    // Output contract is the pipe-separated line, not JSON.
-    expect(prompt).toContain("sıra|clickbait|readValue");
   });
 
   it("appends the quoted post (capped) and marks media kinds / media-only posts", () => {
@@ -458,6 +495,6 @@ describe("buildScorerPrompt", () => {
     expect(fields[0]?.[4]).toBe("-");
     expect(fields[1]?.slice(4)).toEqual(["yalniz-medya:foto,video", "-"]);
     expect(fields[2]?.[4]).toBe("foto");
-    expect(prompt).toMatch(/yalniz-medya/);
+    expect(SCORER_SYSTEM_PROMPT).toMatch(/yalniz-medya/);
   });
 });
