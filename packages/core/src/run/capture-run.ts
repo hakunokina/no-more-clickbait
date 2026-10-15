@@ -48,6 +48,8 @@ export interface LoadedCapture {
    * limited to the first N dumps, derived from those dumps alone.
    */
   collection?: CollectionMetrics;
+  /** Things the caller should surface (e.g. collection metrics dropped). */
+  warnings: string[];
 }
 
 export interface LoadCaptureOptions {
@@ -93,6 +95,7 @@ export async function loadCapture(
   const parseMs = Date.now() - started;
 
   let collection: CollectionMetrics | undefined;
+  const warnings: string[] = [];
   if (files.length < all.length) {
     // summary.json covers the whole session; rebuild it for the subset
     // the way the native host does (times from the dump names).
@@ -105,6 +108,11 @@ export async function loadCapture(
         responseCount: files.length,
         ...rough,
       };
+    } else {
+      warnings.push(
+        `collection metrics omitted: dump names "${files[0]}"/"${files[files.length - 1]}" ` +
+          "do not match the <seq>-<ISO time>-HomeTimeline.json stamp",
+      );
     }
   } else {
     try {
@@ -123,6 +131,7 @@ export async function loadCapture(
     parse: parse as HomeTimelineParseStats,
     parseMs,
     ...(collection ? { collection } : {}),
+    warnings,
   };
 }
 

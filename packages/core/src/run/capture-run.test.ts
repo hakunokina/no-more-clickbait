@@ -80,6 +80,25 @@ describe("capture run (synthetic capture directory)", () => {
     });
     expect(first.collection?.postCount).toBeGreaterThan(0);
     expect(first.posts.length).toBeLessThan(capture.posts.length);
+    expect(first.warnings).toEqual([]);
+  });
+
+  it("warns instead of silently dropping collection metrics for unstamped dump names", async () => {
+    const odd = await mkdtemp(join(tmpdir(), "nmc-capture-odd-"));
+    try {
+      for (const [n, name] of [
+        [1, "a-HomeTimeline.json"],
+        [2, "b-HomeTimeline.json"],
+      ] as const) {
+        await copyFile(join(fixtures, "x-home-timeline", `response-${n}.json`), join(odd, name));
+      }
+      const limited = await loadCapture(odd, { maxResponses: 1 });
+      expect(limited.collection).toBeUndefined();
+      expect(limited.warnings).toHaveLength(1);
+      expect(limited.warnings[0]).toMatch(/collection metrics omitted/);
+    } finally {
+      await rm(odd, { recursive: true, force: true });
+    }
   });
 
   it("runs parse → hard filter → scorer → selector and reports every stage", async () => {

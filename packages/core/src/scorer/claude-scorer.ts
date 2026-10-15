@@ -11,7 +11,7 @@ import {
 import type { RunMetricsCollector } from "../metrics.js";
 import type { Scorer } from "../pipeline.js";
 import type { Post, ScoreEntry } from "../schemas.js";
-import { buildScorerPrompt } from "./scorer-prompt.js";
+import { buildScorerPrompt, SCORER_SYSTEM_PROMPT } from "./scorer-prompt.js";
 
 /**
  * Phase 1 Scorer: one LLM call scores the whole (hard-filtered) batch.
@@ -176,10 +176,16 @@ function unscoredEntry(postId: string): ScoreEntry {
  * posts) for no change in judgement — at "low" the same batch took
  * 412 tokens, 0 thinking, with no score moving by 2+ and no
  * check-worthy flag flipping (smoke test, 10 synthetic posts).
+ * isolateUserSettings: the user's CLAUDE.md, hooks and other personal
+ * settings stay out of the call (privacy + the same judgement on every
+ * machine); with the Scorer's own system prompt replacing the CLI's
+ * agent prompt, the fixed per-call overhead fell from 2211 to 624
+ * input tokens (trivial call, claude 2.1.300, OAuth login).
  */
 export const CLAUDE_SCORER_CLI_DEFAULTS = {
   model: "claude-opus-5-5",
   effort: "low",
+  isolateUserSettings: true,
 } as const satisfies ClaudeCliOptions;
 
 /**
@@ -213,7 +219,12 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
     try {
       // No allowedTools: the provider hard-disables the tool set, so feed
       // content has nothing to invoke even under prompt injection.
-      result = await provider.complete({ prompt: buildScorerPrompt(posts) });
+      // Instructions as the system prompt, the post data block as the
+      // user message: feed content never shares a message with them.
+      result = await provider.complete({
+        systemPrompt: SCORER_SYSTEM_PROMPT,
+        prompt: buildScorerPrompt(posts),
+      });
     } catch (error) {
       metrics?.recordLlmCall({
         providerId: provider.id,

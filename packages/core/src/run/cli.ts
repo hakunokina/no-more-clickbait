@@ -69,6 +69,7 @@ const capture = await loadCapture(
   captureDir,
   maxResponses !== undefined ? { maxResponses } : {},
 );
+for (const warning of capture.warnings) console.error(`warning: ${warning}`);
 const metrics = new RunMetricsCollector();
 const report = await runCapture(capture, {
   scorer: createClaudeScorer({ provider, metrics }),
@@ -95,6 +96,9 @@ console.log(
       llmCalls: t.llmCallCount,
       failedCalls: t.failedCallCount,
       llmMs: t.totalDurationMs,
+      // inputTokens alone is only the uncached part; the total is what
+      // the model actually read.
+      totalInputTokens: t.inputTokens + t.cacheReadTokens + t.cacheCreationTokens,
       inputTokens: t.inputTokens,
       cacheReadTokens: t.cacheReadTokens,
       cacheCreationTokens: t.cacheCreationTokens,
