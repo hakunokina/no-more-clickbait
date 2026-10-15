@@ -8,10 +8,11 @@ import {
   type LlmProvider,
   type LlmResult,
 } from "../llm/cli-provider.js";
+import { feedItemKey } from "../feed-item.js";
 import type { RunMetricsCollector } from "../metrics.js";
 import type { Scorer } from "../pipeline.js";
-import type { Post, ScoreEntry } from "../schemas.js";
-import { buildScorerPrompt, SCORER_SYSTEM_PROMPT } from "./scorer-prompt.js";
+import type { FeedItem, ScoreEntry } from "../schemas.js";
+import { buildScorerPrompt, scorerSystemPrompt } from "./scorer-prompt.js";
 
 /**
  * Phase 1 Scorer: one LLM call scores the whole (hard-filtered) batch.
@@ -214,7 +215,7 @@ export interface ClaudeScorerOptions {
 export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
   const { provider, metrics } = options;
 
-  async function callOnce(posts: readonly Post[]): Promise<Map<string, ClaudeScorerEntry>> {
+  async function callOnce(posts: readonly FeedItem[]): Promise<Map<string, ClaudeScorerEntry>> {
     const startedAt = new Date().toISOString();
     const started = Date.now();
     let result: LlmResult;
@@ -224,7 +225,7 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
       // Instructions as the system prompt, the post data block as the
       // user message: feed content never shares a message with them.
       result = await provider.complete({
-        systemPrompt: SCORER_SYSTEM_PROMPT,
+        systemPrompt: scorerSystemPrompt(posts),
         prompt: buildScorerPrompt(posts),
       });
     } catch (error) {
@@ -245,17 +246,14 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
       ...llmResultToCallMetrics(provider.id, "scorer", startedAt, result),
       postCount: posts.length,
     });
-    return parseScorerOutput(
-      result.text,
-      posts.map((post) => post.id),
-    );
+    return parseScorerOutput(result.text, posts.map(feedItemKey));
   }
 
   return {
     async score(posts) {
       if (posts.length === 0) return [];
       const byId = await callOnce(posts);
-      const missing = posts.filter((post) => !byId.has(post.id));
+      const missing = posts.filter((post) => !byId.has(feedItemKey(post)));
       if (missing.length > 0) {
         try {
           for (const [id, entry] of await callOnce(missing)) byId.set(id, entry);
@@ -266,8 +264,9 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
         }
       }
       return posts.map((post) => {
-        const entry = byId.get(post.id);
-        return entry ? toScoreEntry(entry) : unscoredEntry(post.id);
+        const key = feedItemKey(post);
+        const entry = byId.get(key);
+        return entry ? toScoreEntry(entry) : unscoredEntry(key);
       });
     },
   };

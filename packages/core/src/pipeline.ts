@@ -1,3 +1,4 @@
+import { feedItemKey, isMediaOnly } from "./feed-item.js";
 import {
   RunMetricsCollector,
   type CollectionMetrics,
@@ -6,8 +7,8 @@ import {
 } from "./metrics.js";
 import {
   PIPELINE_SETTING_FIELDS,
+  type FeedItem,
   type PipelineSettingKey,
-  type Post,
   type RankedPost,
   type ScoreEntry,
   type Settings,
@@ -43,16 +44,22 @@ import {
  *
  * Every input post lands in exactly one funnel bucket (`FunnelCounts`),
  * so the reader-facing tally always adds up to the scanned count.
+ *
+ * Posts are `FeedItem`s: X posts, Instagram posts and generic items
+ * (Reddit, custom URL rules) run through the same stages in one batch.
+ * Only the Scorer and Verifier prompts format them by source; filtering,
+ * ranking and the funnel are source-blind. Scores and verifications are
+ * matched to items by `feedItemKey` (an X post's bare id).
  */
 
 /** Cheap, deterministic pre-filter implemented in plain code (no LLM). */
 export interface HardFilter {
-  keep(post: Post): boolean;
+  keep(item: FeedItem): boolean;
 }
 
 /** Scores every surviving post in a single call. */
 export interface Scorer {
-  score(posts: readonly Post[]): Promise<readonly ScoreEntry[]>;
+  score(posts: readonly FeedItem[]): Promise<readonly ScoreEntry[]>;
 }
 
 export interface SelectorOptions {
@@ -67,7 +74,7 @@ export interface SelectorOptions {
 }
 
 export interface ScoredPost {
-  post: Post;
+  post: FeedItem;
   score: ScoreEntry;
 }
 
@@ -86,7 +93,7 @@ export interface Selector {
 
 /** Verifies one claim of one post. Implementations run in parallel. */
 export interface Verifier {
-  verify(post: Post, claim: string): Promise<VerificationResult>;
+  verify(post: FeedItem, claim: string): Promise<VerificationResult>;
 }
 
 export function createThresholdSelector(options: SelectorOptions): Selector {
@@ -223,7 +230,7 @@ export interface PipelineRunResult {
    * Media-only posts that passed the hard filter, in feed order: not
    * scored, not ranked, not counted against `timelineSize`.
    */
-  unjudged: Post[];
+  unjudged: FeedItem[];
   /** Absent when the pipeline has no Verifier. */
   verification?: VerificationStats;
   /** Where every input post went (also in `metrics.funnel`). */
@@ -237,7 +244,7 @@ function isCheckWorthy(score: ScoreEntry): boolean {
 
 export async function runPipeline(
   pipeline: Pipeline,
-  posts: readonly Post[],
+  posts: readonly FeedItem[],
   options: PipelineOptions,
 ): Promise<PipelineRunResult> {
   const metrics = options.metrics ?? new RunMetricsCollector();
@@ -294,23 +301,23 @@ export async function runPipeline(
     }),
   );
   metrics.postsAfterHardFilter = kept.length;
-  const unjudged = kept.filter((post) => post.mediaOnly);
-  const judgeable = kept.filter((post) => !post.mediaOnly);
+  const unjudged = kept.filter((post) => isMediaOnly(post));
+  const judgeable = kept.filter((post) => !isMediaOnly(post));
   funnel.mediaOnly = unjudged.length;
   if (judgeable.length === 0) return finish([], 0);
 
   const scores = await timed("scorer", () => pipeline.scorer.score(judgeable));
   const byId = new Map(scores.map((score) => [score.postId, score]));
   const scored: ScoredPost[] = judgeable.flatMap((post) => {
-    const score = byId.get(post.id);
+    const score = byId.get(feedItemKey(post));
     return score ? [{ post, score }] : [];
   });
   funnel.scoringFailed = judgeable.length - scored.length;
 
   const candidates = await timed("selector", () => pipeline.selector.select(scored));
-  const candidateIds = new Set(candidates.map(({ post }) => post.id));
+  const candidateKeys = new Set(candidates.map(({ post }) => feedItemKey(post)));
   for (const entry of scored) {
-    if (candidateIds.has(entry.post.id)) continue;
+    if (candidateKeys.has(feedItemKey(entry.post))) continue;
     if (entry.score.scoringFailed) funnel.scoringFailed += 1;
     else funnel[pipeline.selector.rejection(entry)] += 1;
   }
