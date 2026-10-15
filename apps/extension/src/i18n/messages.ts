@@ -349,6 +349,7 @@ export const EN = {
   importFileRead: "The file could not be read.",
   importTesting: "Checking and testing the rule…",
   importAdded: "“$1” added — tested on the page: $2 items.",
+  importAddedTestFailed: "“$1” added, but the test did not work: $2",
   importAddedNoPerm:
     "“$1” added, but the browser did not grant access; it is not collected until you allow it.",
 } as const;
@@ -695,6 +696,7 @@ export const TR: Record<MessageKey, string> = {
   importFileRead: "Dosya okunamadı.",
   importTesting: "Kural denetleniyor ve sınanıyor…",
   importAdded: "“$1” eklendi — sayfada sınandı: $2 öğe.",
+  importAddedTestFailed: "“$1” eklendi ama sınama çalışmadı: $2",
   importAddedNoPerm: "“$1” eklendi ama tarayıcı izin vermedi; izin verilene kadar toplanmaz.",
 };
 

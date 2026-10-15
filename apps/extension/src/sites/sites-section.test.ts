@@ -20,6 +20,8 @@ interface Harness {
 }
 
 let t: Harness;
+/** The worker refuses every message (what Options got before #2023's sender fix). */
+let refuse = false;
 
 async function setup(pages: Record<string, string> = {}): Promise<Harness> {
   document.body.innerHTML = '<section id="sites" class="sites"></section>';
@@ -42,6 +44,7 @@ async function setup(pages: Record<string, string> = {}): Promise<Harness> {
   const local = new MemoryArea();
   const session = new MemoryArea();
   const sent: SiteWorkerMessage[] = [];
+  refuse = false;
   const section = new SitesSection(container, {
     doc: document,
     local,
@@ -49,6 +52,7 @@ async function setup(pages: Record<string, string> = {}): Promise<Harness> {
     permissions,
     send: (message) => {
       sent.push(message);
+      if (refuse) return Promise.resolve({ ok: false, message: "not allowed" });
       if (message.kind === "site-probe") return Promise.resolve({ ok: true, count: 9 });
       return Promise.resolve({ ok: true });
     },
@@ -172,6 +176,16 @@ describe("Options › Sites", () => {
         pattern: "news.example.invalid/world/*",
       },
     });
+  });
+
+  it("says so when the worker refuses to open the picker", async () => {
+    refuse = true;
+    click(q("#add-btn"));
+    type(q<HTMLInputElement>("#url-in"), "https://news.example.invalid/world");
+    submit(q<HTMLFormElement>("#addform"));
+    await vi.waitFor(() =>
+      expect(q(".toast").textContent).toContain("Could not open the picker: not allowed"),
+    );
   });
 
   it("opens nothing when the browser refuses the permission", async () => {
@@ -320,6 +334,22 @@ describe("Options › Sites", () => {
     expect(t.sent.at(-1)?.kind).toBe("site-probe");
     await vi.waitFor(() =>
       expect(q(".toast").textContent).toContain("tested on the page: 9 items"),
+    );
+  });
+
+  it("imports but says the test did not run when the worker refuses it", async () => {
+    refuse = true;
+    click(q(".toolbar [data-act='import']"));
+    type(
+      q<HTMLTextAreaElement>(".dlg textarea:not([readonly])"),
+      serializeSiteRule(siteRule()),
+    );
+    submit(q<HTMLFormElement>("#imp-form"));
+    await vi.waitFor(async () => expect(await loadSiteRules(t.local)).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(q(".toast").textContent).toContain(
+        "added, but the test did not work: not allowed",
+      ),
     );
   });
 

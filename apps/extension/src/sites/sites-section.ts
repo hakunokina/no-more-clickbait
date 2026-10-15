@@ -870,7 +870,12 @@ export class SitesSection {
     repickOf?: string;
   }): Promise<void> {
     try {
-      await this.deps.send({ kind: "site-picker-open", target });
+      const answer = (await this.deps.send({ kind: "site-picker-open", target })) as
+        { ok?: boolean; message?: string } | undefined;
+      if (answer?.ok !== true) {
+        this.say(t("pickerFailed", answer?.message ?? "?"));
+        return;
+      }
       this.openAdd(false);
       this.say(t("pickerOpening"));
     } catch (error) {
@@ -1129,12 +1134,18 @@ export class SitesSection {
     const permitted = await granted;
     let count = 0;
     let staticWorked = false;
+    // Why the test gave nothing (a refusal, an error), so "0 items" is never silent.
+    let testProblem: string | undefined;
     if (permitted) {
       const probe = (await this.deps
         .send({ kind: "site-probe", rule })
-        .catch(() => undefined)) as SiteProbeAnswer | undefined;
+        .catch((error: unknown) => ({ ok: false, message: String(error) }))) as
+        Partial<SiteProbeAnswer> | undefined;
       count = probe?.count ?? 0;
       staticWorked = probe?.staticWorked === true;
+      if (count === 0 && (probe?.count === undefined || probe.message)) {
+        testProblem = probe?.message ?? "?";
+      }
     }
     const saved = await saveSiteRule(this.deps.local, rule);
     await updateSiteState(this.deps.local, saved.id, {
@@ -1148,7 +1159,11 @@ export class SitesSection {
     await this.refresh();
     this.focusRow(saved.id, "repick");
     this.say(
-      permitted ? t("importAdded", saved.name, count) : t("importAddedNoPerm", saved.name),
+      !permitted
+        ? t("importAddedNoPerm", saved.name)
+        : testProblem !== undefined
+          ? t("importAddedTestFailed", saved.name, testProblem)
+          : t("importAdded", saved.name, count),
     );
   }
 
