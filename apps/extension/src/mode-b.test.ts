@@ -6,12 +6,12 @@ import {
   applyStep,
   isRateLimited,
   loadModeBPacing,
+  LEGACY_MODE_B_PACING_KEY,
   MODE_B_LIMITS,
-  MODE_B_PACING_KEY,
   MODE_B_RUN_KEY,
   ModeBRunner,
-  responsePauseMs,
   stepDelayMs,
+  summarize,
   surfaceRequest,
   X_HOME_URL,
   type ModeBBrowser,
@@ -29,7 +29,7 @@ const page = (overrides: Partial<ModeBPageReport> = {}): ModeBPageReport => ({
 function run(overrides: Partial<ModeBRun> = {}): ModeBRun {
   return {
     strategy: "minimized-window",
-    pacing: "fixed",
+    pacing: "normal",
     counter: "extension",
     target: 100,
     startedAt: 0,
@@ -46,9 +46,6 @@ function run(overrides: Partial<ModeBRun> = {}): ModeBRun {
     unansweredSince: null,
     responsesAtLastStep: 0,
     stepsWithNewResponse: 0,
-    awaitingSince: null,
-    responseLatencyTotalMs: 0,
-    responseLatencyCount: 0,
     lastError: null,
     ...overrides,
   };
@@ -57,15 +54,9 @@ function run(overrides: Partial<ModeBRun> = {}): ModeBRun {
 describe("surfaceRequest", () => {
   it("opens a minimized, unfocused window", () => {
     expect(surfaceRequest("minimized-window", {})).toEqual({
-      kind: "window",
-      create: { url: X_HOME_URL, state: "minimized", focused: false },
-    });
-  });
-
-  it("opens an inactive tab in the current window", () => {
-    expect(surfaceRequest("background-tab", {})).toEqual({
-      kind: "tab",
-      create: { url: X_HOME_URL, active: false },
+      url: X_HOME_URL,
+      state: "minimized",
+      focused: false,
     });
   });
 
@@ -77,17 +68,14 @@ describe("surfaceRequest", () => {
       height: 900,
     });
     expect(request).toEqual({
-      kind: "window",
-      create: {
-        url: X_HOME_URL,
-        state: "normal",
-        focused: false,
-        width: 480,
-        height: 720,
-        // 60% of the width stays inside (Chromium wants >= 50% on screen).
-        left: 1412,
-        top: 230,
-      },
+      url: X_HOME_URL,
+      state: "normal",
+      focused: false,
+      width: 480,
+      height: 720,
+      // 60% of the width stays inside (Chromium wants >= 50% on screen).
+      left: 1412,
+      top: 230,
     });
   });
 
@@ -99,20 +87,21 @@ describe("surfaceRequest", () => {
       height: 28,
       state: "minimized",
     });
-    expect(request.create).toMatchObject({ left: 992, top: 80 });
+    expect(request).toMatchObject({ left: 992, top: 80 });
   });
 });
 
 describe("step pauses", () => {
-  it("fixed pacing waits 0.36–0.70 s, a fifth of the first version's 1.8–3.5 s", () => {
+  it("normal pacing waits 0.36–0.70 s, a fifth of the first version's 1.8–3.5 s", () => {
     expect(stepDelayMs(0)).toBe(360);
-    expect(stepDelayMs(0.5)).toBe(530);
-    expect(stepDelayMs(0.9999)).toBeLessThan(700);
+    expect(stepDelayMs(0.5, "normal")).toBe(530);
+    expect(stepDelayMs(0.9999, "normal")).toBeLessThan(700);
   });
 
-  it("response pacing rests 0.4–1.2 s after X answered", () => {
-    expect(responsePauseMs(0)).toBe(400);
-    expect(responsePauseMs(0.9999)).toBeLessThan(1_200);
+  it("fast pacing waits half as long, 0.18–0.35 s", () => {
+    expect(stepDelayMs(0, "fast")).toBe(180);
+    expect(stepDelayMs(0.5, "fast")).toBe(265);
+    expect(stepDelayMs(0.9999, "fast")).toBeLessThan(350);
   });
 });
 
@@ -171,6 +160,12 @@ describe("applyStep", () => {
     current = applyStep({ ...current, responseCount: 3 }, page(), 3_000).run;
     current = applyStep({ ...current, responseCount: 4 }, page(), 4_000).run;
     expect(current.stepsWithNewResponse).toBe(2);
+    // The last step's response arrives after it: the summary still counts it.
+    const ended = { ...current, responseCount: 5 };
+    expect(ended.stepsWithNewResponse).toBe(2);
+    expect(summarize(ended, 5_000, "target-reached").stepsWithNewResponse).toBe(3);
+    // Only the page's initial load: nothing a step brought.
+    expect(summarize(run({ responseCount: 1 }), 5_000, "stalled").stepsWithNewResponse).toBe(0);
   });
 
   it("stops at the time limit", () => {
@@ -236,7 +231,7 @@ describe("ModeBRunner", () => {
     },
   };
   const start = { strategy: "minimized-window", target: 50, counter: "extension" } as const;
-  const fixed = { loadPacing: () => Promise.resolve("fixed" as const) };
+  const fixed = { loadPacing: () => Promise.resolve("normal" as const) };
 
   beforeEach(() => {
     vi.useFakeTimers();
@@ -261,7 +256,7 @@ describe("ModeBRunner", () => {
     await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs - 1);
     expect(browser.sendStep).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);
-    expect(browser.sendStep).toHaveBeenCalledWith(7, { kind: "mode-b-step", action: "jump" });
+    expect(browser.sendStep).toHaveBeenCalledWith(7, { kind: "mode-b-step" });
     await runner.onResponse(7, false);
     await runner.onCount(30, "extension");
     await vi.advanceTimersByTimeAsync(stepDelayMs(0));
@@ -284,7 +279,7 @@ describe("ModeBRunner", () => {
         responseCount: 1,
         uniquePostCount: 50,
         stopReason: "target-reached",
-        pacing: "fixed",
+        pacing: "normal",
         // 2 steps over the 0.36 s since the first one.
         scrollsPerMinute: 333.3,
         stepsWithNewResponse: 0,
@@ -295,14 +290,13 @@ describe("ModeBRunner", () => {
     expect(browser.sendStep).toHaveBeenCalledTimes(2);
   });
 
-  it("closes a background tab, not a window", async () => {
+  it("closes its window when the page is not logged in", async () => {
     const browser = fakeBrowser(() => page({ page: "login" }));
     const runner = new ModeBRunner(browser, area, hooks, fixed);
-    await runner.start({ ...start, strategy: "background-tab" });
-    expect(browser.openTab).toHaveBeenCalledWith({ url: X_HOME_URL, active: false });
+    await runner.start(start);
     await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
-    expect(browser.closeTab).toHaveBeenCalledWith(9);
-    expect(browser.closeWindow).not.toHaveBeenCalled();
+    expect(browser.closeWindow).toHaveBeenCalledWith(3);
+    expect(browser.openTab).not.toHaveBeenCalled();
     expect(finished[0]?.stopReason).toBe("not-logged-in");
   });
 
@@ -334,7 +328,7 @@ describe("ModeBRunner", () => {
     expect(finished[0]).toMatchObject({
       stopReason: "failed-to-open",
       scrollCount: 0,
-      pacing: "fixed",
+      pacing: "normal",
       error: reason,
     });
     expect(await runner.current()).toBeNull();
@@ -401,69 +395,23 @@ describe("ModeBRunner", () => {
     expect(browser.sendStep.mock.calls.length).toBeGreaterThan(20);
   });
 
-  it("response pacing: waits for X's answer, rests, then jumps again", async () => {
+  it("fast pacing jumps twice as often, but gives up after the same stall time", async () => {
     const browser = fakeBrowser();
     const runner = new ModeBRunner(browser, area, hooks, {
-      loadPacing: () => Promise.resolve("response"),
+      loadPacing: () => Promise.resolve("fast"),
       random: () => 0,
     });
     await runner.start(start);
     await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
     expect(browser.sendStep).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(300);
-    await runner.onResponse(7, false);
-    await vi.advanceTimersByTimeAsync(responsePauseMs(0) - 1);
-    expect(browser.sendStep).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(1);
-    expect(browser.sendStep).toHaveBeenLastCalledWith(7, {
-      kind: "mode-b-step",
-      action: "jump",
-    });
-    expect(await runner.current()).toMatchObject({
-      responseLatencyTotalMs: 300,
-      responseLatencyCount: 1,
-    });
-    await runner.stop();
-    expect(finished[0]).toMatchObject({ pacing: "response", avgResponseLatencyMs: 300 });
-  });
-
-  it("response pacing: nudges once when X ignores a jump, then jumps again", async () => {
-    const browser = fakeBrowser();
-    const runner = new ModeBRunner(browser, area, hooks, {
-      loadPacing: () => Promise.resolve("response"),
-      random: () => 0,
-    });
-    await runner.start(start);
-    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
-    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.responseWaitMs);
-    expect(browser.sendStep).toHaveBeenLastCalledWith(7, {
-      kind: "mode-b-step",
-      action: "nudge",
-    });
-    await vi.advanceTimersByTimeAsync(stepDelayMs(0));
-    expect(browser.sendStep.mock.calls.map(([, message]) => message.action)).toEqual([
-      "jump",
-      "nudge",
-      "jump",
-    ]);
-  });
-
-  it("response pacing: ignored jumps still fit at least 10 jumps into the stall window", async () => {
-    expect(MODE_B_LIMITS.responseWaitMs).toBeLessThanOrEqual(1_500);
-    const browser = fakeBrowser();
-    const runner = new ModeBRunner(browser, area, hooks, {
-      loadPacing: () => Promise.resolve("response"),
-      random: () => 0.9999, // the slowest rest after each nudge
-    });
-    await runner.start(start);
-    // The stall is noticed at the first step past the window: one more cycle at most.
-    const cycle = MODE_B_LIMITS.responseWaitMs + stepDelayMs(0.9999);
-    await vi.advanceTimersByTimeAsync(
-      MODE_B_LIMITS.firstStepDelayMs + MODE_B_LIMITS.stallMs + cycle,
-    );
-    expect(finished[0]).toMatchObject({ stopReason: "stalled" });
-    const jumps = browser.sendStep.mock.calls.filter(([, m]) => m.action === "jump").length;
-    expect(jumps).toBeGreaterThanOrEqual(10);
+    await vi.advanceTimersByTimeAsync(stepDelayMs(0, "fast"));
+    expect(browser.sendStep).toHaveBeenCalledTimes(2);
+    expect(stepDelayMs(0, "fast")).toBeLessThan(stepDelayMs(0, "normal"));
+    // The stall is noticed at the first step past the window.
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.stallMs - stepDelayMs(0, "fast"));
+    expect(finished).toEqual([]);
+    await vi.advanceTimersByTimeAsync(stepDelayMs(0, "fast"));
+    expect(finished[0]).toMatchObject({ stopReason: "stalled", pacing: "fast" });
   });
 
   it("resumes a stored run after a service-worker restart", async () => {
@@ -486,14 +434,20 @@ describe("ModeBRunner", () => {
 });
 
 describe("loadModeBPacing", () => {
-  it("reads the stored choice and falls back to fixed pacing", async () => {
-    const area = (value: unknown) => ({
-      get: () => Promise.resolve({ [MODE_B_PACING_KEY]: value }),
-    });
-    await expect(loadModeBPacing(area("response") as never)).resolves.toBe("response");
-    await expect(loadModeBPacing(area("warp") as never)).resolves.toBe("fixed");
+  const local = () => ({ remove: vi.fn(() => Promise.resolve()) });
+
+  it("reads Settings and drops the pacing trial's old key", async () => {
+    const storage = local();
     await expect(
-      loadModeBPacing({ get: () => Promise.reject(new Error("gone")) } as never),
-    ).resolves.toBe("fixed");
+      loadModeBPacing(() => Promise.resolve({ modeBPacing: "fast" }), storage as never),
+    ).resolves.toBe("fast");
+    expect(storage.remove).toHaveBeenCalledWith(LEGACY_MODE_B_PACING_KEY);
+  });
+
+  it("falls back to normal pacing when Settings cannot be read", async () => {
+    const failing = { remove: () => Promise.reject(new Error("gone")) };
+    await expect(
+      loadModeBPacing(() => Promise.reject(new Error("gone")), failing as never),
+    ).resolves.toBe("normal");
   });
 });

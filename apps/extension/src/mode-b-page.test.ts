@@ -39,9 +39,6 @@ function fakePage(scrollHeight: number) {
     scrollTo: vi.fn((_x: number, y: number) => {
       win.scrollY = Math.min(y, scrollHeight - 800);
     }),
-    scrollBy: vi.fn((_x: number, dy: number) => {
-      win.scrollY = Math.max(0, win.scrollY + dy);
-    }),
     dispatchEvent: vi.fn(() => true),
   };
   const lastCell = { scrollIntoView: vi.fn() };
@@ -61,7 +58,7 @@ function fakePage(scrollHeight: number) {
 describe("scrollStep", () => {
   it("jumps to the bottom of the timeline and fires a scroll event", () => {
     const { win, doc, lastCell } = fakePage(10_000);
-    const report = scrollStep(doc as never, win as never, "jump");
+    const report = scrollStep(doc as never, win as never);
     expect(win.scrollTo).toHaveBeenCalledWith(0, 10_000);
     expect(lastCell.scrollIntoView).toHaveBeenCalledWith({ block: "end" });
     expect(win.dispatchEvent).toHaveBeenCalled();
@@ -73,13 +70,4 @@ describe("scrollStep", () => {
     });
   });
 
-  it("nudges half a viewport up, then back to the bottom", () => {
-    const { win, doc } = fakePage(10_000);
-    win.scrollY = 9_200;
-    const report = scrollStep(doc as never, win as never, "nudge");
-    expect(win.scrollBy).toHaveBeenCalledWith(0, -400);
-    expect(win.scrollY).toBe(9_200);
-    // Nothing new loaded: the position ends where it started.
-    expect(report.scrolled).toBe(false);
-  });
 });

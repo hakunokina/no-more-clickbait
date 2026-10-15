@@ -1,18 +1,14 @@
 import {
   ModeBPacingSchema,
-  ModeBStrategySchema,
+  ModeBSurfaceSchema,
   type ModeBPacing,
   type ModeBRunSummary,
   type ModeBStopReason,
-  type ModeBStrategy,
+  type ModeBSurface,
 } from "@nmc/core";
 import type { SessionArea } from "./capture-session.js";
-import {
-  isModeBPageReport,
-  type ModeBPageReport,
-  type ModeBStepAction,
-  type ModeBStepMessage,
-} from "./messages.js";
+import { isModeBPageReport, type ModeBPageReport, type ModeBStepMessage } from "./messages.js";
+import { loadSettings } from "./settings.js";
 
 /**
  * Mode B: open x.com/home on a surface the user does not look at and
@@ -28,13 +24,10 @@ import {
  * service worker resumes it (the background's alarm watchdog calls
  * `resume()`).
  *
- * Each step jumps to the bottom of the timeline. With `fixed` pacing (the
- * default, five times the first version's pace) jumps follow a short
- * timer; with `response` pacing (kept for comparison) the next jump waits
- * briefly for X's answer and a jump X ignored is followed by one nudge,
- * so even unanswered it stays close to the fixed pace. Stall and
- * unresponsiveness limits are measured in time, so both paces give up
- * after the same wait.
+ * Each step jumps to the bottom of the timeline and the next one follows
+ * a short random timer: `normal` pacing (the default) is five times the
+ * first version's pace, `fast` ten times. Stall and unresponsiveness
+ * limits are measured in time, so both paces give up after the same wait.
  */
 
 export const X_HOME_URL = "https://x.com/home";
@@ -43,12 +36,12 @@ export const MODE_B_RUN_KEY = "nmc-mode-b-run";
 /** chrome.storage.local: the last finished run's summary (counts only). */
 export const MODE_B_LAST_RUN_KEY = "nmc-mode-b-last-run";
 /**
- * chrome.storage.local: the pacing for the next run (a developer setting
- * kept apart from Settings while the two paces are compared).
- * TODO: after the comparison, move it into Settings or drop it (the boss decides).
+ * chrome.storage.local: where the pacing trial kept its choice before it
+ * moved into Settings (`modeBPacing`). Its values (`fixed`, `response`)
+ * both map to the default `normal`, so it is only removed.
  */
-export const MODE_B_PACING_KEY = "nmc-mode-b-pacing";
-export const DEFAULT_MODE_B_PACING: ModeBPacing = "fixed";
+export const LEGACY_MODE_B_PACING_KEY = "nmc-mode-b-pacing";
+export const DEFAULT_MODE_B_PACING: ModeBPacing = "normal";
 /** Optional permissions Mode B asks for when it is switched on. */
 export const MODE_B_PERMISSIONS = ["alarms"];
 
@@ -63,11 +56,6 @@ export interface ModeBLimits {
   firstStepDelayMs: number;
   /** A step the page has not answered by then counts as unanswered. */
   stepTimeoutMs: number;
-  /**
-   * Response pacing: how long a jump waits for X before the nudge (kept
-   * short so ignored jumps stay near the fixed pace).
-   */
-  responseWaitMs: number;
 }
 
 /** Mean pause of the first, timer-paced version (1.8–3.5 s). */
@@ -80,17 +68,15 @@ export const MODE_B_LIMITS: ModeBLimits = {
   maxUnansweredMs: 5 * FIRST_VERSION_PAUSE_MS,
   firstStepDelayMs: 6_000,
   stepTimeoutMs: 5_000,
-  responseWaitMs: 1_500,
 };
 
-/** Fixed pacing: 0.36–0.70 s between jumps — the first version's 1.8–3.5 s, five times faster. */
-export function stepDelayMs(random: number): number {
-  return 360 + Math.floor(random * 340);
-}
-
-/** Response pacing: 0.4–1.2 s after X answered, before the next jump. */
-export function responsePauseMs(random: number): number {
-  return 400 + Math.floor(random * 800);
+/**
+ * The pause between jumps: `normal` 0.36–0.70 s (the first version's
+ * 1.8–3.5 s, five times faster), `fast` half of it, 0.18–0.35 s.
+ */
+export function stepDelayMs(random: number, pacing: ModeBPacing = DEFAULT_MODE_B_PACING): number {
+  const pause = 360 + Math.floor(random * 340);
+  return pacing === "fast" ? Math.floor(pause / 2) : pause;
 }
 
 export interface WindowBounds {
@@ -100,10 +86,6 @@ export interface WindowBounds {
   height?: number | undefined;
   state?: string | undefined;
 }
-
-export type SurfaceRequest =
-  | { kind: "window"; create: chrome.windows.CreateData }
-  | { kind: "tab"; create: chrome.tabs.CreateProperties };
 
 const CORNER_SIZE = { width: 480, height: 720 };
 /**
@@ -116,19 +98,17 @@ const CORNER_VISIBLE_WIDTH = Math.round(CORNER_SIZE.width * 0.6);
 const DEFAULT_BOUNDS = { left: 0, top: 0, width: 1280, height: 800 };
 
 /**
- * What to open for a strategy. The `offscreen-window` strategy (kept
+ * The window to open for a surface. The `offscreen-window` surface (kept
  * under its stored name) is a small visible window at the bottom-right
  * corner of the user's (last focused) window.
  */
-export function surfaceRequest(strategy: ModeBStrategy, focused: WindowBounds): SurfaceRequest {
+export function surfaceRequest(
+  strategy: ModeBSurface,
+  focused: WindowBounds,
+): chrome.windows.CreateData {
   switch (strategy) {
     case "minimized-window":
-      return {
-        kind: "window",
-        create: { url: X_HOME_URL, state: "minimized", focused: false },
-      };
-    case "background-tab":
-      return { kind: "tab", create: { url: X_HOME_URL, active: false } };
+      return { url: X_HOME_URL, state: "minimized", focused: false };
     case "offscreen-window": {
       // A minimized window's bounds say nothing about the screen.
       const anchor = focused.state === "minimized" ? DEFAULT_BOUNDS : focused;
@@ -137,15 +117,12 @@ export function surfaceRequest(strategy: ModeBStrategy, focused: WindowBounds): 
       const right = left + (anchor.width ?? DEFAULT_BOUNDS.width);
       const bottom = top + (anchor.height ?? DEFAULT_BOUNDS.height);
       return {
-        kind: "window",
-        create: {
-          url: X_HOME_URL,
-          state: "normal",
-          focused: false,
-          ...CORNER_SIZE,
-          left: right - CORNER_VISIBLE_WIDTH,
-          top: Math.max(top, bottom - CORNER_SIZE.height),
-        },
+        url: X_HOME_URL,
+        state: "normal",
+        focused: false,
+        ...CORNER_SIZE,
+        left: right - CORNER_VISIBLE_WIDTH,
+        top: Math.max(top, bottom - CORNER_SIZE.height),
       };
     }
   }
@@ -168,13 +145,13 @@ export function isRateLimited(status: number | undefined, payload: unknown): boo
 }
 
 export interface ModeBRun {
-  strategy: ModeBStrategy;
+  strategy: ModeBSurface;
   pacing: ModeBPacing;
   counter: "host" | "extension";
   target: number;
   startedAt: number;
   tabId: number;
-  /** Set when the run opened its own window (closed as a whole). */
+  /** The run's own window (closed as a whole); null only for a refused run. */
   windowId: number | null;
   scrollCount: number;
   scrollMovedCount: number;
@@ -191,16 +168,12 @@ export interface ModeBRun {
   /** responseCount at the previous step. */
   responsesAtLastStep: number;
   stepsWithNewResponse: number;
-  /** Response pacing: when the jump now waiting for X's answer was sent. */
-  awaitingSince: number | null;
-  responseLatencyTotalMs: number;
-  responseLatencyCount: number;
   /** The last step's failure as the browser worded it (no page content). */
   lastError: string | null;
 }
 
 export interface ModeBStart {
-  strategy: ModeBStrategy;
+  strategy: ModeBSurface;
   target: number;
   counter: "host" | "extension";
 }
@@ -229,9 +202,6 @@ function newRun(
     unansweredSince: null,
     responsesAtLastStep: 0,
     stepsWithNewResponse: 0,
-    awaitingSince: null,
-    responseLatencyTotalMs: 0,
-    responseLatencyCount: 0,
     lastError: null,
   };
 }
@@ -241,6 +211,11 @@ const PAGE_STOP: Partial<Record<ModeBPageReport["page"], ModeBStopReason>> = {
   error: "error-page",
   away: "navigated-away",
 };
+
+/** A response arrived since the last step (the page's first one excepted). */
+function hasNewResponse(run: ModeBRun): boolean {
+  return run.responseCount > run.responsesAtLastStep && run.responsesAtLastStep > 0;
+}
 
 /**
  * Folds one step's outcome (`null` = the page did not answer) into the
@@ -256,10 +231,8 @@ export function applyStep(
   const next = { ...run };
   next.firstStepAt ??= now;
   // The page's first response is its initial load, not a scroll's doing.
-  if (next.responseCount > next.responsesAtLastStep) {
-    if (next.responsesAtLastStep > 0) next.stepsWithNewResponse += 1;
-    next.responsesAtLastStep = next.responseCount;
-  }
+  if (hasNewResponse(next)) next.stepsWithNewResponse += 1;
+  next.responsesAtLastStep = next.responseCount;
   if (report === null) {
     next.unansweredSince ??= now;
     if (now - next.unansweredSince >= limits.maxUnansweredMs) {
@@ -312,14 +285,8 @@ export function summarize(
     pacing: run.pacing,
     scrollsPerMinute:
       scrollingMs > 0 ? Math.round((run.scrollCount * 600_000) / scrollingMs) / 10 : 0,
-    stepsWithNewResponse: run.stepsWithNewResponse,
-    ...(run.responseLatencyCount > 0
-      ? {
-          avgResponseLatencyMs: Math.round(
-            run.responseLatencyTotalMs / run.responseLatencyCount,
-          ),
-        }
-      : {}),
+    // The last step's response arrives after it; no later step counts it.
+    stepsWithNewResponse: run.stepsWithNewResponse + (hasNewResponse(run) ? 1 : 0),
     ...(error === null ? {} : { error }),
   };
 }
@@ -359,6 +326,7 @@ export function describeStopReason(reason: ModeBStopReason): string {
 export interface ModeBBrowser {
   focusedWindowBounds(): Promise<WindowBounds>;
   openWindow(create: chrome.windows.CreateData): Promise<{ windowId: number; tabId: number }>;
+  /** Unused since the background tab was retired. */
   openTab(create: chrome.tabs.CreateProperties): Promise<{ tabId: number }>;
   closeWindow(windowId: number): Promise<void>;
   closeTab(tabId: number): Promise<void>;
@@ -370,15 +338,21 @@ export interface ModeBHooks {
   onFinish(summary: ModeBRunSummary): Promise<void>;
 }
 
-/** The stored pacing choice; anything unreadable means the default. */
+/**
+ * The pacing for the next run, from Settings; anything unreadable means
+ * the default. Also drops the pacing trial's old storage key.
+ */
 export async function loadModeBPacing(
-  area?: Pick<chrome.storage.StorageArea, "get">,
+  load: () => Promise<{ modeBPacing: ModeBPacing }> = loadSettings,
+  local: Pick<chrome.storage.StorageArea, "remove"> = chrome.storage.local,
 ): Promise<ModeBPacing> {
   try {
-    const source = area ?? chrome.storage.local;
-    const stored = (await source.get(MODE_B_PACING_KEY))[MODE_B_PACING_KEY];
-    const parsed = ModeBPacingSchema.safeParse(stored);
-    return parsed.success ? parsed.data : DEFAULT_MODE_B_PACING;
+    await local.remove(LEGACY_MODE_B_PACING_KEY);
+  } catch {
+    // Retried on the next run.
+  }
+  try {
+    return (await load()).modeBPacing;
   } catch {
     return DEFAULT_MODE_B_PACING;
   }
@@ -402,12 +376,10 @@ function isStoredRun(value: unknown): value is ModeBRun {
     "countAtLastProgress",
     "responsesAtLastStep",
     "stepsWithNewResponse",
-    "responseLatencyTotalMs",
-    "responseLatencyCount",
   ];
-  const times = ["firstStepAt", "lastProgressAt", "unansweredSince", "awaitingSince"];
+  const times = ["firstStepAt", "lastProgressAt", "unansweredSince"];
   return (
-    ModeBStrategySchema.safeParse(v["strategy"]).success &&
+    ModeBSurfaceSchema.safeParse(v["strategy"]).success &&
     ModeBPacingSchema.safeParse(v["pacing"]).success &&
     (v["counter"] === "host" || v["counter"] === "extension") &&
     typeof v["tabId"] === "number" &&
@@ -475,7 +447,7 @@ export class ModeBRunner {
       }
       this.#run = newRun(start, pacing, now, surface.tabId, surface.windowId);
       await this.#save();
-      this.#schedule(this.#limits.firstStepDelayMs, "jump");
+      this.#schedule(this.#limits.firstStepDelayMs);
       return "started";
     });
   }
@@ -498,10 +470,7 @@ export class ModeBRunner {
     });
   }
 
-  /**
-   * A timeline response arrived from `tabId`; only the run's own tab
-   * counts. With response pacing it also releases the waiting jump.
-   */
+  /** A timeline response arrived from `tabId`; only the run's own tab counts. */
   onResponse(tabId: number | undefined, rateLimited: boolean): Promise<void> {
     return this.#enqueue(async () => {
       const run = await this.#load();
@@ -510,13 +479,6 @@ export class ModeBRunner {
       if (rateLimited) {
         await this.#finish(run, "rate-limited");
         return;
-      }
-      if (run.awaitingSince !== null) {
-        run.responseLatencyTotalMs += Math.max(0, Date.now() - run.awaitingSince);
-        run.responseLatencyCount += 1;
-        run.awaitingSince = null;
-        this.#cancelTimer();
-        this.#schedule(responsePauseMs(this.#random()), "jump");
       }
       await this.#save();
     });
@@ -534,28 +496,22 @@ export class ModeBRunner {
     return this.#enqueue(async () => {
       const run = await this.#load();
       if (!run || this.#timer !== null) return;
-      run.awaitingSince = null;
-      this.#schedule(0, "jump");
+      this.#schedule(0);
     });
   }
 
-  async #open(strategy: ModeBStrategy): Promise<{ tabId: number; windowId: number | null }> {
+  async #open(strategy: ModeBSurface): Promise<{ tabId: number; windowId: number }> {
     const bounds =
       strategy === "offscreen-window"
         ? await this.#browser.focusedWindowBounds().catch(() => ({}))
         : {};
-    const request = surfaceRequest(strategy, bounds);
-    if (request.kind === "tab") {
-      const { tabId } = await this.#browser.openTab(request.create);
-      return { tabId, windowId: null };
-    }
-    return this.#browser.openWindow(request.create);
+    return this.#browser.openWindow(surfaceRequest(strategy, bounds));
   }
 
-  #schedule(delayMs: number, action: ModeBStepAction): void {
+  #schedule(delayMs: number): void {
     this.#timer = setTimeout(() => {
       this.#timer = null;
-      void this.#step(action).catch((error: unknown) => {
+      void this.#step().catch((error: unknown) => {
         console.error(`[nmc] Mode B step failed: ${String(error)}`);
       });
     }, delayMs);
@@ -566,13 +522,11 @@ export class ModeBRunner {
     this.#timer = null;
   }
 
-  #step(action: ModeBStepAction): Promise<void> {
+  #step(): Promise<void> {
     return this.#enqueue(async () => {
       const run = await this.#load();
       if (!run || this.#timer !== null) return;
-      run.awaitingSince = null;
-      const sentAt = Date.now();
-      const answer = await this.#ask(run.tabId, action);
+      const answer = await this.#ask(run.tabId);
       const { run: next, stop } = applyStep(run, answer.report, Date.now(), this.#limits);
       if (answer.error !== null) next.lastError = answer.error;
       this.#run = next;
@@ -580,23 +534,13 @@ export class ModeBRunner {
         await this.#finish(next, stop);
         return;
       }
-      if (next.pacing === "response" && action === "jump" && answer.report !== null) {
-        // Wait for X; its response cuts the wait short (onResponse).
-        next.awaitingSince = sentAt;
-        this.#schedule(this.#limits.responseWaitMs, "nudge");
-      } else if (next.pacing === "response" && action === "jump") {
-        // The page did not answer the jump: no wait for X, rest briefly.
-        this.#schedule(responsePauseMs(this.#random()), "jump");
-      } else {
-        // Fixed pacing, or the pause after a nudge.
-        this.#schedule(stepDelayMs(this.#random()), "jump");
-      }
+      this.#schedule(stepDelayMs(this.#random(), next.pacing));
       await this.#save();
     });
   }
 
   /** One step request; a frozen page never answers, so it is bounded. */
-  async #ask(tabId: number, action: ModeBStepAction): Promise<StepAnswer> {
+  async #ask(tabId: number): Promise<StepAnswer> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<StepAnswer>((resolve) => {
       timer = setTimeout(() => {
@@ -606,7 +550,7 @@ export class ModeBRunner {
         });
       }, this.#limits.stepTimeoutMs);
     });
-    const sent = this.#browser.sendStep(tabId, { kind: "mode-b-step", action }).then(
+    const sent = this.#browser.sendStep(tabId, { kind: "mode-b-step" }).then(
       (answer): StepAnswer =>
         isModeBPageReport(answer)
           ? { report: answer, error: null }

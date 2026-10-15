@@ -1,4 +1,4 @@
-import { ModeBStrategySchema } from "@nmc/core";
+import { ModeBPacingSchema, ModeBSurfaceSchema } from "@nmc/core";
 import { bindModeBControls, requestModeBPermissions } from "./mode-b-view.js";
 import {
   fillPipelineFields,
@@ -17,6 +17,7 @@ import { createSettingsSyncer, describeSyncResult, sendNativeOnce } from "./sett
 
 const modeB = document.querySelector<HTMLInputElement>("#mode-b");
 const modeBStrategy = document.querySelector<HTMLSelectElement>("#mode-b-strategy");
+const modeBPacing = document.querySelector<HTMLSelectElement>("#mode-b-pacing");
 const modeBRun = document.querySelector<HTMLButtonElement>("#mode-b-run");
 const modeBStatus = document.querySelector<HTMLElement>("#mode-b-status");
 const modeBLastRun = document.querySelector<HTMLElement>("#mode-b-last-run");
@@ -31,6 +32,7 @@ async function init(): Promise<void> {
   if (
     !modeB ||
     !modeBStrategy ||
+    !modeBPacing ||
     !modeBRun ||
     !modeBStatus ||
     !devCapture ||
@@ -45,6 +47,7 @@ async function init(): Promise<void> {
   let settings = await loadSettings();
   modeB.checked = settings.modeBEnabled;
   modeBStrategy.value = settings.modeBStrategy;
+  modeBPacing.value = settings.modeBPacing;
   devCapture.checked = settings.devCaptureEnabled;
   const controls = renderPipelineFields(pipelineFields);
   fillPipelineFields(controls, settings);
@@ -74,12 +77,14 @@ async function init(): Promise<void> {
     void (async () => {
       const granted = await permission;
       if (!granted) modeB.checked = false;
-      const strategy = ModeBStrategySchema.safeParse(modeBStrategy.value);
+      const strategy = ModeBSurfaceSchema.safeParse(modeBStrategy.value);
+      const pacing = ModeBPacingSchema.safeParse(modeBPacing.value);
       try {
         settings = {
           ...applyPipelineSettings(settings, pipeline.settings),
           modeBEnabled: modeB.checked,
           modeBStrategy: strategy.success ? strategy.data : settings.modeBStrategy,
+          modeBPacing: pacing.success ? pacing.data : settings.modeBPacing,
           devCaptureEnabled: devCapture.checked,
         };
         await saveSettings(settings);

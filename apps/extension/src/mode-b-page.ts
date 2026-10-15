@@ -1,4 +1,4 @@
-import type { ModeBPageKind, ModeBPageReport, ModeBStepAction } from "./messages.js";
+import type { ModeBPageKind, ModeBPageReport } from "./messages.js";
 
 /**
  * Mode B, page side: one scroll step in the run's x.com tab, driven by a
@@ -63,24 +63,12 @@ function toBottom(doc: Document, win: Window): void {
   win.dispatchEvent(new Event("scroll"));
 }
 
-/**
- * One step: `jump` to the bottom of the timeline, or `nudge` — half a
- * viewport up and back down, so X re-observes its load-more sentinel
- * when a jump did not load anything. Reports the page state.
- */
-export function scrollStep(
-  doc: Document,
-  win: Window,
-  action: ModeBStepAction = "jump",
-): ModeBPageReport {
+/** One step: jump to the bottom of the timeline. Reports the page state. */
+export function scrollStep(doc: Document, win: Window): ModeBPageReport {
   const page = classifyPage(pageFacts(doc));
   let scrolled = false;
   if (page === "timeline" || page === "loading") {
     const before = win.scrollY;
-    if (action === "nudge") {
-      win.scrollBy(0, -Math.round(win.innerHeight / 2));
-      win.dispatchEvent(new Event("scroll"));
-    }
     toBottom(doc, win);
     scrolled = win.scrollY !== before;
   }

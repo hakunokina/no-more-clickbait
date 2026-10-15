@@ -61,32 +61,31 @@
           </p>
           <p class="hint">
             A run collects “Posts to collect” distinct organic posts (no ads, no repeats). It also
-            stops after 10 minutes, after 8 scrolls in a row without a new post, or when X shows a
-            login, error or rate-limit page. The hidden tab closes when the run ends.
+            stops after 10 minutes, after about 20 seconds without a new post, or when X shows a
+            login, error or rate-limit page. The hidden window closes when the run ends.
           </p>
           <label>
-            Hidden surface (developer setting)
+            Where to collect
             <select id="mode-b-strategy" aria-describedby="mode-b-strategy-hint">
-              <option value="minimized-window">Minimized window</option>
-              <option value="background-tab">Background tab in this window</option>
+              <option value="minimized-window">Minimized window (default)</option>
               <option value="offscreen-window">Small window in the screen corner (visible)</option>
             </select>
           </label>
           <p id="mode-b-strategy-hint" class="hint">
-            Browsers may stop loading pages nobody can see. Try each surface once and compare the
-            last-run numbers below. Save before collecting. Browsers keep at least half of a
-            window on screen, so the corner window stays partly visible.
+            Use the corner window if the minimized one stops loading posts. Browsers keep at least
+            half of a window on screen, so the corner window stays partly visible. A background tab
+            is not offered: X stopped loading there.
           </p>
           <label>
-            Scroll pacing (developer setting, applies at once)
+            Scroll pace
             <select id="mode-b-pacing" aria-describedby="mode-b-pacing-hint">
-              <option value="fixed">Fixed fast pace — default, 5× faster (0.36–0.70 s)</option>
-              <option value="response">Wait for X's answer (for comparison)</option>
+              <option value="normal">Normal (default)</option>
+              <option value="fast">Fast</option>
             </select>
           </label>
           <p id="mode-b-pacing-hint" class="hint">
-            Each scroll jumps to the bottom of the timeline. Compare both paces in the last-run
-            numbers below.
+            Fast scrolls twice as quickly, but may be more likely to be noticed by X. Save before
+            collecting.
           </p>
           <button id="mode-b-run" type="button" aria-describedby="mode-b-status">
             Collect feed
