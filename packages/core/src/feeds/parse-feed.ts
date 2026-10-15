@@ -104,8 +104,18 @@ function rssEntry(item: XmlElement): Entry {
   const description = xmlText(childElement(item, "description"));
   const content = xmlText(childElement(item, "content:encoded"));
   const guid = childElement(item, "guid");
+  const guidText = guid ? xmlText(guid).trim() : "";
+  // An opaque guid ("post-123", isPermaLink missing or "false") is an id,
+  // not an address: resolving it against the feed URL would fabricate an
+  // item URL (and RSS 2.0's "isPermaLink defaults to true" is not honored
+  // by feeds in the wild, which carry opaque ids there). Only an absolute
+  // http(s) guid backs the link. An entry left without any link is
+  // skipped below: GenericItem.url is required, so unlike a rule card
+  // (which falls back to the page URL) there is no linkless feed item.
   const guidLink =
-    guid && guid.attrs.isPermaLink !== "false" ? xmlText(guid).trim() : undefined;
+    guid && guid.attrs.isPermaLink !== "false" && isAbsoluteHttpUrl(guidText)
+      ? guidText
+      : undefined;
   const atomLink = childElements(item, "link").find((el) => el.attrs.href)?.attrs.href;
   return {
     // RSS titles are plain text, but feeds often carry entity-escaped markup in them.
@@ -125,6 +135,17 @@ function rssAuthor(raw: string): string {
   const named = /\(([^)]+)\)\s*$/.exec(raw);
   if (named?.[1]) return named[1];
   return /^\S+@\S+$/.test(raw.trim()) ? "" : raw;
+}
+
+/** True when `value` is already an absolute http(s) URL (no base to resolve against). */
+function isAbsoluteHttpUrl(value: string): boolean {
+  if (!/^\s*https?:\/\//i.test(value)) return false;
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function atomEntry(entry: XmlElement): Entry {

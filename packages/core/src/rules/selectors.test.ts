@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import {
   distinguishing,
   fieldSelectorFor,
+  fieldSelectorForResult,
   inferItem,
   isStableClass,
   selectorFor,
 } from "./selectors.js";
+import { SelectorSchema } from "./site-rule.js";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "fixtures");
 
@@ -147,5 +149,66 @@ describe("featureless cards (forum)", () => {
     const selector = fieldSelectorFor(second, card);
     expect(selector).toBe(":scope > span:nth-of-type(2)");
     expect(card.querySelector(selector!)).toBe(second);
+    document.body.innerHTML = "";
+  });
+});
+
+describe("generated selectors always fit the rule schema", () => {
+  it("every selector the fixtures produce passes SelectorSchema", () => {
+    const made: string[] = [];
+    for (const name of ["news.html", "blog.html", "forum.html"]) {
+      const doc = page(name);
+      for (const el of Array.from(doc.querySelectorAll("*")).slice(0, 400)) {
+        made.push(selectorFor(el));
+        const found = inferItem(el, doc);
+        if (found.ok) {
+          made.push(found.selector);
+          const cards = doc.querySelectorAll(found.selector);
+          const unlike = distinguishing(found.card, cards);
+          if (unlike.ok) made.push(unlike.exclude);
+          for (const field of Array.from(found.card.querySelectorAll("*")).slice(0, 20)) {
+            const selector = fieldSelectorFor(field, found.card);
+            if (selector) made.push(selector);
+          }
+        }
+      }
+    }
+    expect(made.length).toBeGreaterThan(100);
+    for (const selector of made) {
+      expect(SelectorSchema.safeParse(selector).success, selector).toBe(true);
+    }
+  });
+
+  it("says selector-too-long when no fitting selector reads the element", () => {
+    // Two identical deep chains: every short suffix first-matches the
+    // first chain's copy, so only the full positional path reads `el` —
+    // and it exceeds MAX_SELECTOR_CHARS.
+    const chain = `${"<div>".repeat(12)}<span>derin</span>${"</div>".repeat(12)}`;
+    document.body.innerHTML = `<section>${chain}${chain}</section>`;
+    const card = one(document, "section");
+    const chains = card.querySelectorAll(":scope > div");
+    const el = chains[1]!.querySelector("span")!;
+    const result = fieldSelectorForResult(el, card);
+    expect(result).toEqual({ ok: false, reason: "selector-too-long" });
+    // The legacy signature stays backward compatible: too long reads as null.
+    expect(fieldSelectorFor(el, card)).toBeNull();
+    document.body.innerHTML = "";
+  });
+
+  it("falls back to a shorter suffix when only it fits the schema", () => {
+    // The full `:scope >` path is ~300 chars; a shorter descendant
+    // suffix still first-matches `el` ("önce" is a direct child of the
+    // card, never of a div, so no earlier element matches).
+    document.body.innerHTML =
+      `<section><span>önce</span>${"<div>".repeat(12)}<span>hedef</span>${"</div>".repeat(12)}</section>`;
+    const card = one(document, "section");
+    const el = one(card, "div span");
+    const result = fieldSelectorForResult(el, card);
+    if (!result.ok) throw new Error(`expected a selector: ${result.reason}`);
+    expect(result.selector.startsWith(":scope ")).toBe(true);
+    expect(result.selector.startsWith(":scope >")).toBe(false);
+    expect(SelectorSchema.safeParse(result.selector).success).toBe(true);
+    expect(card.querySelector(result.selector)).toBe(el);
+    document.body.innerHTML = "";
   });
 });

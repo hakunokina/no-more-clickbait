@@ -30,7 +30,10 @@ export const MAX_RULE_JSON_BYTES = 64 * 1024;
  */
 function checkSelector(selector: string, ctx: z.RefinementCtx): void {
   const control = Array.from(selector).some((ch) => ch.charCodeAt(0) < 0x20);
-  if (control || /[{};]/.test(selector)) {
+  // `{`, `}` and `;` are declaration noise, but only outside quotes:
+  // `[data-x="a;b"]` is a valid selector.
+  const unquoted = selector.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, "");
+  if (control || /[{};]/.test(unquoted)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "not a CSS selector" });
     return;
   }

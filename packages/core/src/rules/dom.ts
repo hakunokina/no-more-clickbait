@@ -115,8 +115,28 @@ function isHidden(el: DomElement): boolean {
   return (
     SKIPPED_TAGS.has(el.tagName.toUpperCase()) ||
     el.getAttribute("hidden") !== null ||
-    el.getAttribute("aria-hidden") === "true"
+    el.getAttribute("aria-hidden") === "true" ||
+    hasInlineHide(el.getAttribute("style"))
   );
+}
+
+/**
+ * True when an inline `style` hides the element (`display:none`,
+ * `visibility:hidden`). Stylesheets are out of reach here — a static
+ * fetch has no cascade — but the inline case is what promos and
+ * placeholders use to hide text that the preview never shows.
+ */
+function hasInlineHide(style: string | null): boolean {
+  if (!style) return false;
+  for (const declaration of style.split(";")) {
+    const colon = declaration.indexOf(":");
+    if (colon < 0) continue;
+    const property = declaration.slice(0, colon).trim().toLowerCase();
+    const value = declaration.slice(colon + 1).trim().toLowerCase().split(/\s+/, 1)[0];
+    if (property === "display" && value === "none") return true;
+    if (property === "visibility" && value === "hidden") return true;
+  }
+  return false;
 }
 
 /** `raw` resolved against `base` when it is an http(s) URL, else undefined. */

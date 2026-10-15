@@ -74,8 +74,14 @@ export function matchCards(
   const found = selectAll(root, item.selector);
   if (!found.ok)
     return { cards: [], matched: 0, excluded: 0, invalidSelectors: [item.selector] };
+  // Exclude selectors are validated even when nothing matched: once the
+  // card selector is fixed, a stale invalid exclusion must not fail
+  // silently later. Validity is `matches()` on a sample element — the
+  // first card, else the first element under the root — because syntax
+  // alone is what `matches()` checks, on any element.
+  const probe = found.elements[0] ?? firstElement(root);
   const excludes = item.exclude.filter((selector) => {
-    if (found.elements.length === 0 || isValidOn(found.elements[0]!, selector)) return true;
+    if (!probe || isValidOn(probe, selector)) return true;
     invalidSelectors.push(selector);
     return false;
   });
@@ -88,12 +94,23 @@ export function matchCards(
   };
 }
 
+/** Selector syntax check on any element: `matches()` throws on bad syntax. */
 function isValidOn(element: DomElement, selector: string): boolean {
   try {
     element.matches(selector);
     return true;
   } catch {
     return false;
+  }
+}
+
+/** The first element under `root`, for validating when no card matched. */
+function firstElement(root: DomQueryRoot): DomElement | null {
+  try {
+    return root.querySelector("*");
+  } catch {
+    // A root that cannot run selectors has no element to validate with.
+    return null;
   }
 }
 
