@@ -63,6 +63,11 @@ function fakeChrome() {
         return port;
       },
       onMessage: runtimeOnMessage,
+      onStartup: event(),
+      onInstalled: event(),
+      sendNativeMessage: vi.fn((_host: string, _message: unknown): Promise<unknown> =>
+        Promise.resolve({ type: "settings-synced" }),
+      ),
       getURL: (path: string) => `chrome-extension://test/${path}`,
     },
     storage: {
@@ -133,9 +138,9 @@ const USER_TAB = 1;
 
 let fake: ReturnType<typeof fakeChrome>;
 
-async function setCapture(enabled: boolean, captureTarget = 250): Promise<void> {
+async function setCapture(enabled: boolean, collectTarget = 250): Promise<void> {
   await fake.chrome.storage.local.set({
-    "nmc-settings": { devCaptureEnabled: enabled, captureTarget },
+    "nmc-settings": { devCaptureEnabled: enabled, collectTarget },
   });
 }
 
@@ -247,6 +252,29 @@ describe("background worker", () => {
     expect(fake.ports).toHaveLength(2);
   });
 
+  it("syncs the pipeline settings to the desktop once per browser start", async () => {
+    await setSettings({ maxClickbait: 5, devCaptureEnabled: true });
+    expect(fake.chrome.runtime.sendNativeMessage).not.toHaveBeenCalled();
+    fake.chrome.runtime.onStartup.emit();
+    await settle();
+    expect(fake.chrome.runtime.sendNativeMessage).toHaveBeenCalledTimes(1);
+    const [host, message] = fake.chrome.runtime.sendNativeMessage.mock.calls[0] ?? [];
+    expect(host).toBe("io.github.hakunokina.no_more_clickbait");
+    expect(message).toMatchObject({ type: "settings-sync", settings: { maxClickbait: 5 } });
+    // Only pipeline settings travel — no capture/Mode B flags.
+    expect(message).not.toHaveProperty("settings.devCaptureEnabled");
+  });
+
+  it("warns instead of failing when the host is missing at startup", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    fake.chrome.runtime.sendNativeMessage.mockRejectedValueOnce(
+      new Error("Specified native messaging host not found."),
+    );
+    fake.chrome.runtime.onInstalled.emit({ reason: "install" });
+    await settle();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("unreachable"));
+  });
+
   it("does not reset when an unrelated setting changes", async () => {
     captureTimeline();
     await settle();
@@ -272,7 +300,13 @@ describe("background worker", () => {
 });
 
 describe("Mode B in the background worker", () => {
-  const modeBOn = { modeBEnabled: true, modeBTarget: 4, modeBStrategy: "minimized-window" };
+  // The run's target is collectTarget; a stale deprecated modeBTarget is ignored.
+  const modeBOn = {
+    modeBEnabled: true,
+    modeBTarget: 100,
+    collectTarget: 4,
+    modeBStrategy: "minimized-window",
+  };
 
   it("opens a minimized window, counts its posts and closes it at the target", async () => {
     await setSettings(modeBOn);
@@ -332,7 +366,7 @@ describe("Mode B in the background worker", () => {
 
   it("stops on a rate-limited response from the run's tab", async () => {
     // The user's own browsing feeds the same count, so keep the target out of reach.
-    await setSettings({ ...modeBOn, modeBTarget: 100 });
+    await setSettings({ ...modeBOn, collectTarget: 100 });
     await settle();
     modeBCommand("start");
     await settle();

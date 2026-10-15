@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { CaptureStore } from "./capture-store.js";
 import { MessageDecoder, encodeMessage } from "./framing.js";
 import { handleBridgeMessage } from "./handler.js";
+import { saveSyncedSettings } from "./settings-store.js";
 
 /**
  * Native Messaging host entry point. The browser launches this process
@@ -46,6 +47,7 @@ function dispatch(raw: string): void {
     onOversizedCapture: (capture) => captureStore.recordOversized(capture),
     captureStats: () => captureStore.stats,
     onModeBRun: (run) => captureStore.recordModeBRun(run),
+    onSettingsSync: (settings) => saveSyncedSettings(settings),
   })
     .then((reply) => {
       process.stdout.write(encodeMessage(reply));

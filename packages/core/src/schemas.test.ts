@@ -57,7 +57,7 @@ describe("SettingsSchema", () => {
 
   it("defaults the pipeline settings (owner: verify from read value 4)", () => {
     expect(SettingsSchema.parse({})).toMatchObject({
-      timelineSize: 20,
+      timelineSize: 50,
       maxClickbait: 7,
       minReadValue: 2,
       minReadForVerify: 4,
@@ -191,7 +191,7 @@ describe("collection and settings bridge messages", () => {
     expect(Object.keys(synced).sort()).toEqual(Object.keys(SYNCED_SETTING_FIELDS).sort());
     expect(synced).toEqual({
       collectTarget: 250,
-      timelineSize: 20,
+      timelineSize: 50,
       maxClickbait: 7,
       minReadValue: 2,
       minReadForVerify: 4,
