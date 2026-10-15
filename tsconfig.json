@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/native-host" },
+    { "path": "apps/extension" },
+    { "path": "apps/desktop" }
+  ]
+}
