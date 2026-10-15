@@ -1,0 +1,59 @@
+{
+  "source": "synthetic",
+  "capturedAt": "2026-01-01T12:00:00.000Z",
+  "posts": [
+    {
+      "id": "syn-001",
+      "source": "synthetic",
+      "authorHandle": "curiosity_daily",
+      "authorName": "Curiosity Daily",
+      "text": "You WON'T BELIEVE what this one weird trick does to your brain!! Number 7 will SHOCK you!!!",
+      "url": "https://example.invalid/posts/syn-001",
+      "publishedAt": "2026-01-01T11:58:00.000Z",
+      "media": [],
+      "metrics": { "likes": 12000, "reposts": 3400 },
+      "promoted": false
+    },
+    {
+      "id": "syn-002",
+      "source": "synthetic",
+      "authorHandle": "municipal_wire",
+      "authorName": "Municipal Wire",
+      "text": "City council votes 6-3 to fund the river bridge repair; work starts in March and is expected to finish by November, officials said.",
+      "url": "https://example.invalid/posts/syn-002",
+      "publishedAt": "2026-01-01T11:40:00.000Z",
+      "media": [],
+      "metrics": { "likes": 210, "reposts": 45 },
+      "promoted": false
+    },
+    {
+      "id": "syn-003",
+      "source": "synthetic",
+      "authorHandle": "deal_hunter_x",
+      "text": "Sponsored: 90% OFF everything, today only! Tap now before it's gone!",
+      "url": "https://example.invalid/posts/syn-003",
+      "publishedAt": "2026-01-01T11:30:00.000Z",
+      "media": [],
+      "metrics": {},
+      "promoted": true
+    },
+    {
+      "id": "syn-004",
+      "source": "synthetic",
+      "authorHandle": "orbital_notes",
+      "authorName": "Orbital Notes",
+      "text": "The agency confirms the probe entered safe mode after a voltage dip; engineers expect contact to resume within 48 hours.",
+      "url": "https://example.invalid/posts/syn-004",
+      "publishedAt": "2026-01-01T10:15:00.000Z",
+      "media": [
+        {
+          "type": "photo",
+          "url": "https://example.invalid/media/probe.jpg",
+          "altText": "Artist rendering of the probe"
+        }
+      ],
+      "metrics": { "likes": 980, "views": 44000 },
+      "promoted": false
+    }
+  ]
+}

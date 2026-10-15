@@ -1,0 +1,22 @@
+{
+  "name": "@nmc/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@nmc/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "electron": "44.7.2",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "name": "io.github.hakunokina.no_more_clickbait",
+  "description": "No More Clickbait native messaging host",
+  "path": "REPLACED_BY_INSTALL_SCRIPT",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://ojljncfhbebelhbkgjhmfgjodpojmnbe/"]
+}
