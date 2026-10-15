@@ -431,9 +431,20 @@ export class SitesSection {
       );
       return;
     }
+    // A background collect re-renders the list: keep the keyboard where it was.
+    const active = this.deps.doc.activeElement as HTMLElement | null;
+    const kept =
+      active && this.list.contains(active)
+        ? { act: active.dataset["act"], id: active.dataset["id"] }
+        : null;
     const ul = x("ul", { class: "rules", "aria-label": t("rulesAria", this.rules.length) });
     for (const rule of this.rules) ul.append(this.row(rule));
     this.list.replaceChildren(ul);
+    if (kept?.act && kept.id) {
+      Array.from(ul.querySelectorAll<HTMLElement>(`[data-act="${kept.act}"]`))
+        .find((el) => el.dataset["id"] === kept.id)
+        ?.focus();
+    }
   }
 
   private row(rule: SiteRule): HTMLElement {

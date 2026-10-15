@@ -208,6 +208,14 @@ async function collectVisible(
   };
 }
 
+function sameHost(a: string, b: string): boolean {
+  try {
+    return new URL(a).host.toLowerCase() === new URL(b).host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /** A captured "more" response: re-validated against the rule, parsed offscreen, buffered. */
 async function onRequestCapture(
   siteId: string,
@@ -220,6 +228,8 @@ async function onRequestCapture(
   if (rule?.collect.request?.format !== "html") return;
   if (!state.enabled || !state.permissionGranted) return;
   if (!urlMatchesPattern(rule.collect.request.match, url)) return;
+  // Only the rule's own site may fill its buffer (the relay runs on every hooked site).
+  if (!pageUrl || !sameHost(pageUrl, rule.url)) return;
   const { items } = await extractInOffscreen(bodyText, pageUrl ?? rule.url, rule);
   const now = new Date().toISOString();
   if (items.length > 0) await addToRequestBuffer(session, siteId, items, now);

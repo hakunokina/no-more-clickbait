@@ -42,15 +42,3 @@ export function tm(msg: Msg): string {
     ...(msg.args ?? []).map((arg) => (typeof arg === "object" ? tm(arg) : arg)),
   );
 }
-
-/** The UI language ("en", "tr"), for `lang` attributes and date formatting. */
-export function uiLanguage(): string {
-  try {
-    const i18n = (globalThis as { chrome?: typeof chrome }).chrome?.i18n;
-    const lang = i18n?.getUILanguage();
-    if (lang) return lang;
-  } catch {
-    // Fall through to English.
-  }
-  return "en";
-}

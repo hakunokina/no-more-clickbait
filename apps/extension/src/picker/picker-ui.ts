@@ -186,7 +186,8 @@ export class PickerUI {
       try {
         popover.showPopover();
       } catch {
-        // Older browser: the fixed root with a high z-index still works.
+        // Not shown as a popover: the fixed root with a high z-index still works.
+        this.root.removeAttribute("popover");
       }
     }
     this.listen(doc, "mousemove", (e) => this.onMouseMove(e as MouseEvent), true);
