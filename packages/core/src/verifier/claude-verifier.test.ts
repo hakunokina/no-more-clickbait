@@ -104,6 +104,8 @@ describe("createClaudeVerifier (fake provider)", () => {
       );
       const result = await verifier.verify(post, claim);
       expect(result.status).toBe("unverifiable");
+      // The 0.9 was confidence in the dropped verdict, not in this fallback.
+      expect(result.confidence).toBe(0);
       expect(result.summary).toMatch(/^Doğrulanamadı/);
       expect(VerificationResultSchema.safeParse(result).success).toBe(true);
     }
@@ -174,6 +176,15 @@ describe("createClaudeVerifier (fake provider)", () => {
       postId: "p1",
       failed: true,
     });
+  });
+
+  it("records the cost a failed (budget-capped) CLI run still reported", async () => {
+    const { verifier, metrics } = verifierWith(
+      fakeProvider(new CliRunError("claude", "exit 1", 0.51)),
+    );
+    const result = await verifier.verify(post, claim);
+    expect(result).toMatchObject({ status: "unverifiable", failed: true });
+    expect(metrics.toRunMetrics().llmCalls[0]).toMatchObject({ failed: true, costUsd: 0.51 });
   });
 
   it("lets a missing or logged-out CLI propagate", async () => {

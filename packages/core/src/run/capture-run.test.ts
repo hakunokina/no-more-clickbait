@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RunMetricsCollector } from "../metrics.js";
+import { FunnelCountsSchema, RunMetricsCollector } from "../metrics.js";
 import type { Scorer } from "../pipeline.js";
 import type { Post } from "../schemas.js";
 import {
@@ -112,8 +112,7 @@ describe("capture run (synthetic capture directory)", () => {
     const report = await runCapture(capture, {
       scorer: fakeScorer,
       metrics,
-      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0.5 },
-      timelineSize: 2,
+      settings: { maxClickbait: 7, minReadValue: 5, timelineSize: 2 },
     });
     const kept = report.hardFilter.kept;
     const mediaOnly = report.hardFilter.flagged.mediaOnly;
@@ -134,6 +133,31 @@ describe("capture run (synthetic capture directory)", () => {
     );
     expect(report.selected.every((r) => r.verification === null)).toBe(true);
     expect(report.distribution.checkWorthy).toBe(1);
+    expect(report.settings).toMatchObject({
+      maxClickbait: 7,
+      minReadValue: 5,
+      timelineSize: 2,
+    });
+    expect(report.selector).toMatchObject({
+      maxClickbaitScore: 0.7,
+      minReadWorthinessScore: 0.5,
+    });
+    // Every parsed post lands in exactly one funnel bucket.
+    const f = report.funnel;
+    expect(f).toMatchObject({
+      scanned: capture.posts.length,
+      ads: report.hardFilter.dropped.promoted,
+      duplicates:
+        report.hardFilter.dropped.duplicate + report.hardFilter.dropped["duplicate-repost"],
+      mediaOnly,
+      clickbait: 1,
+      belowReadFloor: 1,
+      contradicted: 0,
+      shown: 2,
+    });
+    expect(f.rankedOut).toBe(report.selector.candidates - 2);
+    expect(FunnelCountsSchema.safeParse(f).success).toBe(true);
+    expect(report.metrics.funnel).toEqual(f);
 
     const markdown = renderSelectedMarkdown(report);
     expect(markdown).toContain("# Seçilen 2 gönderi");
@@ -166,8 +190,7 @@ describe("capture run (synthetic capture directory)", () => {
           })),
       },
       metrics: new RunMetricsCollector(),
-      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0.2 },
-      timelineSize: 50,
+      settings: { maxClickbait: 7, minReadValue: 2, timelineSize: 50 },
     });
     const top = renderClickbaitTopMarkdown(report, capture.posts);
     expect(top).toContain(`ilk ${report.scores.length - 1} gönderi`);
@@ -210,8 +233,7 @@ describe("capture run (synthetic capture directory)", () => {
           })),
       },
       metrics: new RunMetricsCollector(),
-      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0 },
-      timelineSize: 5,
+      settings: { maxClickbait: 7, minReadValue: 0, timelineSize: 5 },
     });
     const top = renderClickbaitTopMarkdown(report, synthetic.posts);
     expect(top).toContain("# En yüksek clickbait: ilk 40 gönderi");
@@ -253,11 +275,16 @@ describe("capture run (synthetic capture directory)", () => {
         },
       },
       metrics: new RunMetricsCollector(),
-      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0 },
-      timelineSize: 3,
+      settings: { maxClickbait: 7, minReadValue: 0, timelineSize: 3 },
     });
     expect(report.selected.map((r) => r.post.id)).toEqual(["s0", "s2", "s3"]);
     expect(report.verification).toMatchObject({ calls: 3, rejected: 1, backfilled: 1 });
+    expect(report.funnel).toMatchObject({
+      scanned: 4,
+      contradicted: 1,
+      rankedOut: 0,
+      shown: 3,
+    });
 
     const markdown = renderSelectedMarkdown(report);
     expect(markdown).toContain("Doğrulama: 3 iddia · doğrulandı 1 · çelişiyor 1");
@@ -275,11 +302,54 @@ describe("capture run (synthetic capture directory)", () => {
     const report = await runCapture(capture, {
       scorer: fakeScorer,
       metrics: new RunMetricsCollector(),
-      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0.5 },
-      timelineSize: 2,
+      settings: { maxClickbait: 7, minReadValue: 5, timelineSize: 2 },
     });
     expect(report.verification).toBeUndefined();
     expect(renderSelectedMarkdown(report)).toContain("Doğrulama: kapalı");
+  });
+
+  it("skips a supplied Verifier when the settings turn verification off", async () => {
+    let calls = 0;
+    const report = await runCapture(syntheticCapture(3), {
+      scorer: {
+        score: async (posts) =>
+          posts.map((post) => ({
+            postId: post.id,
+            clickbaitScore: 0.1,
+            readWorthinessScore: 0.9,
+            checkWorthy: true,
+            checkWorthyClaim: `claim ${post.id}`,
+          })),
+      },
+      verifier: {
+        verify: async () => {
+          calls += 1;
+          throw new Error("must not be called");
+        },
+      },
+      metrics: new RunMetricsCollector(),
+      settings: { verifyEnabled: false },
+    });
+    expect(calls).toBe(0);
+    expect(report.verification).toBeUndefined();
+    expect(report.settings).toEqual({
+      timelineSize: 20,
+      maxClickbait: 7,
+      minReadValue: 2,
+      minReadForVerify: 4,
+      maxVerifications: 20,
+      verifyEnabled: false,
+    });
+  });
+
+  it("rejects out-of-range settings instead of running", async () => {
+    await expect(
+      runCapture(syntheticCapture(1), {
+        scorer: { score: async () => [] },
+        metrics: new RunMetricsCollector(),
+        settings: { maxClickbait: 11 },
+      }),
+    ).rejects.toThrow();
   });
 });
 

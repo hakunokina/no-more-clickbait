@@ -53,6 +53,7 @@ async function init(): Promise<void> {
       const strategy = ModeBStrategySchema.safeParse(modeBStrategy.value);
       try {
         await saveSettings({
+          ...settings,
           modeBEnabled: modeB.checked,
           modeBTarget: clamped(modeBTarget.value, 1, 1_000, settings.modeBTarget),
           modeBStrategy: strategy.success ? strategy.data : settings.modeBStrategy,

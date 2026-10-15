@@ -2,7 +2,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { RunMetricsCollector, summarizeRunMetrics } from "../metrics.js";
-import { DEFAULT_MAX_VERIFICATIONS, DEFAULT_MIN_READ_FOR_VERIFY } from "../pipeline.js";
+import { SettingsSchema, type Settings } from "../schemas.js";
+import { loadSettings } from "../settings-file.js";
 import { createClaudeScorer, createClaudeScorerProvider } from "../scorer/claude-scorer.js";
 import {
   createClaudeVerifier,
@@ -20,9 +21,16 @@ import {
  *
  *   pnpm build
  *   pnpm --filter @nmc/core nmc-run --capture <dir> [--out <result.json>]
- *       [--top 50] [--max-clickbait 7] [--min-read 2] [--responses N]
- *       [--no-verify] [--max-verify 20] [--verify-concurrency 4]
- *       [--min-read-verify 5]
+ *       [--settings <settings.json>] [--responses N] [--verify-concurrency 4]
+ *       [--top N] [--max-clickbait 7] [--min-read 2] [--min-read-verify 4]
+ *       [--max-verify 20] [--no-verify]
+ *
+ * Thresholds come from the user's Settings (the JSON file given with
+ * --settings; Settings defaults without it). Each flag of the second
+ * line overrides its setting for this run only: --top = timelineSize,
+ * --max-clickbait = maxClickbait, --min-read = minReadValue,
+ * --min-read-verify = minReadForVerify, --max-verify = maxVerifications,
+ * --no-verify = verifyEnabled off. Bounds are the Settings schema's.
  *
  * Selection: clickbait < --max-clickbait, ranked by read value
  * (clickbait breaking ties), the first --top taken; --min-read is only
@@ -53,14 +61,15 @@ const { values } = parseArgs({
   options: {
     capture: { type: "string" },
     out: { type: "string" },
-    top: { type: "string", default: "50" },
-    "max-clickbait": { type: "string", default: "7" },
-    "min-read": { type: "string", default: "2" },
+    settings: { type: "string" },
+    top: { type: "string" },
+    "max-clickbait": { type: "string" },
+    "min-read": { type: "string" },
     responses: { type: "string" },
     "no-verify": { type: "boolean", default: false },
-    "max-verify": { type: "string", default: String(DEFAULT_MAX_VERIFICATIONS) },
+    "max-verify": { type: "string" },
     "verify-concurrency": { type: "string", default: "4" },
-    "min-read-verify": { type: "string", default: String(DEFAULT_MIN_READ_FOR_VERIFY * 10) },
+    "min-read-verify": { type: "string" },
   },
 });
 
@@ -77,17 +86,38 @@ if (!values.capture) {
   process.exit(2);
 }
 const captureDir = resolve(values.capture);
-const top = intOption("top", values.top, 1, 1000);
-const maxClickbait = intOption("max-clickbait", values["max-clickbait"], 1, 11);
-const minRead = intOption("min-read", values["min-read"], 0, 10);
 const maxResponses =
   values.responses !== undefined
     ? intOption("responses", values.responses, 1, 100_000)
     : undefined;
-const verify = !values["no-verify"];
-const maxVerify = intOption("max-verify", values["max-verify"], 1, DEFAULT_MAX_VERIFICATIONS);
 const verifyConcurrency = intOption("verify-concurrency", values["verify-concurrency"], 1, 20);
-const minReadVerify = intOption("min-read-verify", values["min-read-verify"], 0, 10);
+
+let baseSettings = SettingsSchema.parse({});
+if (values.settings) {
+  const loaded = await loadSettings(resolve(values.settings));
+  if (!loaded.found) console.error(`warning: ${values.settings} not found, using defaults`);
+  if (loaded.warning) console.error(`warning: ${loaded.warning}`);
+  baseSettings = loaded.settings;
+}
+const flagSettings: [flag: string, key: keyof Settings, raw: string | undefined][] = [
+  ["top", "timelineSize", values.top],
+  ["max-clickbait", "maxClickbait", values["max-clickbait"]],
+  ["min-read", "minReadValue", values["min-read"]],
+  ["min-read-verify", "minReadForVerify", values["min-read-verify"]],
+  ["max-verify", "maxVerifications", values["max-verify"]],
+];
+const overrides: Partial<Record<keyof Settings, unknown>> = {};
+for (const [, key, raw] of flagSettings) if (raw !== undefined) overrides[key] = Number(raw);
+if (values["no-verify"]) overrides.verifyEnabled = false;
+const merged = SettingsSchema.safeParse({ ...baseSettings, ...overrides });
+if (!merged.success) {
+  const flagOf = (key: unknown) => flagSettings.find(([, k]) => k === key)?.[0] ?? String(key);
+  for (const issue of merged.error.issues) {
+    console.error(`--${flagOf(issue.path[0])}: ${issue.message}`);
+  }
+  process.exit(2);
+}
+const settings = merged.data;
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outFile = values.out
   ? resolve(values.out)
@@ -109,14 +139,11 @@ const metrics = new RunMetricsCollector();
 const report = await runCapture(capture, {
   scorer: createClaudeScorer({ provider, metrics }),
   metrics,
-  selector: { maxClickbaitScore: maxClickbait / 10, minReadWorthinessScore: minRead / 10 },
-  timelineSize: top,
-  ...(verify
+  settings,
+  ...(settings.verifyEnabled
     ? {
         verifier: createClaudeVerifier({ provider: createClaudeVerifierProvider(), metrics }),
         verifyConcurrency,
-        maxVerifications: maxVerify,
-        minReadForVerify: minReadVerify / 10,
       }
     : {}),
 });
@@ -156,6 +183,7 @@ console.log(
       candidates: report.selector.candidates,
       selected: report.selected.length,
       unjudged: report.unjudged.length,
+      funnel: report.funnel,
       llmCalls: t.llmCallCount,
       failedCalls: t.failedCallCount,
       llmMs: t.totalDurationMs,

@@ -1,4 +1,11 @@
-import { PostSchema, type Post, type PostMedia } from "../schemas.js";
+import {
+  PostSchema,
+  type LinkCard,
+  type Post,
+  type PostMedia,
+  type SizedImage,
+  type VideoVariant,
+} from "../schemas.js";
 
 /**
  * X (Twitter) HomeTimeline GraphQL response → core Posts.
@@ -80,6 +87,11 @@ function count(value: unknown): number | undefined {
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+/** A positive integer (pixel size), or undefined. */
+function dimension(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 function at(root: unknown, ...path: string[]): unknown {
   let node: unknown = root;
   for (const key of path) node = obj(node)?.[key];
@@ -122,6 +134,105 @@ interface TweetText {
   media: PostMedia[];
 }
 
+/** Playable MP4 renditions, highest bitrate first (HLS playlists left out). */
+function mp4Variants(raw: unknown): VideoVariant[] | undefined {
+  const variants: VideoVariant[] = [];
+  for (const entry of arr(raw)) {
+    const v = obj(entry);
+    const url = str(v?.["url"]);
+    if (v?.["content_type"] !== "video/mp4" || !url || !isUrl(url)) continue;
+    if (variants.some((known) => known.url === url)) continue;
+    const bitrate = count(v["bitrate"]);
+    variants.push(bitrate !== undefined ? { url, bitrate: Math.round(bitrate) } : { url });
+  }
+  variants.sort((a, b) => (b.bitrate ?? -1) - (a.bitrate ?? -1));
+  return variants.length > 0 ? variants : undefined;
+}
+
+/** One photo/video/GIF entry of `extended_entities.media`; undefined if unusable. */
+function mediaEntry(m: Json | undefined): PostMedia | undefined {
+  const url = str(m?.["media_url_https"]);
+  const type =
+    m?.["type"] === "photo"
+      ? "photo"
+      : m?.["type"] === "video"
+        ? "video"
+        : m?.["type"] === "animated_gif"
+          ? "gif"
+          : undefined;
+  if (!m || !type || !url || !isUrl(url)) return undefined;
+  const altText = str(m["ext_alt_text"]);
+  const width = dimension(at(m, "original_info", "width"));
+  const height = dimension(at(m, "original_info", "height"));
+  const duration = type === "video" ? count(at(m, "video_info", "duration_millis")) : undefined;
+  const variants = type === "photo" ? undefined : mp4Variants(at(m, "video_info", "variants"));
+  return {
+    type,
+    url,
+    ...(altText ? { altText } : {}),
+    ...(width && height ? { width, height } : {}),
+    ...(duration !== undefined ? { durationMs: Math.round(duration) } : {}),
+    ...(variants ? { variants } : {}),
+  };
+}
+
+/** Card image keys, largest original first (X summary/summary_large_image cards). */
+const CARD_IMAGE_KEYS = [
+  "photo_image_full_size_original",
+  "summary_photo_image_original",
+  "thumbnail_image_original",
+  "photo_image_full_size_large",
+  "summary_photo_image_large",
+  "thumbnail_image_large",
+  "thumbnail_image",
+];
+
+interface TweetCard {
+  /** The short link the card belongs to (matches `entities.urls[].url`). */
+  shortUrl: string | undefined;
+  card: LinkCard;
+}
+
+/**
+ * Link preview from `card.legacy.binding_values`. Most organic cards
+ * arrive as a bare `card.rest_id` with no values; then there is none.
+ */
+function tweetCard(tweet: Json): TweetCard | undefined {
+  const legacy = obj(at(tweet, "card", "legacy"));
+  if (!legacy) return undefined;
+  const values = new Map<string, Json>();
+  for (const binding of arr(legacy["binding_values"])) {
+    const key = str(obj(binding)?.["key"]);
+    const value = obj(obj(binding)?.["value"]);
+    if (key && value) values.set(key, value);
+  }
+  const text = (key: string): string | undefined =>
+    str(values.get(key)?.["string_value"])?.trim() || undefined;
+  let image: SizedImage | undefined;
+  for (const key of CARD_IMAGE_KEYS) {
+    const raw = obj(values.get(key)?.["image_value"]);
+    const url = str(raw?.["url"]);
+    if (!url || !isUrl(url)) continue;
+    const width = dimension(raw?.["width"]);
+    const height = dimension(raw?.["height"]);
+    image = { url, ...(width && height ? { width, height } : {}) };
+    break;
+  }
+  const title = text("title");
+  const description = text("description");
+  const domain = text("vanity_url") ?? text("domain");
+  if (!title && !description && !image) return undefined;
+  return {
+    shortUrl: text("card_url") ?? str(legacy["url"]),
+    card: {
+      ...(title ? { title } : {}),
+      ...(description ? { description } : {}),
+      ...(domain ? { domain } : {}),
+      ...(image ? { image } : {}),
+    },
+  };
+}
+
 /**
  * Own text of a tweet: the long-form note text when present, t.co link
  * placeholders swapped for their expanded URLs, media/quote placeholder
@@ -136,6 +247,8 @@ function tweetText(tweet: Json): TweetText {
   const quotePermalink = str(at(legacy, "quoted_status_permalink", "url"));
 
   const links: PostMedia[] = [];
+  /** Short link → index in `links`, to find the link a card belongs to. */
+  const linkIndexByShort = new Map<string, number>();
   for (const entry of urls) {
     const short = str(obj(entry)?.["url"]);
     const expanded = str(obj(entry)?.["expanded_url"]);
@@ -145,10 +258,20 @@ function tweetText(tweet: Json): TweetText {
       continue;
     }
     text = text.replaceAll(short, expanded);
-    if (!links.some((link) => link.url === expanded))
-      links.push({ type: "link", url: expanded });
+    let index = links.findIndex((link) => link.url === expanded);
+    if (index < 0) index = links.push({ type: "link", url: expanded }) - 1;
+    linkIndexByShort.set(short, index);
   }
   if (quotePermalink) text = text.replaceAll(quotePermalink, "");
+
+  // X previews one link per tweet: the card's own link, else the last one.
+  const card = tweetCard(tweet);
+  if (card && links.length > 0) {
+    const index =
+      (card.shortUrl !== undefined ? linkIndexByShort.get(card.shortUrl) : undefined) ??
+      links.length - 1;
+    links[index] = { ...(links[index] as PostMedia), card: card.card };
+  }
 
   const media: PostMedia[] = [];
   const mediaEntries = arr(at(legacy, "extended_entities", "media"));
@@ -158,18 +281,8 @@ function tweetText(tweet: Json): TweetText {
     const m = obj(entry);
     const short = str(m?.["url"]);
     if (short) text = text.replaceAll(short, "");
-    const url = str(m?.["media_url_https"]);
-    const type =
-      m?.["type"] === "photo"
-        ? "photo"
-        : m?.["type"] === "video"
-          ? "video"
-          : m?.["type"] === "animated_gif"
-            ? "gif"
-            : undefined;
-    if (!type || !url || !isUrl(url)) continue;
-    const altText = str(m?.["ext_alt_text"]);
-    media.push(altText ? { type, url, altText } : { type, url });
+    const item = mediaEntry(m);
+    if (item) media.push(item);
   }
 
   text = text.replace(/&(amp|lt|gt);/g, (entity) => HTML_ENTITIES[entity] ?? entity).trim();
@@ -180,6 +293,7 @@ interface Author {
   handle: string;
   name: string | undefined;
   verified: boolean | undefined;
+  avatarUrl: string | undefined;
 }
 
 function tweetAuthor(tweet: Json): Author | undefined {
@@ -197,11 +311,19 @@ function tweetAuthor(tweet: Json): Author | undefined {
       : flags.some((flag) => flag === false)
         ? false
         : undefined;
+  const avatarUrl =
+    str(at(user, "avatar", "image_url")) ?? str(at(user, "legacy", "profile_image_url_https"));
   return {
     handle,
     name: str(at(user, "core", "name")) ?? str(at(user, "legacy", "name")),
     verified,
+    avatarUrl: avatarUrl && isUrl(avatarUrl) ? avatarUrl : undefined,
   };
+}
+
+/** `legacy.created_at` as epoch ms (NaN when missing or unparseable). */
+function createdAtOf(tweet: Json): number {
+  return Date.parse(str(at(tweet, "legacy", "created_at")) ?? "");
 }
 
 function tweetId(tweet: Json): string | undefined {
@@ -215,7 +337,17 @@ function quotedOf(tweet: Json): Post["quoted"] {
   const id = tweetId(unwrapped.tweet);
   const author = tweetAuthor(unwrapped.tweet);
   if (!id || !author) return undefined;
-  return { id, authorHandle: author.handle, text: tweetText(unwrapped.tweet).text };
+  const { text, media } = tweetText(unwrapped.tweet);
+  const createdAt = createdAtOf(unwrapped.tweet);
+  return {
+    id,
+    authorHandle: author.handle,
+    text,
+    ...(author.name ? { authorName: author.name } : {}),
+    ...(author.verified !== undefined ? { authorVerified: author.verified } : {}),
+    ...(Number.isNaN(createdAt) ? {} : { publishedAt: new Date(createdAt).toISOString() }),
+    ...(media.length > 0 ? { media } : {}),
+  };
 }
 
 /** Builds a Post from one (already unwrapped) tweet; undefined if invalid. */
@@ -232,7 +364,7 @@ function tweetToPost(tweet: Json, promoted: boolean): Post | undefined {
 
   const id = tweetId(tweet);
   const author = tweetAuthor(tweet);
-  const createdAt = Date.parse(str(legacy?.["created_at"]) ?? "");
+  const createdAt = createdAtOf(tweet);
   if (!legacy || !id || !author || Number.isNaN(createdAt)) return undefined;
 
   const { text, media } = tweetText(tweet);
@@ -256,6 +388,7 @@ function tweetToPost(tweet: Json, promoted: boolean): Post | undefined {
     source: X_HOME_TIMELINE_SOURCE,
     authorHandle: author.handle,
     ...(author.name ? { authorName: author.name } : {}),
+    ...(author.avatarUrl ? { authorAvatarUrl: author.avatarUrl } : {}),
     text,
     url: `https://x.com/${encodeURIComponent(author.handle)}/status/${encodeURIComponent(id)}`,
     publishedAt: new Date(createdAt).toISOString(),

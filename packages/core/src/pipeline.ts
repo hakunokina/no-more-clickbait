@@ -1,10 +1,18 @@
-import { RunMetricsCollector, type CollectionMetrics, type RunMetrics } from "./metrics.js";
-import type {
-  Post,
-  RankedPost,
-  ScoreEntry,
-  VerificationResult,
-  VerificationStatus,
+import {
+  RunMetricsCollector,
+  type CollectionMetrics,
+  type FunnelCounts,
+  type RunMetrics,
+} from "./metrics.js";
+import {
+  PIPELINE_SETTING_FIELDS,
+  type PipelineSettingKey,
+  type Post,
+  type RankedPost,
+  type ScoreEntry,
+  type Settings,
+  type VerificationResult,
+  type VerificationStatus,
 } from "./schemas.js";
 
 /**
@@ -32,6 +40,9 @@ import type {
  * their count is reported — and are backfilled from further down the
  * ranked list under the same rules. `unverifiable` posts stay in,
  * carrying their status.
+ *
+ * Every input post lands in exactly one funnel bucket (`FunnelCounts`),
+ * so the reader-facing tally always adds up to the scanned count.
  */
 
 /** Cheap, deterministic pre-filter implemented in plain code (no LLM). */
@@ -60,12 +71,17 @@ export interface ScoredPost {
   score: ScoreEntry;
 }
 
+/** Why the Selector left a scored post out (a funnel bucket). */
+export type SelectorRejection = "clickbait" | "belowReadFloor";
+
 /**
  * Applies the floors and returns candidates best-first: highest
  * read-worthiness first, lower clickbait breaking ties. Pure code.
  */
 export interface Selector {
   select(scored: readonly ScoredPost[]): readonly ScoredPost[];
+  /** Why a post that `select` left out was rejected (for the funnel). */
+  rejection(scored: ScoredPost): SelectorRejection;
 }
 
 /** Verifies one claim of one post. Implementations run in parallel. */
@@ -87,6 +103,9 @@ export function createThresholdSelector(options: SelectorOptions): Selector {
             b.score.readWorthinessScore - a.score.readWorthinessScore ||
             a.score.clickbaitScore - b.score.clickbaitScore,
         );
+    },
+    rejection({ score }) {
+      return score.clickbaitScore >= options.maxClickbaitScore ? "clickbait" : "belowReadFloor";
     },
   };
 }
@@ -146,10 +165,37 @@ export interface Pipeline {
 }
 
 /** Owner's ceiling on verification calls per run. */
-export const DEFAULT_MAX_VERIFICATIONS = 20;
+export const DEFAULT_MAX_VERIFICATIONS = PIPELINE_SETTING_FIELDS.maxVerifications.default;
 
-/** Owner's floor: only posts with read value ≥ 5/10 are worth a check. */
-export const DEFAULT_MIN_READ_FOR_VERIFY = 0.5;
+/** Owner's floor: only posts with read value ≥ 4/10 are worth a check. */
+export const DEFAULT_MIN_READ_FOR_VERIFY =
+  PIPELINE_SETTING_FIELDS.minReadForVerify.default / 10;
+
+/** The pipeline knobs a `Settings` object carries, on the pipeline's 0..1 scale. */
+export interface PipelineConfig {
+  selector: SelectorOptions;
+  timelineSize: number;
+  /** False: run without a Verifier (every post `verification: null`). */
+  verify: boolean;
+  maxVerifications: number;
+  minReadForVerify: number;
+}
+
+/** User settings (0-10 scores) → pipeline options (0..1 scores). */
+export function pipelineConfigFromSettings(
+  settings: Pick<Settings, PipelineSettingKey>,
+): PipelineConfig {
+  return {
+    selector: {
+      maxClickbaitScore: settings.maxClickbait / 10,
+      minReadWorthinessScore: settings.minReadValue / 10,
+    },
+    timelineSize: settings.timelineSize,
+    verify: settings.verifyEnabled,
+    maxVerifications: settings.maxVerifications,
+    minReadForVerify: settings.minReadForVerify / 10,
+  };
+}
 
 export interface VerificationStats {
   /** Verifier calls made (= results.length). */
@@ -180,6 +226,8 @@ export interface PipelineRunResult {
   unjudged: Post[];
   /** Absent when the pipeline has no Verifier. */
   verification?: VerificationStats;
+  /** Where every input post went (also in `metrics.funnel`). */
+  funnel: FunnelCounts;
   metrics: RunMetrics;
 }
 
@@ -205,13 +253,51 @@ export async function runPipeline(
     }
   };
 
+  const funnel: FunnelCounts = {
+    scanned: posts.length,
+    ads: 0,
+    duplicates: 0,
+    mediaOnly: 0,
+    scoringFailed: 0,
+    clickbait: 0,
+    belowReadFloor: 0,
+    contradicted: 0,
+    rankedOut: 0,
+    shown: 0,
+  };
+  const finish = (
+    accepted: RankedPost[],
+    candidateCount: number,
+    verification?: VerificationStats,
+  ): PipelineRunResult => {
+    funnel.shown = accepted.length;
+    funnel.contradicted = verification?.rejected ?? 0;
+    funnel.rankedOut = candidateCount - funnel.shown - funnel.contradicted;
+    metrics.postsSelected = accepted.length;
+    metrics.funnel = funnel;
+    return {
+      posts: accepted,
+      unjudged,
+      ...(verification ? { verification } : {}),
+      funnel: { ...funnel },
+      metrics: metrics.toRunMetrics(),
+    };
+  };
+
   const kept = await timed("hardFilter", () =>
-    posts.filter((post) => pipeline.hardFilter.keep(post)),
+    posts.filter((post) => {
+      if (pipeline.hardFilter.keep(post)) return true;
+      // The code hard filter drops only ads and repeats.
+      if (post.promoted) funnel.ads += 1;
+      else funnel.duplicates += 1;
+      return false;
+    }),
   );
   metrics.postsAfterHardFilter = kept.length;
   const unjudged = kept.filter((post) => post.mediaOnly);
   const judgeable = kept.filter((post) => !post.mediaOnly);
-  if (judgeable.length === 0) return { posts: [], unjudged, metrics: metrics.toRunMetrics() };
+  funnel.mediaOnly = unjudged.length;
+  if (judgeable.length === 0) return finish([], 0);
 
   const scores = await timed("scorer", () => pipeline.scorer.score(judgeable));
   const byId = new Map(scores.map((score) => [score.postId, score]));
@@ -219,15 +305,21 @@ export async function runPipeline(
     const score = byId.get(post.id);
     return score ? [{ post, score }] : [];
   });
+  funnel.scoringFailed = judgeable.length - scored.length;
 
   const candidates = await timed("selector", () => pipeline.selector.select(scored));
+  const candidateIds = new Set(candidates.map(({ post }) => post.id));
+  for (const entry of scored) {
+    if (candidateIds.has(entry.post.id)) continue;
+    if (entry.score.scoringFailed) funnel.scoringFailed += 1;
+    else funnel[pipeline.selector.rejection(entry)] += 1;
+  }
   const verifier = pipeline.verifier;
   if (!verifier) {
     const accepted = candidates
       .slice(0, options.timelineSize)
       .map((candidate) => ({ ...candidate, verification: null }));
-    metrics.postsSelected = accepted.length;
-    return { posts: accepted, unjudged, metrics: metrics.toRunMetrics() };
+    return finish(accepted, candidates.length);
   }
   const accepted: RankedPost[] = [];
   const stats: VerificationStats = {
@@ -296,6 +388,5 @@ export async function runPipeline(
     }
   }
 
-  metrics.postsSelected = accepted.length;
-  return { posts: accepted, unjudged, verification: stats, metrics: metrics.toRunMetrics() };
+  return finish(accepted, candidates.length, stats);
 }
