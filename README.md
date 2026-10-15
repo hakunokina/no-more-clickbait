@@ -206,10 +206,16 @@ How the pieces talk:
 - **Collect new timeline** (tray menu, status window or reading window)
   asks the extension to run Mode B. With Mode B off you are told to browse
   x.com/home yourself instead.
-- A Mode B collection builds the timeline as soon as it finishes. A Mode A
-  collection (your own scrolling reached the target) does **not** spend
-  LLM quota on its own: you get a notification and a **Build timeline**
-  button.
+- The status window shows a Mode B run's count as it goes (`84 / 100`).
+  A Mode B collection builds the timeline as soon as it finishes — also
+  when X stopped giving new posts before the target (the window then says
+  so). If the run stopped for another reason (e.g. not logged in to X), or
+  it was a Mode A collection (your own scrolling reached the target), no
+  LLM quota is spent on its own: you get a notification and a **Build
+  timeline** button. A run you cancel is never built. If the extension
+  goes quiet mid-collection, the window says so after a while instead of
+  waiting forever, and collections that never finished are listed (their
+  posts stay on disk).
 - The pipeline (hard filter → `claude` scoring → selection → source
   checks) runs in the desktop app, one run at a time, cancellable; the
   status window shows the stage, counts, tokens and cost live. The

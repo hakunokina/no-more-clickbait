@@ -3,6 +3,7 @@ import {
   type BridgeReply,
   type CaptureStats,
   type CollectionComplete,
+  type CollectionProgress,
   type CollectionStartResult,
   type ModeBRunSummary,
   type OversizedCapture,
@@ -28,6 +29,8 @@ export interface BridgeHandlers {
   onCollectionComplete?: (complete: CollectionComplete) => Promise<void> | void;
   /** Relays the extension's answer to the desktop's start-collection. */
   onCollectionStartResult?: (result: CollectionStartResult) => Promise<void> | void;
+  /** Relays a Mode B run's count so far to the desktop app. */
+  onCollectionProgress?: (progress: CollectionProgress) => Promise<void> | void;
   /** Saves the user's synced pipeline settings for the desktop. */
   onSettingsSync?: (settings: SyncedSettings) => Promise<void> | void;
 }
@@ -120,6 +123,9 @@ export async function handleBridgeMessage(
     }
     case "collection-start-result":
       await handlers.onCollectionStartResult?.(parsed.data);
+      return { type: "collection-recorded" };
+    case "collection-progress":
+      await handlers.onCollectionProgress?.(parsed.data);
       return { type: "collection-recorded" };
   }
 }

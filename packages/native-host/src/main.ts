@@ -22,12 +22,23 @@ import { saveSyncedSettings } from "./settings-store.js";
  * - Raw developer captures go through the CaptureStore (capture-store.ts):
  *   outside the repo, per-session folders with a counts/times-only
  *   summary.json (`NMC_INBOX_DIR` moves them).
+ * - The browser closes stdin and stdout together when the port closes.
+ *   Messages already received are still handled (their files written,
+ *   the desktop told); only the replies have nowhere to go. A write to
+ *   the closed stdout fails with EPIPE, which must not kill the process
+ *   before that work is done.
  */
 const captureStore = new CaptureStore();
 const sessionStore = new PostSessionStore();
 let link: LinkClient | null = null;
+let browserGone = false;
+
+process.stdout.on("error", () => {
+  browserGone = true;
+});
 
 function pushToExtension(message: BridgeReply): void {
+  if (browserGone || process.stdout.destroyed) return;
   process.stdout.write(encodeMessage(message));
 }
 
@@ -67,25 +78,25 @@ function dispatch(raw: string): void {
         process.stderr.write("native-host: batch after collection-complete dropped\n");
       }
     },
-    onCollectionComplete: async ({ mode, reason, uniquePostCount, responseCount }) => {
+    onCollectionComplete: async ({ mode, reason, uniquePostCount, responseCount, target }) => {
+      const counts = { mode, reason, uniquePostCount, responseCount };
       const sessionId = await sessionStore.complete({
-        mode,
-        reason,
-        uniquePostCount,
-        responseCount,
+        ...counts,
+        ...(target !== undefined ? { target } : {}),
       });
       // Desktop closed: it finds the complete session on disk at its next start.
       link?.send({
         type: "collection-complete",
         sessionId,
-        mode,
-        reason,
-        uniquePostCount,
-        responseCount,
+        ...counts,
+        ...(target !== undefined ? { target } : {}),
       });
     },
     onCollectionStartResult: (result) => {
       link?.send(result);
+    },
+    onCollectionProgress: (progress) => {
+      link?.send(progress);
     },
     onRawCapture: async (capture) => ({ sequence: await captureStore.store(capture) }),
     onOversizedCapture: (capture) => captureStore.recordOversized(capture),
@@ -94,11 +105,11 @@ function dispatch(raw: string): void {
     onSettingsSync: (settings) => saveSyncedSettings(settings),
   })
     .then((reply) => {
-      process.stdout.write(encodeMessage(reply));
+      pushToExtension(reply);
     })
     .catch((error: unknown) => {
       process.stderr.write(`native-host: handler error: ${String(error)}\n`);
-      process.stdout.write(encodeMessage({ type: "error", message: "internal host error" }));
+      pushToExtension({ type: "error", message: "internal host error" });
     })
     .finally(() => {
       pending.delete(task);
@@ -123,7 +134,7 @@ process.stdin.on("end", () => {
     // Drain in-flight handlers (file writes) before exiting; handlers
     // never enqueue new ones, so one settle pass is enough.
     await Promise.allSettled([...pending]);
-    link?.close();
+    await link?.close();
     process.exit(0);
   })();
 });

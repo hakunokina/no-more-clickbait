@@ -125,14 +125,26 @@ function render(status: DesktopStatus): void {
           : "Eklenti X akışından gönderi topluyor. Bitince akış kendiliğinden hazırlanır.",
       ),
     ];
+    if (collection.count !== null) {
+      content.push(
+        h(
+          "p",
+          { role: "status" },
+          `Şu ana kadar ${collection.count}${collection.target ? ` / ${collection.target}` : ""} gönderi.`,
+        ),
+      );
+    }
   } else if (status.pending) {
     content = [
       h("h1", {}, `${status.pending.uniquePostCount} gönderi toplandı`),
       h(
         "p",
         {},
-        "X'te gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.",
+        status.pending.mode === "A"
+          ? "X'te gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer."
+          : "Toplama hedefe ulaşmadan durdu. Toplananlarla akışı yine de oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.",
       ),
+      ...(collection.message ? [h("p", { class: "muted" }, collection.message)] : []),
       h(
         "div",
         { class: "btn-row" },
@@ -189,6 +201,7 @@ function render(status: DesktopStatus): void {
     content = [
       h("h1", {}, "Akış hazır"),
       h("p", {}, `${run.counts.selected ?? 0} gönderi.`),
+      ...(collection.message ? [h("p", { class: "muted" }, collection.message)] : []),
       h(
         "div",
         { class: "btn-row" },

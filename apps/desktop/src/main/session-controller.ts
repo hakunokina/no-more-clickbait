@@ -5,6 +5,7 @@ import {
   listSessions,
   loadSession,
   markSessionProcessed,
+  sessionStartedAt,
   type DesktopCommand,
   type HostEvent,
   type LoadedSession,
@@ -15,19 +16,28 @@ import {
   initialStatus,
   isRunActive,
   type DesktopStatus,
+  type PendingCollection,
   type RunError,
   type RunErrorKind,
 } from "../shared/status.js";
+import { describeStopReason } from "../shared/format.js";
 import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
 
 /**
  * The desktop app's orchestration, Electron-free so it is testable:
  * - "Collect new timeline" → `start-collection` to the newest host;
- * - `collection-complete` from a host: a Mode B collection (the user
- *   asked for it) runs the pipeline at once; a Mode A one (the user's
- *   own scrolling reached the target) only becomes the *pending* session
- *   — the user is asked and "Build timeline" runs it (owner's decision:
- *   no LLM spend the user did not ask for);
+ * - `collection-progress` shows a Mode B run's "x / N"; a request the
+ *   extension does not answer, or a collection that goes silent, ends
+ *   in a message after a timeout;
+ * - `collection-complete` from a host (planCompletion): a Mode B
+ *   collection (the user asked for it) runs the pipeline at once, even
+ *   short of the target; a Mode A one (the user's own scrolling reached
+ *   the target), or a Mode B run that stopped for a reason like "not
+ *   logged in", only becomes the *pending* session — the user is asked
+ *   and "Build timeline" runs it (owner's decision: no LLM spend the
+ *   user did not ask for); a cancelled one is never built;
+ * - sessions whose collection never completed are counted for the
+ *   monitor, never deleted or run;
  * - at start-up (and whenever a host connects) the newest complete,
  *   unprocessed session is handled the same way; older ones are marked
  *   superseded;
@@ -60,6 +70,38 @@ export interface SessionControllerDeps {
   onReady(ready: { sessionId: string; timelinePath: string; selected: number }): void;
   log?(line: string): void;
   now?(): string;
+  /** How long to wait for the extension's answer / its next progress. */
+  collectionTimeoutsMs?: Partial<typeof DEFAULT_COLLECTION_TIMEOUTS>;
+}
+
+export const DEFAULT_COLLECTION_TIMEOUTS = {
+  answerMs: 15_000,
+  /** Mode B stops itself after ~20 s without new posts; this is the backstop. */
+  silenceMs: 90_000,
+};
+
+/** Mode B stops after which the timeline is built from what was collected. */
+const BUILD_AFTER_STOP: ReadonlySet<string> = new Set([
+  "target-reached",
+  "stalled",
+  "timeout",
+  "page-unresponsive",
+  "rate-limited",
+  "error-page",
+]);
+
+/**
+ * What a finished collection with posts becomes (owner's decision):
+ * - "build": the user asked for it (Mode B) and it ended normally or
+ *   X stopped giving posts — run at once, even short of the target;
+ * - "ask": Mode A, or a Mode B stop that may not reflect the user's
+ *   intent (not logged in, tab closed…) — wait for "Build timeline";
+ * - "drop": the user cancelled it — never built.
+ */
+export function planCompletion(mode: "A" | "B", reason: string): "build" | "ask" | "drop" {
+  if (mode === "A") return "ask";
+  if (reason === "cancelled") return "drop";
+  return BUILD_AFTER_STOP.has(reason) ? "build" : "ask";
 }
 
 export class SessionController {
@@ -73,6 +115,10 @@ export class SessionController {
   #inRunner = false;
   /** Session waiting for the current run to finish. */
   #queued: string | null = null;
+  /** Gives up on a collection the extension went quiet about. */
+  #watchdog: ReturnType<typeof setTimeout> | null = null;
+  /** The collection was given up for silence (late progress revives it). */
+  #silent = false;
   #lastTimeline: string | null = null;
   /** A session is being run or rendered (wider than `runner.busy`). */
   #busy = false;
@@ -126,14 +172,15 @@ export class SessionController {
     const connectedNow = (link.hosts ?? 0) > this.#status.link.hosts;
     this.#update((status) => {
       status.link = { ...status.link, ...link };
-      if (status.link.hosts === 0 && status.collection.state === "requested") {
-        status.collection = {
-          state: "refused",
-          message: "The browser extension disconnected before answering.",
-          target: null,
-        };
-      }
     });
+    if (this.#status.link.hosts === 0 && this.#status.collection.state === "requested") {
+      this.#setCollection(() => ({
+        state: "refused",
+        message: "The browser extension disconnected before answering.",
+        target: null,
+        count: null,
+      }));
+    }
     // A host connecting may follow a collection that finished while we
     // were closed or disconnected.
     if (connectedNow) void this.processPending();
@@ -141,13 +188,12 @@ export class SessionController {
 
   async startCollection(): Promise<void> {
     if (isRunActive(this.#status.run.stage)) {
-      this.#update((status) => {
-        status.collection = {
-          state: "refused",
-          message: "A timeline is being prepared; wait for it or cancel it first.",
-          target: null,
-        };
-      });
+      this.#setCollection(() => ({
+        state: "refused",
+        message: "A timeline is being prepared; wait for it or cancel it first.",
+        target: null,
+        count: null,
+      }));
       return;
     }
     const settings = await this.#deps.loadSettings();
@@ -155,87 +201,144 @@ export class SessionController {
       type: "start-collection",
       target: settings.collectTarget,
     });
-    this.#update((status) => {
-      status.collection = sent
-        ? { state: "requested", message: null, target: settings.collectTarget }
+    this.#setCollection(() =>
+      sent
+        ? { state: "requested", message: null, target: settings.collectTarget, count: null }
         : {
             state: "refused",
             message:
               "The browser or the extension is not running. Open Brave/Chrome with the extension, then try again.",
             target: null,
-          };
-    });
+            count: null,
+          },
+    );
   }
 
   handleHostEvent(event: HostEvent): void {
     if (event.type === "collection-start-result") {
-      this.#update((status) => {
+      this.#setCollection((status) => {
         const target = event.target ?? status.collection.target;
         switch (event.outcome) {
           case "started":
           case "busy":
-            status.collection = { state: "collecting", message: null, target };
-            break;
+            return { state: "collecting", message: null, target, count: null };
           case "mode-b-off":
-            status.collection = {
+            return {
               state: "refused",
               message: `Automatic collection (Mode B) is off. Browse x.com/home in your browser; once ${target ?? "enough"} posts are collected you can build the timeline.`,
               target,
+              count: null,
             };
-            break;
           case "permission-missing":
-            status.collection = {
+            return {
               state: "refused",
               message:
                 "The extension lacks a permission Mode B needs. Open the extension's options and turn Mode B on again.",
               target,
+              count: null,
             };
-            break;
           default:
-            status.collection = {
+            return {
               state: "refused",
               message: "The extension could not start collecting.",
               target,
+              count: null,
             };
         }
       });
       return;
     }
+    if (event.type === "collection-progress") {
+      // A collection the silence timeout gave up on comes back to life.
+      const { state } = this.#status.collection;
+      if (state === "idle" || (state === "refused" && !this.#silent)) return;
+      this.#setCollection(() => ({
+        state: "collecting",
+        message: null,
+        target: event.target,
+        count: event.uniquePostCount,
+      }));
+      return;
+    }
     this.#deps.log?.(
       `collection complete: mode ${event.mode}, ${event.uniquePostCount} posts, reason ${event.reason}`,
     );
-    this.#update((status) => {
-      status.collection = {
-        state: "idle",
-        message:
-          event.sessionId === null
-            ? "The collection ended without any post (" + event.reason + ")."
-            : null,
-        target: null,
-      };
-    });
-    if (event.sessionId === null) return;
-    if (event.mode === "B") {
-      void this.runSession(event.sessionId);
-      return;
-    }
-    void this.#awaitConfirmation(event.sessionId, event.uniquePostCount, true);
+    void this.#handleCompletion({
+      sessionId: event.sessionId,
+      mode: event.mode,
+      reason: event.reason,
+      uniquePostCount: event.uniquePostCount,
+      target: event.target ?? this.#status.collection.target,
+      live: true,
+    }).catch((error: unknown) => this.#deps.log?.(`completion failed: ${String(error)}`));
   }
 
-  /** Runs the pending (Mode A) session the user confirmed. */
+  /** Decides what a finished collection becomes (see planCompletion). */
+  async #handleCompletion(done: {
+    sessionId: string | null;
+    mode: "A" | "B";
+    reason: string;
+    uniquePostCount: number;
+    target: number | null;
+    /** Announced just now (not found on disk at start-up): notify the user. */
+    live: boolean;
+  }): Promise<void> {
+    // Batches of ads/repeats only leave a folder but no post to build from.
+    const empty = done.sessionId === null || done.uniquePostCount === 0;
+    const plan = empty ? "drop" : planCompletion(done.mode, done.reason);
+    const reached = done.reason === "target-reached";
+    const counted = done.target
+      ? `${done.uniquePostCount} of ${done.target}`
+      : `${done.uniquePostCount}`;
+    let message: string | null = null;
+    if (empty) {
+      message = `The collection ended without any post (${describeStopReason(done.reason)}).`;
+    } else if (plan === "drop") {
+      message = `The collection was stopped (${describeStopReason(done.reason)}); no timeline was built.`;
+    } else if (!reached) {
+      message =
+        plan === "build"
+          ? `Target not reached — the timeline uses ${counted} posts (${describeStopReason(done.reason)}).`
+          : `The collection stopped early (${describeStopReason(done.reason)}) with ${counted} posts.`;
+    }
+    // A session found on disk must not end a collection that is running now.
+    const { state } = this.#status.collection;
+    if (done.live || (state !== "requested" && state !== "collecting")) {
+      this.#setCollection(() => ({ state: "idle", message, target: null, count: null }));
+    }
+    if (done.sessionId === null) return;
+    const dir = join(this.#deps.sessionsRoot, done.sessionId);
+    if (plan === "drop") {
+      await markSessionProcessed(dir, "cancelled", () => this.#now()).catch(() => undefined);
+    } else if (plan === "build") {
+      await this.#refreshUnfinished();
+      await this.runSession(done.sessionId);
+      return;
+    } else {
+      await this.#awaitConfirmation(
+        {
+          sessionId: done.sessionId,
+          uniquePostCount: done.uniquePostCount,
+          mode: done.mode,
+          reason: done.reason,
+          target: done.target,
+        },
+        done.live,
+      );
+    }
+    await this.#refreshUnfinished();
+  }
+
+  /** Runs the pending session the user confirmed. */
   async buildPending(): Promise<void> {
     const pending = this.#status.pending;
     if (pending) await this.runSession(pending.sessionId);
   }
 
   /** One pending session at a time: a newer one supersedes it. */
-  async #awaitConfirmation(
-    sessionId: string,
-    uniquePostCount: number,
-    notify: boolean,
-  ): Promise<void> {
+  async #awaitConfirmation(pending: PendingCollection, notify: boolean): Promise<void> {
     const previous = this.#status.pending;
-    if (previous && previous.sessionId !== sessionId) {
+    if (previous && previous.sessionId !== pending.sessionId) {
       await markSessionProcessed(
         join(this.#deps.sessionsRoot, previous.sessionId),
         "superseded",
@@ -243,9 +346,70 @@ export class SessionController {
       ).catch(() => undefined);
     }
     this.#update((status) => {
-      status.pending = { sessionId, uniquePostCount };
+      status.pending = pending;
     });
-    if (notify) this.#deps.onAwaitingConfirmation?.({ sessionId, uniquePostCount });
+    if (notify) {
+      this.#deps.onAwaitingConfirmation?.({
+        sessionId: pending.sessionId,
+        uniquePostCount: pending.uniquePostCount,
+      });
+    }
+  }
+
+  /**
+   * Replaces the collection state and re-arms its watchdog: a request
+   * the extension never answers, or a collection that goes silent,
+   * ends in a message instead of "collecting" forever.
+   */
+  #setCollection(next: (status: DesktopStatus) => DesktopStatus["collection"]): void {
+    this.#update((status) => {
+      status.collection = next(status);
+    });
+    this.#silent = false;
+    if (this.#watchdog) clearTimeout(this.#watchdog);
+    this.#watchdog = null;
+    const { state } = this.#status.collection;
+    if (state !== "requested" && state !== "collecting") return;
+    const limits = { ...DEFAULT_COLLECTION_TIMEOUTS, ...this.#deps.collectionTimeoutsMs };
+    const waitMs = state === "requested" ? limits.answerMs : limits.silenceMs;
+    this.#watchdog = setTimeout(() => {
+      this.#watchdog = null;
+      const { count, target } = this.#status.collection;
+      this.#setCollection((status) => ({
+        ...status.collection,
+        state: "refused",
+        message:
+          state === "requested"
+            ? "The browser extension did not answer. Is the browser open with the extension enabled?"
+            : `No word from the browser extension for ${Math.round(waitMs / 1000)} s — the collection may have stopped. Check the browser window` +
+              (count !== null
+                ? ` (${count}${target ? ` of ${target}` : ""} posts so far).`
+                : "."),
+      }));
+      this.#silent = state === "collecting";
+    }, waitMs);
+    this.#watchdog.unref?.();
+  }
+
+  /** Counts sessions with posts whose collection never completed. */
+  async #refreshUnfinished(): Promise<void> {
+    const unfinished = (await listSessions(this.#deps.sessionsRoot)).filter(
+      (session) =>
+        session.completion === null && session.processed === null && session.batchCount > 0,
+    );
+    // The newest one may be the collection running right now.
+    const { state } = this.#status.collection;
+    if (state === "requested" || state === "collecting") unfinished.pop();
+    const newest = unfinished[unfinished.length - 1];
+    const next = {
+      count: unfinished.length,
+      newestAt: newest ? sessionStartedAt(newest.id) : null,
+    };
+    const current = this.#status.unfinished;
+    if (current.count === next.count && current.newestAt === next.newestAt) return;
+    this.#update((status) => {
+      status.unfinished = next;
+    });
   }
 
   cancel(): boolean {
@@ -283,15 +447,20 @@ export class SessionController {
     for (const old of pending) {
       await markSessionProcessed(old.dir, "superseded", () => this.#now());
     }
+    await this.#refreshUnfinished();
     if (!newest?.completion) {
       await this.#showLastFailure();
       return;
     }
-    if (this.#failed.has(newest.id)) return;
-    if (newest.completion.mode === "B") await this.runSession(newest.id);
-    else if (this.#status.pending?.sessionId !== newest.id) {
-      await this.#awaitConfirmation(newest.id, newest.completion.uniquePostCount, false);
-    }
+    if (this.#failed.has(newest.id) || this.#status.pending?.sessionId === newest.id) return;
+    await this.#handleCompletion({
+      sessionId: newest.id,
+      mode: newest.completion.mode,
+      reason: newest.completion.reason,
+      uniquePostCount: newest.completion.uniquePostCount,
+      target: newest.completion.target ?? null,
+      live: false,
+    });
   }
 
   /**

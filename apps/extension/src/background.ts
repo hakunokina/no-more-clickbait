@@ -25,8 +25,10 @@ import {
   ModeBRunner,
   refusedRun,
   type ModeBBrowser,
+  type ModeBRun,
   type ModeBStart,
 } from "./mode-b.js";
+import { NativeChannel } from "./native-channel.js";
 import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
 import { NATIVE_HOST_NAME, sendNativeOnce, syncSettings } from "./settings-sync.js";
 
@@ -67,11 +69,13 @@ export { NATIVE_HOST_NAME };
  * Desktop link: the worker keeps one long-lived native port open (it
  * also keeps the worker alive, Chromium 105+). It opens with a `ping`,
  * on which the host links up with the desktop app; the desktop's
- * "Collect new timeline" arrives on it as `start-collection`. When the
- * collection target is reached the worker sends `collection-complete`
- * and starts a new counting session (= a new host session folder):
- * a Mode B run's timeline is built at once, a Mode A one (the user's own
- * scrolling) waits for the user's go in the desktop app.
+ * "Collect new timeline" arrives on it as `start-collection`, and a
+ * Mode B run reports its count as `collection-progress`. When a
+ * collection ends the worker sends `collection-complete` (Mode A: the
+ * target was reached; Mode B: whatever ended the run, with its reason —
+ * the desktop app decides whether to build) and starts a new counting
+ * session (= a new host session folder; the old port closes only once
+ * its host has answered everything, see native-channel.ts).
  */
 const LINK_RETRY_FIRST_MS = 5_000;
 const LINK_RETRY_MAX_MS = 60_000;
@@ -83,39 +87,35 @@ const DEFAULT_BADGE_COLOR = "#5f6368";
 const TARGET_BADGE_COLOR = "#137333";
 const RUNNING_BADGE_COLOR = "#0b57d0";
 
-let port: chrome.runtime.Port | null = null;
 /** Bumped on every new counting session; work started under an older value is stale. */
 let generation = 0;
 const session = new CaptureSession(chrome.storage.session);
 let linkRetryMs = LINK_RETRY_FIRST_MS;
 let linkTimer: ReturnType<typeof setTimeout> | null = null;
 
-function nativePort(): chrome.runtime.Port {
-  if (port) return port;
+const channel = new NativeChannel(openNativePort);
+
+function openNativePort(): chrome.runtime.Port {
   const opened = chrome.runtime.connectNative(NATIVE_HOST_NAME);
   const portGeneration = generation;
   opened.onDisconnect.addListener(() => {
-    if (port !== opened) return;
-    port = null;
     // Host gone (crashed, not installed): reopen the link, backing off.
-    scheduleDesktopLink();
+    if (channel.lost(opened)) scheduleDesktopLink();
   });
   opened.onMessage.addListener((reply: unknown) => {
+    channel.received(opened, reply);
     void handleReply(reply, portGeneration).catch((error: unknown) => {
       console.error(`[nmc] native host reply handling failed: ${String(error)}`);
     });
   });
-  port = opened;
-  opened.postMessage({ type: "ping" } satisfies BridgeMessage);
   return opened;
 }
 
 /** Keeps the long-lived host port — and with it the desktop link — open. */
 function ensureDesktopLink(): void {
   try {
-    nativePort();
+    channel.port();
   } catch {
-    port = null;
     scheduleDesktopLink();
   }
 }
@@ -131,13 +131,18 @@ function scheduleDesktopLink(): void {
 }
 
 function sendToDesktop(message: BridgeMessage): boolean {
-  try {
-    nativePort().postMessage(message);
-    return true;
-  } catch {
-    port = null;
-    return false;
-  }
+  return channel.send(message);
+}
+
+/** The desktop app shows a Mode B run's count as it goes. */
+function reportProgress(run: ModeBRun | null, count: number): void {
+  if (!run) return;
+  sendToDesktop({
+    type: "collection-progress",
+    mode: "B",
+    uniquePostCount: count,
+    target: Math.min(run.target, 10_000),
+  });
 }
 
 async function updateBadge(count: number): Promise<void> {
@@ -180,6 +185,8 @@ async function reflectCaptureStats(
   const settings = await loadSettings().catch(() => null);
   if (!settings?.devCaptureEnabled || replyGeneration !== generation) return;
   await updateBadge(stats.uniquePostCount);
+  const run = await modeB.current();
+  if (run?.counter === "host") reportProgress(run, stats.uniquePostCount);
   await modeB.onCount(stats.uniquePostCount, "host");
   const reached = await session.reachedTarget(stats.uniquePostCount, settings.collectTarget);
   if (!reached || replyGeneration !== generation) return;
@@ -266,11 +273,12 @@ async function handleCapture(
     const uniqueCount = await session.countPosts(posts);
     if (captureGeneration === generation) {
       await updateBadge(uniqueCount);
-      const modeBRunning = (await modeB.current()) !== null;
+      const run = await modeB.current();
+      if (run?.counter === "extension") reportProgress(run, uniqueCount);
       await modeB.onCount(uniqueCount, "extension");
       // Developer capture keeps its own semantics (one folder, capture
       // continues past the target), so Mode A completes only without it.
-      if (!modeBRunning && settings) completeModeA(uniqueCount, settings, captureGeneration);
+      if (!run && settings) completeModeA(uniqueCount, settings, captureGeneration);
     }
   }
 }
@@ -300,6 +308,7 @@ function completeModeA(count: number, settings: Settings, countGeneration: numbe
       uniquePostCount: await session.uniqueCount(),
       // The extension counter does not track responses outside a Mode B run.
       responseCount: 0,
+      target: Math.min(settings.collectTarget, 10_000),
     });
     await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
   });
@@ -307,13 +316,12 @@ function completeModeA(count: number, settings: Settings, countGeneration: numbe
 
 /**
  * Starts a new counting session. One host process == one capture
- * folder: closing the port ends it, so the next capture starts a fresh
- * host session too.
+ * folder: retiring the port ends it once the host has answered, so the
+ * next capture starts a fresh host session too.
  */
 async function startNewCountingSession(): Promise<void> {
   generation += 1;
-  port?.disconnect();
-  port = null;
+  channel.retire();
   await session.reset();
   await updateBadge(0);
   await chrome.action.setBadgeBackgroundColor({ color: DEFAULT_BADGE_COLOR });
@@ -368,18 +376,16 @@ async function finishModeB(summary: ModeBRunSummary): Promise<void> {
   if (summary.counter === "host" && summary.stopReason !== "permission-missing") {
     sendToDesktop({ type: "mode-b-run", run: summary });
   }
-  // A run that started gets its timeline built — unless the user stopped
-  // it (cancel, settings change): then its posts just stay collected.
-  if (
-    summary.stopReason !== "permission-missing" &&
-    summary.stopReason !== "cancelled" &&
-    summary.stopReason !== "settings-changed"
-  ) {
+  // Every run that started ends its session, whatever stopped it; the
+  // desktop app decides from the reason whether to build the timeline.
+  // A refused start (permission) never opened a session of its own.
+  if (summary.stopReason !== "permission-missing") {
     await completeCollection({
       mode: "B",
       reason: summary.stopReason,
       uniquePostCount: summary.uniquePostCount,
       responseCount: summary.responseCount,
+      target: Math.min(summary.target, 10_000),
     });
   }
   const reached = summary.stopReason === "target-reached";
@@ -432,7 +438,8 @@ async function startCollectionForDesktop(target: number | undefined): Promise<vo
   if (!(await chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }))) {
     return answer("permission-missing");
   }
-  // Answered on this port: starting the run opens a new host session.
+  // Answered on this port, which stays open until its host relayed the
+  // answer; starting the run opens a new host session.
   answer("started");
   await startModeB(goal);
 }

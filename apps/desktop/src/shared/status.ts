@@ -69,15 +69,26 @@ export interface DesktopStatus {
   };
   collection: {
     state: CollectionState;
-    /** Why a request was refused, or what the user should do next. */
+    /**
+     * Why a request was refused or a collection fell short, or what the
+     * user should do next.
+     */
     message: string | null;
     target: number | null;
+    /** Distinct posts counted so far by the running collection. */
+    count: number | null;
   };
   /**
-   * A finished Mode A collection waiting for the user's "Build timeline"
-   * (no run starts without it).
+   * A finished collection waiting for the user's "Build timeline" (no
+   * run starts without it): Mode A, or a Mode B run that stopped for a
+   * reason that does not build on its own (e.g. not logged in).
    */
-  pending: { sessionId: string; uniquePostCount: number } | null;
+  pending: PendingCollection | null;
+  /**
+   * Sessions with stored posts whose collection never completed (no
+   * complete.json) — e.g. the browser closed mid-run. Kept on disk.
+   */
+  unfinished: { count: number; newestAt: string | null };
   run: {
     stage: RunStage;
     sessionId: string | null;
@@ -95,6 +106,15 @@ export interface DesktopStatus {
     /** The finished timeline was deleted since (session folders are pruned). */
     timelineGone: boolean;
   };
+}
+
+export interface PendingCollection {
+  sessionId: string;
+  uniquePostCount: number;
+  mode: "A" | "B";
+  /** Why the collection ended ("target-reached" or a Mode B stop reason). */
+  reason: string;
+  target: number | null;
 }
 
 export const EMPTY_COUNTS: RunCounts = {
@@ -120,8 +140,9 @@ export const EMPTY_USAGE: UsageTotals = {
 export function initialStatus(): DesktopStatus {
   return {
     link: { listening: false, hosts: 0, error: null },
-    collection: { state: "idle", message: null, target: null },
+    collection: { state: "idle", message: null, target: null, count: null },
     pending: null,
+    unfinished: { count: 0, newestAt: null },
     run: {
       stage: "idle",
       sessionId: null,

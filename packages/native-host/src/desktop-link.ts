@@ -4,7 +4,7 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { CollectionStartResultSchema } from "@nmc/core";
+import { CollectionProgressSchema, CollectionStartResultSchema } from "@nmc/core";
 import { encodeMessage, MessageDecoder } from "./framing.js";
 
 /**
@@ -49,6 +49,9 @@ export function desktopPipePath(
   platform: NodeJS.Platform = process.platform,
   user: string = userInfo().username,
 ): string {
+  // Tests run a second link next to the user's real one.
+  const override = env["NMC_LINK_PIPE"];
+  if (override) return override;
   if (platform !== "win32") return join(desktopDataDir(env), "link.sock");
   const safeUser = user.replace(/[^A-Za-z0-9._-]/g, "_") || "user";
   return `\\\\.\\pipe\\no-more-clickbait-${safeUser}`;
@@ -71,6 +74,8 @@ export const CollectionCompleteEventSchema = z.object({
   reason: z.string().max(64),
   uniquePostCount: z.number().int().nonnegative(),
   responseCount: z.number().int().nonnegative(),
+  /** Distinct posts the collection was working towards. */
+  target: z.number().int().min(1).max(10_000).optional(),
 });
 export type CollectionCompleteEvent = z.infer<typeof CollectionCompleteEventSchema>;
 
@@ -78,10 +83,15 @@ export type CollectionCompleteEvent = z.infer<typeof CollectionCompleteEventSche
 export const CollectionStartResultEventSchema = CollectionStartResultSchema;
 export type CollectionStartResultEvent = z.infer<typeof CollectionStartResultEventSchema>;
 
+/** A Mode B run's count so far, relayed as is. */
+export const CollectionProgressEventSchema = CollectionProgressSchema;
+export type CollectionProgressEvent = z.infer<typeof CollectionProgressEventSchema>;
+
 /** Host -> desktop events after the handshake. */
 export const HostEventSchema = z.discriminatedUnion("type", [
   CollectionCompleteEventSchema,
   CollectionStartResultEventSchema,
+  CollectionProgressEventSchema,
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 
@@ -184,6 +194,20 @@ class FramedConnection {
 
   close(): void {
     this.#socket.destroy();
+  }
+
+  /** Flushes what was written, then closes (bounded: a stuck peer is cut off). */
+  end(timeoutMs: number): Promise<void> {
+    if (this.#socket.destroyed) return Promise.resolve();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => this.#socket.destroy(), timeoutMs);
+      timer.unref?.();
+      this.#socket.once("close", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+      this.#socket.end();
+    });
   }
 }
 
@@ -354,10 +378,15 @@ export class LinkClient {
     return this.#ready && this.#connection !== null && this.#connection.send(event);
   }
 
-  close(): void {
+  /**
+   * Stops for good. What was already sent is flushed first: the host
+   * process exits right after, and an event still in the socket's
+   * buffer (e.g. the last collection-complete) would be lost.
+   */
+  close(): Promise<void> {
     this.#closed = true;
     if (this.#timer) clearTimeout(this.#timer);
-    this.#connection?.close();
+    return this.#connection?.end(1_000) ?? Promise.resolve();
   }
 
   #retry(): void {

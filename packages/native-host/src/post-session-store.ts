@@ -30,6 +30,8 @@ export const SessionCompletionSchema = z.object({
   reason: z.string().max(64),
   uniquePostCount: z.number().int().nonnegative(),
   responseCount: z.number().int().nonnegative(),
+  /** Distinct posts the collection was working towards (absent in older sessions). */
+  target: z.number().int().min(1).optional(),
   completedAt: z.string().datetime(),
 });
 export type SessionCompletion = z.infer<typeof SessionCompletionSchema>;
@@ -67,11 +69,13 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-async function hasBatches(dir: string): Promise<boolean> {
+const BATCH_FILE = /^\d{4,}\.json$/;
+
+async function countBatches(dir: string): Promise<number> {
   try {
-    return (await readdir(join(dir, "batches"))).length > 0;
+    return (await readdir(join(dir, "batches"))).filter((name) => BATCH_FILE.test(name)).length;
   } catch {
-    return false;
+    return 0;
   }
 }
 
@@ -108,7 +112,7 @@ export async function pruneSessions(
     if (kept.has(session.id)) continue;
     const status = session.processed?.status;
     const discarded =
-      status === "superseded" || status === "cancelled" || !(await hasBatches(session.dir));
+      status === "superseded" || status === "cancelled" || session.batchCount === 0;
     (discarded ? discardable : rest).push(session);
   }
   for (const session of [...discardable, ...rest].slice(0, excess)) {
@@ -186,6 +190,14 @@ export interface SessionListing {
   /** How the collection ended (mode, counts), when complete. */
   completion: SessionCompletion | null;
   processed: SessionProcessed | null;
+  /** Stored post batches. */
+  batchCount: number;
+}
+
+/** When a session's first batch was stored (its id is that time). */
+export function sessionStartedAt(id: string): string | null {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z-/.exec(id);
+  return match ? `${match[1]}T${match[2]}:${match[3]}:${match[4]}.${match[5]}Z` : null;
 }
 
 /** Sessions, oldest first. */
@@ -212,6 +224,7 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
         complete: complete.success,
         completion: complete.success ? complete.data : null,
         processed: processed.success ? processed.data : null,
+        batchCount: await countBatches(dir),
       };
     }),
   );
@@ -244,7 +257,7 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
   const sessionId = SessionIdSchema.parse(id);
   const dir = join(root, sessionId);
   const batchDir = join(dir, "batches");
-  const names = (await readdir(batchDir)).filter((name) => /^\d{4,}\.json$/.test(name)).sort();
+  const names = (await readdir(batchDir)).filter((name) => BATCH_FILE.test(name)).sort();
   const posts: Post[] = [];
   let invalidBatchCount = 0;
   let first: string | undefined;
