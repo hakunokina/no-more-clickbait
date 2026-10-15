@@ -138,4 +138,44 @@ describe("CaptureStore", () => {
     expect(store.stats).toMatchObject({ responseCount: 0, oversizedCount: 1 });
     expect(store.summary()).toMatchObject({ oversizedCount: 1, collectionSpanMs: 0 });
   });
+
+  const modeBRun = {
+    strategy: "minimized-window",
+    counter: "host",
+    target: 100,
+    startedAt: "2026-01-01T10:00:00.000Z",
+    endedAt: "2026-01-01T10:01:00.000Z",
+    durationMs: 60_000,
+    scrollCount: 8,
+    scrollMovedCount: 0,
+    hiddenStepCount: 8,
+    responseCount: 1,
+    uniquePostCount: 4,
+    stopReason: "stalled",
+  } as const;
+
+  it("adds a Mode B run's counts to the session summary", async () => {
+    await store.store({
+      type: "raw-capture",
+      operation: "HomeTimeline",
+      capturedAt: "2026-01-01T10:00:05.000Z",
+      bodyText: fixtureBody("response-1.json"),
+    });
+    await store.recordModeBRun(modeBRun);
+    const summary = JSON.parse(
+      await readFile(join(store.sessionDir ?? "", "summary.json"), "utf8"),
+    ) as CaptureSummary;
+    expect(summary.modeBRun).toEqual(modeBRun);
+    expect(summary.uniquePostCount).toBe(4);
+    expect(CollectionMetricsSchema.safeParse(summary).success).toBe(true);
+  });
+
+  it("writes a run-only summary when the run captured nothing", async () => {
+    await store.recordModeBRun({ ...modeBRun, responseCount: 0, stopReason: "not-logged-in" });
+    expect(await readdir(store.sessionDir ?? "")).toEqual(["summary.json"]);
+    const summary = JSON.parse(
+      await readFile(join(store.sessionDir ?? "", "summary.json"), "utf8"),
+    ) as Record<string, unknown>;
+    expect(Object.keys(summary)).toEqual(["modeBRun"]);
+  });
 });

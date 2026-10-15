@@ -140,4 +140,37 @@ describe("handleBridgeMessage", () => {
       ),
     ).resolves.toMatchObject({ type: "error" });
   });
+
+  it("records a Mode B run, or says the host cannot", async () => {
+    const message = JSON.stringify({
+      type: "mode-b-run",
+      run: {
+        strategy: "background-tab",
+        counter: "host",
+        target: 50,
+        startedAt: "2026-01-01T10:00:00.000Z",
+        endedAt: "2026-01-01T10:00:30.000Z",
+        durationMs: 30_000,
+        scrollCount: 5,
+        scrollMovedCount: 5,
+        hiddenStepCount: 5,
+        responseCount: 2,
+        uniquePostCount: 50,
+        stopReason: "target-reached",
+      },
+    });
+    const runs: string[] = [];
+    await expect(
+      handleBridgeMessage(message, {
+        onPostBatch: () => {},
+        onModeBRun: (run) => void runs.push(run.strategy),
+      }),
+    ).resolves.toEqual({ type: "mode-b-run-recorded" });
+    expect(runs).toEqual(["background-tab"]);
+    await expect(
+      handleBridgeMessage(message, { onPostBatch: () => {} }),
+    ).resolves.toMatchObject({
+      type: "error",
+    });
+  });
 });

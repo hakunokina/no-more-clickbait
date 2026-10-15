@@ -7,7 +7,8 @@
     <style>
       body { font-family: system-ui, sans-serif; width: 17rem; margin: 0; padding: 1rem; line-height: 1.45; }
       h1 { font-size: 1rem; margin: 0 0 0.5rem; }
-      button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; }
+      button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
+      .status { font-size: 0.92rem; color: #444; margin: 0.5rem 0 0; }
       :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
     </style>
   </head>
@@ -17,6 +18,8 @@
       While you browse X, your timeline is collected on this device and handed to the desktop app
       for filtering. Your cookies never leave this browser.
     </p>
+    <button id="mode-b-run" type="button" aria-describedby="mode-b-status">Collect feed</button>
+    <p id="mode-b-status" class="status" role="status" aria-live="polite"></p>
     <button id="open-options" type="button">Options</button>
     <script type="module" src="popup.js"></script>
   </body>

@@ -6,7 +6,7 @@
   "description": "Reads your own X home timeline from your own browser session and hands it to the No More Clickbait desktop app for clickbait filtering. Your cookies never leave this device.",
   "icons": { "128": "icon-128.png" },
   "permissions": ["storage", "nativeMessaging", "notifications"],
-  "optional_permissions": ["tabs"],
+  "optional_permissions": ["alarms"],
   "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
   "background": {
     "service_worker": "background.js",

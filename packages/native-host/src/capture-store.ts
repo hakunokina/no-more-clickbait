@@ -7,6 +7,7 @@ import {
   parseHomeTimeline,
   type CaptureStats,
   type CollectionMetrics,
+  type ModeBRunSummary,
   type OversizedCapture,
   type RawCapture,
 } from "@nmc/core";
@@ -24,11 +25,16 @@ import {
  * `uniquePostCount` runs every parsed Post through one session-long
  * hard filter — distinct organic posts, the number the capture target
  * is measured against.
+ *
+ * A Mode B run gets its own host session (the extension reconnects at
+ * run start), so its counts land next to its dumps as `modeBRun` — also
+ * when the run captured nothing (e.g. not logged in).
  */
 
 export interface CaptureSummary extends CollectionMetrics {
   /** Last minus first capture time, for the "collection span" measurement. */
   collectionSpanMs: number;
+  modeBRun?: ModeBRunSummary;
 }
 
 export function defaultCaptureRoot(env: NodeJS.ProcessEnv = process.env): string {
@@ -60,6 +66,7 @@ export class CaptureStore {
   #promotedCount = 0;
   #oversizedCount = 0;
   readonly #uniqueFilter = createHardFilter();
+  #modeBRun: ModeBRunSummary | null = null;
   /** Serialises file writes; handler calls may arrive concurrently. */
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -96,6 +103,7 @@ export class CaptureStore {
       promotedCount: this.#promotedCount,
       oversizedCount: this.#oversizedCount,
       collectionSpanMs: Date.parse(this.#lastCapturedAt) - Date.parse(this.#firstCapturedAt),
+      ...(this.#modeBRun ? { modeBRun: this.#modeBRun } : {}),
     };
   }
 
@@ -135,6 +143,16 @@ export class CaptureStore {
     });
   }
 
+  /** Records a finished Mode B run (counts and times only). */
+  async recordModeBRun(run: ModeBRunSummary): Promise<void> {
+    await this.#enqueue(async () => {
+      const dir = this.#ensureSession();
+      await mkdir(dir, { recursive: true });
+      this.#modeBRun = run;
+      await this.#writeSummary(dir);
+    });
+  }
+
   #enqueue<T>(work: () => Promise<T>): Promise<T> {
     const run = this.#queue.then(work, work);
     this.#queue = run.then(
@@ -159,7 +177,7 @@ export class CaptureStore {
   }
 
   async #writeSummary(dir: string): Promise<void> {
-    const summary = this.summary();
+    const summary = this.summary() ?? (this.#modeBRun ? { modeBRun: this.#modeBRun } : null);
     if (!summary) return;
     const target = join(dir, "summary.json");
     const temp = `${target}.tmp`;
