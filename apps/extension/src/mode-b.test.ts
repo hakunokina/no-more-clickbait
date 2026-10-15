@@ -334,6 +334,18 @@ describe("ModeBRunner", () => {
     expect(await runner.current()).toBeNull();
   });
 
+  it("forgets a start whose run could not be stored and closes its window", async () => {
+    const browser = fakeBrowser();
+    area.set = () => Promise.reject(new Error("quota"));
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await expect(runner.start(start)).rejects.toThrow("quota");
+    expect(await runner.current()).toBeNull();
+    expect(browser.closeWindow).toHaveBeenCalledWith(3);
+    // No step of the forgotten run.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(browser.sendStep).not.toHaveBeenCalled();
+  });
+
   it("ignores counts from the other counter and responses from other tabs", async () => {
     const runner = new ModeBRunner(fakeBrowser(), area, hooks, fixed);
     await runner.start(start);

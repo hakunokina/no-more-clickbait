@@ -893,6 +893,52 @@ describe("Mode B in the background worker", () => {
     expect(lastRun()).toMatchObject({ stopReason: "tab-closed" });
     expect(fake.chrome.windows.remove).not.toHaveBeenCalled();
   });
+
+  it("closes the session of a start that threw, and the next start runs", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    const set = fake.chrome.storage.session.set;
+    fake.chrome.storage.session.set = (items) =>
+      "nmc-mode-b-run" in items ? Promise.reject(new Error("quota")) : set(items);
+    modeBCommand("start");
+    await settle();
+    const port = fake.ports.at(-2);
+    expect(port?.posted).toContainEqual(
+      expect.objectContaining({
+        type: "collection-complete",
+        mode: "B",
+        reason: "failed-to-open",
+      }),
+    );
+    expect(lastRun()).toMatchObject({ stopReason: "failed-to-open", error: "quota" });
+    expect(fake.chrome.windows.remove).toHaveBeenCalledWith(3);
+
+    fake.chrome.storage.session.set = set;
+    modeBCommand("start");
+    await settle();
+    expect(fake.chrome.windows.create).toHaveBeenCalledTimes(2);
+    expect(fake.sessionArea.get("nmc-mode-b-run")).toMatchObject({ tabId: RUN_TAB });
+  });
+
+  it("keeps a failed start's own error when closing its session fails too", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    const sessionSet = fake.chrome.storage.session.set;
+    fake.chrome.storage.session.set = (items) =>
+      "nmc-mode-b-run" in items ? Promise.reject(new Error("quota")) : sessionSet(items);
+    const localSet = fake.chrome.storage.local.set;
+    fake.chrome.storage.local.set = (items) =>
+      "nmc-mode-b-last-run" in items ? Promise.reject(new Error("disk")) : localSet(items);
+    modeBCommand("start");
+    await settle();
+    const logged = errors.mock.calls.map((call) => String(call[0]));
+    expect(logged).toContainEqual(
+      expect.stringContaining("Mode B command failed: Error: quota"),
+    );
+    expect(logged).toContainEqual(expect.stringContaining("disk"));
+  });
 });
 
 describe("custom sites in the background worker's collections", () => {
