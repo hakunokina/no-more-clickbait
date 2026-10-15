@@ -38,7 +38,10 @@ export interface ScoredPost {
   score: ScoreEntry;
 }
 
-/** Applies thresholds and returns candidates best-first. Pure code. */
+/**
+ * Applies thresholds and returns candidates best-first: highest
+ * read-worthiness first, lower clickbait breaking ties. Pure code.
+ */
 export interface Selector {
   select(scored: readonly ScoredPost[]): readonly ScoredPost[];
 }
@@ -59,9 +62,8 @@ export function createThresholdSelector(options: SelectorOptions): Selector {
         )
         .sort(
           (a, b) =>
-            b.score.readWorthinessScore -
-            b.score.clickbaitScore -
-            (a.score.readWorthinessScore - a.score.clickbaitScore),
+            b.score.readWorthinessScore - a.score.readWorthinessScore ||
+            a.score.clickbaitScore - b.score.clickbaitScore,
         );
     },
   };
@@ -105,7 +107,12 @@ export interface Pipeline {
   hardFilter: HardFilter;
   scorer: Scorer;
   selector: Selector;
-  verifier: Verifier;
+  /**
+   * Optional: without one, the top `timelineSize` candidates are taken
+   * as ranked and every post carries `verification: null` (measurement
+   * runs before verification exists).
+   */
+  verifier?: Verifier;
 }
 
 export interface PipelineRunResult {
@@ -146,6 +153,14 @@ export async function runPipeline(
   });
 
   const candidates = await timed("selector", () => pipeline.selector.select(scored));
+  const verifier = pipeline.verifier;
+  if (!verifier) {
+    const accepted = candidates
+      .slice(0, options.timelineSize)
+      .map((candidate) => ({ ...candidate, verification: null }));
+    metrics.postsSelected = accepted.length;
+    return { posts: accepted, metrics: metrics.toRunMetrics() };
+  }
   const accepted: RankedPost[] = [];
 
   // Verify in ranked order, in bounded-parallel windows. A contradicted
@@ -160,7 +175,7 @@ export async function runPipeline(
       mapWithConcurrency(window, options.verifyConcurrency, async (candidate) => {
         const claim = candidate.score.checkWorthyClaim;
         const verification =
-          claim === null ? null : await pipeline.verifier.verify(candidate.post, claim);
+          claim === null ? null : await verifier.verify(candidate.post, claim);
         return { ...candidate, verification };
       }),
     );

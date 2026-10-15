@@ -300,10 +300,23 @@ describe("createClaudeScorer (fake claude process)", () => {
     }
   });
 
-  it("propagates CLI-missing / not-logged-in errors from the retry", async () => {
+  it("records a failed retry in the run metrics instead of losing its time", async () => {
+    const metrics = new RunMetricsCollector();
+    const provider = scriptedProvider([reply(line(1)), new CliRunError("claude", "exit 1")]);
+    await createClaudeScorer({ provider, metrics }).score([post("a"), post("b"), post("c")]);
+    const calls = metrics.toRunMetrics().llmCalls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toMatchObject({ stage: "scorer", postCount: 3 });
+    expect(calls[0]?.failed).toBeUndefined();
+    expect(calls[1]).toMatchObject({ stage: "scorer", postCount: 2, failed: true });
+    expect(calls[1]?.inputTokens).toBeUndefined();
+  });
+
+  it("propagates every retry error except a CliRunError (missing CLI, auth, bugs)", async () => {
     for (const retryError of [
       new CliNotFoundError("claude"),
       new CliNotAuthenticatedError("claude", "401"),
+      new TypeError("unexpected bug"),
     ]) {
       const provider = scriptedProvider([reply(line(1)), retryError]);
       await expect(createClaudeScorer({ provider }).score([post("a"), post("b")])).rejects.toBe(
@@ -417,5 +430,34 @@ describe("buildScorerPrompt", () => {
     expect(dataLine).not.toContain('"authorHandle"');
     // Output contract is the pipe-separated line, not JSON.
     expect(prompt).toContain("sıra|clickbait|readValue");
+  });
+
+  it("appends the quoted post (capped) and marks media kinds / media-only posts", () => {
+    const prompt = buildScorerPrompt([
+      post("q", {
+        text: "bu 👇",
+        quoted: { id: "9", authorHandle: "kaynak", text: `Uzun alıntı ${"x".repeat(400)}` },
+      }),
+      post("m", {
+        text: "",
+        mediaOnly: true,
+        media: [
+          { type: "photo", url: "https://img.example.invalid/1.jpg" },
+          { type: "video", url: "https://img.example.invalid/2.mp4" },
+        ],
+      }),
+      post("p", { media: [{ type: "photo", url: "https://img.example.invalid/3.jpg" }] }),
+    ]);
+    const rows = prompt.split("\n").filter((l) => /^\d+\t@user_/.test(l));
+    const fields = rows.map((row) => row.split("\t"));
+    expect(fields.map((f) => f.length)).toEqual([6, 6, 6]);
+    const quoteText = fields[0]?.[5] ?? "";
+    expect(quoteText.startsWith("bu 👇 ↳@kaynak: Uzun alıntı x")).toBe(true);
+    expect(quoteText.endsWith("…")).toBe(true);
+    expect(quoteText.length).toBeLessThan("bu 👇 ↳@kaynak: ".length + 290);
+    expect(fields[0]?.[4]).toBe("-");
+    expect(fields[1]?.slice(4)).toEqual(["yalniz-medya:foto,video", "-"]);
+    expect(fields[2]?.[4]).toBe("foto");
+    expect(prompt).toMatch(/yalniz-medya/);
   });
 });

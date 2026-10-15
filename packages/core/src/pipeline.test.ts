@@ -108,6 +108,39 @@ describe("runPipeline (fake Scorer/Verifier)", () => {
     expect(out.posts[0]?.verification).toBeNull();
   });
 
+  it("takes the ranked top N unverified when no verifier is configured", async () => {
+    const { verifier: _verifier, ...pipeline } = fakePipeline(new Set(["a"]));
+    const out = await runPipeline(pipeline, posts, { timelineSize: 2, verifyConcurrency: 1 });
+    expect(out.posts.map((r) => [r.post.id, r.verification])).toEqual([
+      ["a", null],
+      ["b", null],
+    ]);
+    expect(out.metrics.postsSelected).toBe(2);
+    expect(out.metrics.stageDurationsMs).not.toHaveProperty("verifier");
+  });
+
+  it("selector ranks by read-worthiness, lower clickbait breaking ties", () => {
+    const selector = createThresholdSelector({
+      maxClickbaitScore: 0.7,
+      minReadWorthinessScore: 0.5,
+    });
+    const ranked = selector.select([
+      {
+        post: post("low"),
+        score: score("low", { readWorthinessScore: 0.6, clickbaitScore: 0 }),
+      },
+      {
+        post: post("tie-cb"),
+        score: score("tie-cb", { readWorthinessScore: 0.8, clickbaitScore: 0.5 }),
+      },
+      {
+        post: post("best"),
+        score: score("best", { readWorthinessScore: 0.8, clickbaitScore: 0.1 }),
+      },
+    ]);
+    expect(ranked.map((r) => r.post.id)).toEqual(["best", "tie-cb", "low"]);
+  });
+
   it("selector drops clickbait above the threshold", async () => {
     const pipeline = fakePipeline(new Set());
     pipeline.scorer = {

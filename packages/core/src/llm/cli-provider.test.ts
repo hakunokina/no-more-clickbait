@@ -307,6 +307,29 @@ describe("output parsers", () => {
     });
   });
 
+  it("reads thinking tokens, model and stop reason from the json result", () => {
+    const parsed = parseClaudeJsonOutput(
+      JSON.stringify({
+        type: "result",
+        is_error: false,
+        result: "1|0|5|0||",
+        stop_reason: "max_tokens",
+        usage: {
+          input_tokens: 2,
+          output_tokens: 90,
+          output_tokens_details: { thinking_tokens: 30 },
+        },
+        modelUsage: { "claude-opus-5-5": { outputTokens: 90 } },
+      }),
+    );
+    expect(parsed).toMatchObject({
+      outputTokens: 90,
+      thinkingTokens: 30,
+      model: "claude-opus-5-5",
+      stopReason: "max_tokens",
+    });
+  });
+
   it("rejects an is_error result", () => {
     expect(() =>
       parseClaudeJsonOutput(JSON.stringify({ is_error: true, result: "boom" })),

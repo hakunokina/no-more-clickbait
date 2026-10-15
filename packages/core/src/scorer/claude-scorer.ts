@@ -1,12 +1,12 @@
 import { z } from "zod";
 import {
-  CliNotAuthenticatedError,
-  CliNotFoundError,
+  CliRunError,
   createClaudeCliProvider,
   llmResultToCallMetrics,
   type ClaudeCliOptions,
   type CliLlmProvider,
   type LlmProvider,
+  type LlmResult,
 } from "../llm/cli-provider.js";
 import type { RunMetricsCollector } from "../metrics.js";
 import type { Scorer } from "../pipeline.js";
@@ -30,10 +30,12 @@ import { buildScorerPrompt } from "./scorer-prompt.js";
  * line size the tail is far below any output limit. Ids still missing
  * afterwards come back marked `scoringFailed` with conservative
  * placeholder scores — visible, never silently dropped. Provider
- * errors on the first call propagate. On the retry only CLI missing /
- * not logged in propagate (actionable by the user); any other retry
- * failure (CLI error, timeout) keeps the first call's scores and marks
- * only the still-missing ids `scoringFailed`.
+ * errors on the first call propagate. On the retry only a CliRunError
+ * (CLI exit/timeout/unparseable output) is absorbed: the first call's
+ * scores stay and only the still-missing ids are marked
+ * `scoringFailed`. Everything else — CLI missing, not logged in, or an
+ * unexpected bug — propagates. A failed call is still recorded in the
+ * run metrics (`failed: true`, timing only), so its time is visible.
  */
 
 export const ClaudeScorerEntrySchema = z
@@ -206,10 +208,27 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
 
   async function callOnce(posts: readonly Post[]): Promise<Map<string, ClaudeScorerEntry>> {
     const startedAt = new Date().toISOString();
-    // No allowedTools: the provider hard-disables the tool set, so feed
-    // content has nothing to invoke even under prompt injection.
-    const result = await provider.complete({ prompt: buildScorerPrompt(posts) });
-    metrics?.recordLlmCall(llmResultToCallMetrics(provider.id, "scorer", startedAt, result));
+    const started = Date.now();
+    let result: LlmResult;
+    try {
+      // No allowedTools: the provider hard-disables the tool set, so feed
+      // content has nothing to invoke even under prompt injection.
+      result = await provider.complete({ prompt: buildScorerPrompt(posts) });
+    } catch (error) {
+      metrics?.recordLlmCall({
+        providerId: provider.id,
+        stage: "scorer",
+        startedAt,
+        durationMs: Date.now() - started,
+        postCount: posts.length,
+        failed: true,
+      });
+      throw error;
+    }
+    metrics?.recordLlmCall({
+      ...llmResultToCallMetrics(provider.id, "scorer", startedAt, result),
+      postCount: posts.length,
+    });
     return parseScorerOutput(
       result.text,
       posts.map((post) => post.id),
@@ -225,10 +244,8 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
         try {
           for (const [id, entry] of await callOnce(missing)) byId.set(id, entry);
         } catch (error) {
-          if (error instanceof CliNotFoundError || error instanceof CliNotAuthenticatedError) {
-            throw error;
-          }
-          // Retry failed (CLI error, timeout): keep the first call's scores;
+          if (!(error instanceof CliRunError)) throw error;
+          // Retry failed (CLI exit, timeout): keep the first call's scores;
           // the still-missing ids fall through to unscoredEntry below.
         }
       }

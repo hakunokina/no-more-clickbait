@@ -65,10 +65,20 @@ export const LlmCallMetricsSchema = z.object({
   durationMs: z.number().nonnegative(),
   inputTokens: z.number().nonnegative().optional(),
   outputTokens: z.number().nonnegative().optional(),
+  /** Thinking tokens, already included in outputTokens. */
+  thinkingTokens: z.number().nonnegative().optional(),
   cacheReadTokens: z.number().nonnegative().optional(),
   cacheCreationTokens: z.number().nonnegative().optional(),
   /** Provider-reported cost in USD, when the provider reports one. */
   costUsd: z.number().nonnegative().optional(),
+  /** Model that served the call, as the provider reports it. */
+  model: z.string().min(1).optional(),
+  /** Why generation stopped, e.g. "end_turn" or "max_tokens" (truncated). */
+  stopReason: z.string().min(1).optional(),
+  /** Posts the call carried (per-post token cost = tokens / postCount). */
+  postCount: z.number().int().nonnegative().optional(),
+  /** True when the call failed (no usable result); timing only. */
+  failed: z.boolean().optional(),
 });
 export type LlmCallMetrics = z.infer<typeof LlmCallMetricsSchema>;
 
@@ -88,9 +98,12 @@ export type RunMetrics = z.infer<typeof RunMetricsSchema>;
 
 export interface RunMetricsTotals {
   llmCallCount: number;
+  /** Calls recorded as failed (included in llmCallCount). */
+  failedCallCount: number;
   totalDurationMs: number;
   inputTokens: number;
   outputTokens: number;
+  thinkingTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
   /** Sum of reported costs; undefined when no call reported a cost. */
@@ -106,9 +119,11 @@ export function summarizeRunMetrics(metrics: RunMetrics): RunMetricsTotals {
   const collection = metrics.collection;
   return {
     llmCallCount: metrics.llmCalls.length,
+    failedCallCount: metrics.llmCalls.filter((call) => call.failed === true).length,
     totalDurationMs: sum((call) => call.durationMs),
     inputTokens: sum((call) => call.inputTokens),
     outputTokens: sum((call) => call.outputTokens),
+    thinkingTokens: sum((call) => call.thinkingTokens),
     cacheReadTokens: sum((call) => call.cacheReadTokens),
     cacheCreationTokens: sum((call) => call.cacheCreationTokens),
     costUsd: anyCost ? sum((call) => call.costUsd) : undefined,
