@@ -518,9 +518,15 @@ describe("SessionController", () => {
     expect(c.status.collection).toMatchObject({ state: "collecting", count: 60 });
   });
 
-  it("counts sessions whose collection never completed, without touching them", async () => {
-    const unfinished = new PostSessionStore(root, () => "2026-01-01T09:00:00.000Z");
-    await unfinished.addBatch(batch(["1"]));
+  /** A session with one batch and no complete.json (Mode B: session.json too). */
+  async function openSession(at: string, ids: string[], mode: "A" | "B"): Promise<void> {
+    const store = new PostSessionStore(root, () => at);
+    if (mode === "B") await store.markMode("B");
+    await store.addBatch(batch(ids));
+  }
+
+  it("counts Mode B sessions whose collection never completed, without touching them", async () => {
+    await openSession("2026-01-01T09:00:00.000Z", ["1"], "B");
     await completeSession(root, "2026-01-01T10:00:00.000Z", ["2"], "A");
     const c = controller();
     await c.processPending();
@@ -528,6 +534,33 @@ describe("SessionController", () => {
     const sessions = await listSessions(root);
     expect(sessions.map((s) => s.batchCount)).toEqual([1, 1]);
     expect(sessions[0]?.processed).toBeNull();
+  });
+
+  it("leaves Mode A browsing and the newest session (maybe still collecting) uncounted", async () => {
+    await openSession("2026-01-01T08:00:00.000Z", ["1"], "A");
+    await openSession("2026-01-01T09:00:00.000Z", ["2"], "B");
+    await openSession("2026-01-01T10:00:00.000Z", ["3"], "B");
+    const c = controller();
+    await c.processPending();
+    expect(c.status.unfinished).toEqual({ count: 1, newestAt: "2026-01-01T09:00:00.000Z" });
+  });
+
+  it("counts the newest session once a later collection was asked for", async () => {
+    await openSession("2026-01-01T09:00:00.000Z", ["1"], "B");
+    await openSession("2026-01-01T10:00:00.000Z", ["2"], "B");
+    const c = controller();
+    await c.processPending();
+    expect(c.status.unfinished.count).toBe(1);
+
+    // "now" is 12:00: the new run has no folder yet; 10:00 is not it.
+    await c.startCollection();
+    await c.processPending();
+    expect(c.status.unfinished).toEqual({ count: 2, newestAt: "2026-01-01T10:00:00.000Z" });
+
+    // Its first batch lands: the run's own session is never counted.
+    await openSession("2026-01-01T12:00:01.000Z", ["3"], "B");
+    await c.processPending();
+    expect(c.status.unfinished).toEqual({ count: 2, newestAt: "2026-01-01T10:00:00.000Z" });
   });
 
   it("reports an unreadable session instead of crashing", async () => {

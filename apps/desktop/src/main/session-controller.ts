@@ -36,8 +36,8 @@ import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
  *   logged in", only becomes the *pending* session — the user is asked
  *   and "Build timeline" runs it (owner's decision: no LLM spend the
  *   user did not ask for); a cancelled one is never built;
- * - sessions whose collection never completed are counted for the
- *   monitor, never deleted or run;
+ * - Mode B sessions whose collection never completed are counted for
+ *   the monitor (#refreshUnfinished), never deleted or run;
  * - at start-up (and whenever a host connects) the newest complete,
  *   unprocessed session is handled the same way; older ones are marked
  *   superseded;
@@ -120,6 +120,8 @@ export class SessionController {
   /** The collection was given up for silence (late progress revives it). */
   #silent = false;
   #lastTimeline: string | null = null;
+  /** When this app asked for the collection in progress (null: unknown). */
+  #requestedAt: string | null = null;
   /** A session is being run or rendered (wider than `runner.busy`). */
   #busy = false;
 
@@ -201,6 +203,7 @@ export class SessionController {
       type: "start-collection",
       target: settings.collectTarget,
     });
+    this.#requestedAt = sent ? this.#now() : null;
     this.#setCollection(() =>
       sent
         ? { state: "requested", message: null, target: settings.collectTarget, count: null }
@@ -219,8 +222,11 @@ export class SessionController {
       this.#setCollection((status) => {
         const target = event.target ?? status.collection.target;
         switch (event.outcome) {
-          case "started":
           case "busy":
+            // A run that began before our request: its session is older.
+            this.#requestedAt = null;
+            return { state: "collecting", message: null, target, count: null };
+          case "started":
             return { state: "collecting", message: null, target, count: null };
           case "mode-b-off":
             return {
@@ -391,19 +397,32 @@ export class SessionController {
     this.#watchdog.unref?.();
   }
 
-  /** Counts sessions with posts whose collection never completed. */
+  /**
+   * Counts Mode B sessions with posts whose collection never completed
+   * (the host died, the browser closed…). The user's own scrolling
+   * (Mode A) is left alone: stopping short of the target is normal. The
+   * newest session may still be collecting (its host process is alive)
+   * unless it started before the collection this app is waiting for.
+   */
   async #refreshUnfinished(): Promise<void> {
-    const unfinished = (await listSessions(this.#deps.sessionsRoot)).filter(
-      (session) =>
-        session.completion === null && session.processed === null && session.batchCount > 0,
-    );
-    // The newest one may be the collection running right now.
+    const sessions = await listSessions(this.#deps.sessionsRoot);
+    const newest = sessions[sessions.length - 1];
     const { state } = this.#status.collection;
-    if (state === "requested" || state === "collecting") unfinished.pop();
-    const newest = unfinished[unfinished.length - 1];
+    const since = state === "requested" || state === "collecting" ? this.#requestedAt : null;
+    const newestStart = newest ? sessionStartedAt(newest.id) : null;
+    const newestEnded = since !== null && newestStart !== null && newestStart < since;
+    const unfinished = sessions.filter(
+      (session) =>
+        session.info?.mode === "B" &&
+        session.completion === null &&
+        session.processed === null &&
+        session.batchCount > 0 &&
+        (session !== newest || newestEnded),
+    );
+    const latest = unfinished[unfinished.length - 1];
     const next = {
       count: unfinished.length,
-      newestAt: newest ? sessionStartedAt(newest.id) : null,
+      newestAt: latest ? sessionStartedAt(latest.id) : null,
     };
     const current = this.#status.unfinished;
     if (current.count === next.count && current.newestAt === next.newestAt) return;

@@ -116,6 +116,21 @@ describe("PostSessionStore", () => {
     ]);
   });
 
+  it("records a Mode B run in session.json, also when it reports before the first batch", async () => {
+    const early = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await early.markMode("B");
+    await early.addBatch(batch(clock, ["1"]));
+    await early.markMode("A"); // the first mode stays
+    const plain = new PostSessionStore(root, () => "2026-01-01T11:00:00.000Z");
+    await plain.addBatch(batch(clock, ["2"]));
+
+    const sessions = await listSessions(root);
+    expect(sessions.map((s) => s.info)).toEqual([
+      { mode: "B", startedAt: "2026-01-01T10:00:00.000Z" },
+      null,
+    ]);
+  });
+
   /** A session folder holding one batch file, optionally complete/processed. */
   async function session(
     hour: number,
