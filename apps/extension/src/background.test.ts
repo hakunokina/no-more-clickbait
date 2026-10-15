@@ -363,6 +363,45 @@ describe("background worker", () => {
     expect(reports()).toHaveLength(2);
   });
 
+  it("reports an Options save to the linked desktop, but not a desktop push or while unlinked", async () => {
+    await settle();
+    const port = currentPort();
+    const reports = () => port.posted.filter((message) => message.type === "settings-sync");
+    const optionsSave = async (maxClickbait: number, updatedAt: string) => {
+      await fake.chrome.storage.local.set({
+        "nmc-settings": { maxClickbait },
+        "nmc-settings-stamp": { updatedAt, source: "extension" },
+      });
+      await settle();
+    };
+    // Not linked to the desktop: the one-shot sync covers settings.json.
+    await optionsSave(4, "2026-10-15T10:00:00.000Z");
+    expect(reports()).toHaveLength(0);
+
+    port.onMessage.emit({
+      type: "link-status",
+      desktopConnected: true,
+      extensionConnected: true,
+    });
+    await settle();
+    expect(reports()).toHaveLength(1);
+    const stamp = { updatedAt: "2026-10-15T10:01:00.000Z", source: "extension" };
+    await optionsSave(6, stamp.updatedAt);
+    expect(reports()).toHaveLength(2);
+    expect(reports().at(-1)).toEqual({
+      type: "settings-sync",
+      settings: expect.objectContaining({ maxClickbait: 6 }),
+      stamp,
+    });
+
+    // A desktop push is answered by its push-result, not reported again.
+    await fake.chrome.storage.local.set({
+      "nmc-settings-stamp": { updatedAt: "2026-10-15T10:02:00.000Z", source: "desktop" },
+    });
+    await settle();
+    expect(reports()).toHaveLength(2);
+  });
+
   it("applies a desktop push and answers on the port; the push itself needs no answer", async () => {
     await setSettings({ maxClickbait: 7 });
     await settle();

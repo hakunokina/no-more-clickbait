@@ -161,6 +161,56 @@ describe("SettingsManager", () => {
     expect(mgr.state.pending).toBe(false);
   });
 
+  it("shows an Options save reported over the link, so the next desktop save keeps it", async () => {
+    await writeSettingsFile(defaults, T1);
+    const mgr = manager();
+    await mgr.init();
+    mgr.setBrowserConnected(true);
+    const fromOptions = { ...defaults, timelineSize: 50 };
+    await mgr.handleSettingsState(
+      stateEvent({ origin: "sync", settings: fromOptions, stamp: stamp(T2, "extension") }),
+    );
+    expect(mgr.state.settings).toEqual(fromOptions);
+    expect(mgr.state.stamp).toEqual(stamp(T2, "extension"));
+
+    // The desktop form saves from what it shows: the Options value rides along.
+    now = T3;
+    await mgr.change({ ...mgr.state.settings, maxClickbait: 3 });
+    expect(pushes.at(-1)).toEqual({
+      settings: { ...defaults, timelineSize: 50, maxClickbait: 3 },
+      stamp: stamp(T3, "desktop"),
+    });
+  });
+
+  it("keeps a later pending change when an older push is answered", async () => {
+    const mgr = manager();
+    await mgr.init();
+    mgr.setBrowserConnected(true);
+    const first = { ...defaults, maxClickbait: 3 };
+    const second = { ...defaults, maxClickbait: 5 };
+    now = T2;
+    await mgr.change(first);
+    now = T3;
+    await mgr.change(second);
+    expect(pushes).toHaveLength(2);
+
+    // The first push's answer arrives while the second is still on its way.
+    await mgr.handleSettingsState(
+      stateEvent({ origin: "push-result", settings: first, stamp: stamp(T2, "desktop") }),
+    );
+    expect(mgr.state.settings).toEqual(second);
+    expect(mgr.state.pending).toBe(true);
+    expect(await pendingExists()).toBe(true);
+    expect(pushes.at(-1)).toEqual({ settings: second, stamp: stamp(T3, "desktop") });
+
+    // Its own answer settles it.
+    await mgr.handleSettingsState(
+      stateEvent({ origin: "push-result", settings: second, stamp: stamp(T3, "desktop") }),
+    );
+    expect(mgr.state.pending).toBe(false);
+    expect(await pendingExists()).toBe(false);
+  });
+
   it("does not send while disconnected, and a spent pending file is cleaned at init", async () => {
     await writeSettingsFile(changed, T3);
     await writeFile(

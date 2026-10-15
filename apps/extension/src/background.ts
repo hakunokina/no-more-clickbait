@@ -4,6 +4,7 @@ import {
   ManagedSettingsSchema,
   MAX_BRIDGE_MESSAGE_BYTES,
   parseHomeTimeline,
+  SettingsStampSchema,
   type BridgeMessage,
   type CaptureSource,
   type CaptureStats,
@@ -37,6 +38,7 @@ import {
   loadSettings,
   loadSettingsStamp,
   saveSettings,
+  SETTINGS_STAMP_KEY,
   SETTINGS_STORAGE_KEY,
 } from "./settings.js";
 import {
@@ -560,6 +562,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 // --- Settings shared with the desktop app ----------------------------
+
+// An Options save goes to settings.json through a one-shot host, which
+// has no desktop link: the linked worker reports it, so the desktop
+// shows it before its own next save (which would otherwise carry the
+// older values with a newer stamp and undo it).
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  const stamp = SettingsStampSchema.safeParse(changes[SETTINGS_STAMP_KEY]?.newValue);
+  if (areaName !== "local" || !stamp.success || stamp.data.source !== "extension") return;
+  if (!desktopLinked) return;
+  void reportSettingsToDesktop().catch((error: unknown) => {
+    console.error(`[nmc] settings report to the desktop failed: ${String(error)}`);
+  });
+});
 
 /** Tells the desktop app the settings this extension holds, and when they were saved. */
 async function reportSettingsToDesktop(): Promise<void> {

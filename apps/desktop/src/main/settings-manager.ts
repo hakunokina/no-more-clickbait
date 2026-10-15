@@ -146,6 +146,14 @@ export class SettingsManager {
   async handleSettingsState(event: SettingsStateEvent): Promise<void> {
     const incoming: StampedSettings = { settings: event.settings, stamp: event.stamp };
     if (event.origin === "push-result") {
+      // An answer to an older push while a later change is still
+      // pending: that change stays (and goes out again, in case its own
+      // push was lost); the UI does not flicker back.
+      if (this.#pending && isNewerStamp(this.#pending.stamp, incoming.stamp)) {
+        this.#trySendPending();
+        this.#emit();
+        return;
+      }
       // Our push was answered either way: applied, or the extension's
       // own later save stands. Nothing is left pending.
       this.#current = incoming;
