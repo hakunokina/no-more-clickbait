@@ -1,0 +1,663 @@
+{
+  "data": {
+    "home": {
+      "home_timeline_urt": {
+        "instructions": [
+          {
+            "type": "TimelineAddEntries",
+            "entries": [
+              {
+                "entryId": "tweet-2000000000000000001",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000001",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000001",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 1",
+                                "screen_name": "synthetic_media_1"
+                              },
+                              "legacy": {},
+                              "avatar": {
+                                "image_url": "https://pbs.twimg.com/profile_images/90000001/synthetic_normal.jpg"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000001",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "Two synthetic photos of the harbour https://t.co/ph1",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": [],
+                            "media": [
+                              {
+                                "type": "photo",
+                                "url": "https://t.co/ph1",
+                                "media_url_https": "https://pbs.twimg.com/media/synthetic-1.jpg",
+                                "original_info": {
+                                  "width": 1200,
+                                  "height": 800,
+                                  "focus_rects": []
+                                },
+                                "ext_alt_text": "Synthetic harbour at dawn"
+                              },
+                              {
+                                "type": "photo",
+                                "url": "https://t.co/ph1",
+                                "media_url_https": "https://pbs.twimg.com/media/synthetic-2.jpg",
+                                "original_info": {
+                                  "width": 900,
+                                  "height": 1600,
+                                  "focus_rects": []
+                                }
+                              }
+                            ]
+                          },
+                          "extended_entities": {
+                            "media": [
+                              {
+                                "type": "photo",
+                                "url": "https://t.co/ph1",
+                                "media_url_https": "https://pbs.twimg.com/media/synthetic-1.jpg",
+                                "original_info": {
+                                  "width": 1200,
+                                  "height": 800,
+                                  "focus_rects": []
+                                },
+                                "ext_alt_text": "Synthetic harbour at dawn"
+                              },
+                              {
+                                "type": "photo",
+                                "url": "https://t.co/ph1",
+                                "media_url_https": "https://pbs.twimg.com/media/synthetic-2.jpg",
+                                "original_info": {
+                                  "width": 900,
+                                  "height": 1600,
+                                  "focus_rects": []
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-2000000000000000002",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000002",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000002",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 2",
+                                "screen_name": "synthetic_media_2"
+                              },
+                              "legacy": {},
+                              "avatar": {
+                                "image_url": "https://pbs.twimg.com/profile_images/90000002/synthetic_normal.jpg"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000002",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "A synthetic clip https://t.co/vid2",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": [],
+                            "media": [
+                              {
+                                "type": "video",
+                                "url": "https://t.co/vid2",
+                                "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/2/pu/img/synthetic.jpg",
+                                "original_info": {
+                                  "width": 1280,
+                                  "height": 720
+                                },
+                                "video_info": {
+                                  "aspect_ratio": [16, 9],
+                                  "duration_millis": 42500,
+                                  "variants": [
+                                    {
+                                      "content_type": "application/x-mpegURL",
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/pl/synthetic.m3u8"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 832000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/640x360/synthetic.mp4"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 2176000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/1280x720/synthetic.mp4"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 256000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/480x270/synthetic.mp4"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 832000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/640x360/synthetic.mp4"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          "extended_entities": {
+                            "media": [
+                              {
+                                "type": "video",
+                                "url": "https://t.co/vid2",
+                                "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/2/pu/img/synthetic.jpg",
+                                "original_info": {
+                                  "width": 1280,
+                                  "height": 720
+                                },
+                                "video_info": {
+                                  "aspect_ratio": [16, 9],
+                                  "duration_millis": 42500,
+                                  "variants": [
+                                    {
+                                      "content_type": "application/x-mpegURL",
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/pl/synthetic.m3u8"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 832000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/640x360/synthetic.mp4"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 2176000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/1280x720/synthetic.mp4"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 256000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/480x270/synthetic.mp4"
+                                    },
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 832000,
+                                      "url": "https://video.twimg.com/ext_tw_video/2/pu/vid/640x360/synthetic.mp4"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-2000000000000000003",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000003",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000003",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 3",
+                                "screen_name": "synthetic_media_3"
+                              },
+                              "legacy": {},
+                              "avatar": {
+                                "image_url": "https://pbs.twimg.com/profile_images/90000003/synthetic_normal.jpg"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000003",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "Synthetic loop https://t.co/gif3",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": [],
+                            "media": [
+                              {
+                                "type": "animated_gif",
+                                "url": "https://t.co/gif3",
+                                "media_url_https": "https://pbs.twimg.com/tweet_video_thumb/synthetic.jpg",
+                                "video_info": {
+                                  "aspect_ratio": [1, 1],
+                                  "variants": [
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 0,
+                                      "url": "https://video.twimg.com/tweet_video/synthetic.mp4"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          },
+                          "extended_entities": {
+                            "media": [
+                              {
+                                "type": "animated_gif",
+                                "url": "https://t.co/gif3",
+                                "media_url_https": "https://pbs.twimg.com/tweet_video_thumb/synthetic.jpg",
+                                "video_info": {
+                                  "aspect_ratio": [1, 1],
+                                  "variants": [
+                                    {
+                                      "content_type": "video/mp4",
+                                      "bitrate": 0,
+                                      "url": "https://video.twimg.com/tweet_video/synthetic.mp4"
+                                    }
+                                  ]
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-2000000000000000004",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000004",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000004",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 4",
+                                "screen_name": "synthetic_media_4"
+                              },
+                              "legacy": {},
+                              "avatar": {
+                                "image_url": "https://pbs.twimg.com/profile_images/90000004/synthetic_normal.jpg"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000004",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "Background https://t.co/a4 and the report https://t.co/b4",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": [
+                              {
+                                "url": "https://t.co/a4",
+                                "expanded_url": "https://first.example.invalid/background"
+                              },
+                              {
+                                "url": "https://t.co/b4",
+                                "expanded_url": "https://report.example.invalid/2026/report"
+                              }
+                            ]
+                          }
+                        },
+                        "card": {
+                          "rest_id": "https://t.co/b4",
+                          "legacy": {
+                            "name": "summary_large_image",
+                            "url": "https://t.co/b4",
+                            "binding_values": [
+                              {
+                                "key": "title",
+                                "value": {
+                                  "type": "STRING",
+                                  "string_value": "Synthetic annual report"
+                                }
+                              },
+                              {
+                                "key": "description",
+                                "value": {
+                                  "type": "STRING",
+                                  "string_value": "  A made-up summary of a made-up report.  "
+                                }
+                              },
+                              {
+                                "key": "vanity_url",
+                                "value": {
+                                  "type": "STRING",
+                                  "string_value": "report.example.invalid"
+                                }
+                              },
+                              {
+                                "key": "domain",
+                                "value": {
+                                  "type": "STRING",
+                                  "string_value": "report.example.invalid"
+                                }
+                              },
+                              {
+                                "key": "card_url",
+                                "value": {
+                                  "type": "STRING",
+                                  "string_value": "https://t.co/b4"
+                                }
+                              },
+                              {
+                                "key": "thumbnail_image_original",
+                                "value": {
+                                  "type": "IMAGE",
+                                  "image_value": {
+                                    "url": "https://pbs.twimg.com/card_img/4/thumb.jpg",
+                                    "width": 400,
+                                    "height": 400
+                                  }
+                                }
+                              },
+                              {
+                                "key": "photo_image_full_size_original",
+                                "value": {
+                                  "type": "IMAGE",
+                                  "image_value": {
+                                    "url": "https://pbs.twimg.com/card_img/4/full.jpg",
+                                    "width": 1200,
+                                    "height": 628
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-2000000000000000005",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000005",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000005",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 5",
+                                "screen_name": "synthetic_media_5"
+                              },
+                              "legacy": {}
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000005",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "Only a title card https://t.co/a5 https://t.co/b5",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": [
+                              {
+                                "url": "https://t.co/a5",
+                                "expanded_url": "https://one.example.invalid/"
+                              },
+                              {
+                                "url": "https://t.co/b5",
+                                "expanded_url": "https://two.example.invalid/"
+                              }
+                            ]
+                          }
+                        },
+                        "card": {
+                          "rest_id": "card-5",
+                          "legacy": {
+                            "name": "summary",
+                            "binding_values": [
+                              {
+                                "key": "title",
+                                "value": {
+                                  "type": "STRING",
+                                  "string_value": "Synthetic title only"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-2000000000000000006",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000006",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000006",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 6",
+                                "screen_name": "synthetic_media_6"
+                              },
+                              "legacy": {
+                                "profile_image_url_https": "https://pbs.twimg.com/profile_images/90000006/legacy_normal.jpg"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000006",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "Bare card id https://t.co/a6",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": [
+                              {
+                                "url": "https://t.co/a6",
+                                "expanded_url": "https://bare.example.invalid/x"
+                              }
+                            ]
+                          }
+                        },
+                        "card": {
+                          "rest_id": "https://t.co/a6"
+                        }
+                      }
+                    }
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-2000000000000000007",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "2000000000000000007",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "rest_id": "90000007",
+                              "is_blue_verified": true,
+                              "core": {
+                                "name": "Synthetic Media 7",
+                                "screen_name": "synthetic_media_7"
+                              },
+                              "legacy": {},
+                              "avatar": {
+                                "image_url": "https://pbs.twimg.com/profile_images/90000007/synthetic_normal.jpg"
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "2000000000000000007",
+                          "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                          "full_text": "Look at this https://t.co/quote7",
+                          "lang": "en",
+                          "favorite_count": 5,
+                          "entities": {
+                            "urls": []
+                          },
+                          "is_quote_status": true,
+                          "quoted_status_permalink": {
+                            "url": "https://t.co/quote7"
+                          }
+                        },
+                        "quoted_status_result": {
+                          "result": {
+                            "__typename": "Tweet",
+                            "rest_id": "2000000000000000070",
+                            "core": {
+                              "user_results": {
+                                "result": {
+                                  "__typename": "User",
+                                  "rest_id": "90000008",
+                                  "is_blue_verified": false,
+                                  "core": {
+                                    "name": "Synthetic Media 8",
+                                    "screen_name": "synthetic_media_8"
+                                  },
+                                  "legacy": {
+                                    "profile_image_url_https": "https://pbs.twimg.com/profile_images/90000008/legacy_normal.jpg"
+                                  }
+                                }
+                              }
+                            },
+                            "legacy": {
+                              "id_str": "2000000000000000070",
+                              "created_at": "Thu Jan 01 12:30:00 +0000 2026",
+                              "full_text": "Quoted synthetic photo https://t.co/ph8",
+                              "lang": "en",
+                              "favorite_count": 5,
+                              "entities": {
+                                "urls": [],
+                                "media": [
+                                  {
+                                    "type": "photo",
+                                    "url": "https://t.co/ph8",
+                                    "media_url_https": "https://pbs.twimg.com/media/synthetic-8.jpg",
+                                    "original_info": {
+                                      "width": 1000,
+                                      "height": 1000,
+                                      "focus_rects": []
+                                    }
+                                  }
+                                ]
+                              },
+                              "extended_entities": {
+                                "media": [
+                                  {
+                                    "type": "photo",
+                                    "url": "https://t.co/ph8",
+                                    "media_url_https": "https://pbs.twimg.com/media/synthetic-8.jpg",
+                                    "original_info": {
+                                      "width": 1000,
+                                      "height": 1000,
+                                      "focus_rects": []
+                                    }
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

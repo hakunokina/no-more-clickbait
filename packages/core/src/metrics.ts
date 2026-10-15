@@ -95,6 +95,51 @@ export const LlmCallMetricsSchema = z.object({
 });
 export type LlmCallMetrics = z.infer<typeof LlmCallMetricsSchema>;
 
+/**
+ * Where every scanned post went, each in exactly one bucket, so the
+ * "Done" tally adds up: scanned = the sum of every other field. The
+ * first matching rule wins, in field order (e.g. a post that is both
+ * clickbait and below the read floor counts as clickbait).
+ */
+export const FunnelCountsSchema = z
+  .object({
+    /** Posts entering the pipeline (parsed, ads and repeats included). */
+    scanned: z.number().int().nonnegative(),
+    /** Ads (platform-marked promoted posts). */
+    ads: z.number().int().nonnegative(),
+    /** Repeats of a post already seen in the run (overlap, reposts). */
+    duplicates: z.number().int().nonnegative(),
+    /** Media-only posts: no text to judge, never scored or shown. */
+    mediaOnly: z.number().int().nonnegative(),
+    /** The Scorer returned no usable score for these. */
+    scoringFailed: z.number().int().nonnegative(),
+    /** Clickbait score at or above the limit. */
+    clickbait: z.number().int().nonnegative(),
+    /** Read value below the floor. */
+    belowReadFloor: z.number().int().nonnegative(),
+    /** Verification found sources contradicting the post's claim. */
+    contradicted: z.number().int().nonnegative(),
+    /** Passed every rule but ranked below the first N (timeline full). */
+    rankedOut: z.number().int().nonnegative(),
+    /** In the final timeline. */
+    shown: z.number().int().nonnegative(),
+  })
+  .refine(
+    (f) =>
+      f.scanned ===
+      f.ads +
+        f.duplicates +
+        f.mediaOnly +
+        f.scoringFailed +
+        f.clickbait +
+        f.belowReadFloor +
+        f.contradicted +
+        f.rankedOut +
+        f.shown,
+    "funnel buckets must add up to scanned",
+  );
+export type FunnelCounts = z.infer<typeof FunnelCountsSchema>;
+
 export const RunMetricsSchema = z.object({
   collection: CollectionMetricsSchema.optional(),
   /** Pipeline stage timings in milliseconds, keyed by stage name. */
@@ -106,6 +151,8 @@ export const RunMetricsSchema = z.object({
   postsAfterHardFilter: z.number().int().nonnegative(),
   /** Posts in the final verified selection (the JSON output). */
   postsSelected: z.number().int().nonnegative(),
+  /** Per-bucket fate of every scanned post (absent in older runs). */
+  funnel: FunnelCountsSchema.optional(),
 });
 export type RunMetrics = z.infer<typeof RunMetricsSchema>;
 
@@ -156,6 +203,7 @@ export class RunMetricsCollector {
   postsIn = 0;
   postsAfterHardFilter = 0;
   postsSelected = 0;
+  funnel: FunnelCounts | undefined;
   collection: CollectionMetrics | undefined;
 
   recordLlmCall(call: LlmCallMetrics): void {
@@ -174,6 +222,7 @@ export class RunMetricsCollector {
       postsIn: this.postsIn,
       postsAfterHardFilter: this.postsAfterHardFilter,
       postsSelected: this.postsSelected,
+      ...(this.funnel ? { funnel: { ...this.funnel } } : {}),
     };
   }
 }

@@ -1,11 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { createHardFilter } from "./hard-filter.js";
+import { FunnelCountsSchema, type FunnelCounts } from "./metrics.js";
 import {
   createThresholdSelector,
+  DEFAULT_MAX_VERIFICATIONS,
+  DEFAULT_MIN_READ_FOR_VERIFY,
   mapWithConcurrency,
+  pipelineConfigFromSettings,
   runPipeline,
   type Pipeline,
 } from "./pipeline.js";
-import type { Post, ScoreEntry, VerificationResult, VerificationStatus } from "./schemas.js";
+import {
+  SettingsSchema,
+  type Post,
+  type ScoreEntry,
+  type VerificationResult,
+  type VerificationStatus,
+} from "./schemas.js";
 
 function post(id: string, overrides: Partial<Post> = {}): Post {
   return {
@@ -373,8 +384,8 @@ describe("runPipeline verification (fake Verifier)", () => {
     expect(maxInFlight).toBe(4);
   });
 
-  it("verifies only posts with read value ≥ 5/10; the rest stay in unverified", async () => {
-    const reads = [0.9, 0.5, 0.49, 0.3];
+  it("verifies only posts with read value ≥ 4/10 (owner's default); the rest stay in unverified", async () => {
+    const reads = [0.9, 0.4, 0.39, 0.3];
     const input = reads.map((_, i) => post(`r${i}`));
     const scorer: Pipeline["scorer"] = {
       score: async (posts) =>
@@ -454,5 +465,155 @@ describe("runPipeline verification (fake Verifier)", () => {
     const out = await runPipeline(pipeline, input, { timelineSize: 2, verifyConcurrency: 2 });
     expect(out.posts).toHaveLength(2);
     expect(out.verification).toMatchObject({ failed: 2, byStatus: { unverifiable: 2 } });
+  });
+});
+
+describe("runPipeline funnel", () => {
+  /** Sum of every bucket except `scanned`. */
+  function bucketSum(f: FunnelCounts): number {
+    const { scanned: _scanned, ...buckets } = f;
+    return Object.values(buckets).reduce((a, b) => a + b, 0);
+  }
+
+  // One post per fate, in feed order. Read values rank k1 > k2 > k3 > k4.
+  const input = [
+    post("ad", { promoted: true }),
+    post("k1"),
+    post("k1"), // repeat of k1
+    post("k2", { repostedBy: "someone" }),
+    post("k2"), // the same original again
+    post("img", { text: "", mediaOnly: true }),
+    post("fail"),
+    post("missing"),
+    post("bait"),
+    post("bait-and-low"),
+    post("low"),
+    post("k3"),
+    post("k4"),
+  ];
+  const scores: Record<string, Partial<ScoreEntry>> = {
+    k1: { readWorthinessScore: 0.9, checkWorthyClaim: "claim k1" },
+    k2: { readWorthinessScore: 0.8, checkWorthyClaim: "claim k2" },
+    k3: { readWorthinessScore: 0.7 },
+    k4: { readWorthinessScore: 0.6 },
+    fail: { clickbaitScore: 1, readWorthinessScore: 0, scoringFailed: true },
+    bait: { clickbaitScore: 0.8, readWorthinessScore: 0.9 },
+    "bait-and-low": { clickbaitScore: 0.9, readWorthinessScore: 0.1 },
+    low: { readWorthinessScore: 0.1 },
+  };
+
+  function pipeline(withVerifier: boolean): Pipeline {
+    return {
+      hardFilter: createHardFilter(),
+      scorer: {
+        // "missing" gets no entry at all.
+        score: async (posts) =>
+          posts.filter((p) => p.id !== "missing").map((p) => score(p.id, scores[p.id])),
+      },
+      selector: createThresholdSelector({
+        maxClickbaitScore: 0.7,
+        minReadWorthinessScore: 0.2,
+      }),
+      ...(withVerifier
+        ? {
+            verifier: {
+              verify: async (p, claim) =>
+                verification(p.id, claim, p.id === "k1" ? "false_or_disputed" : "verified"),
+            },
+          }
+        : {}),
+    };
+  }
+
+  it("puts every scanned post in exactly one bucket (with verification)", async () => {
+    const out = await runPipeline(pipeline(true), input, {
+      timelineSize: 2,
+      verifyConcurrency: 2,
+    });
+    expect(out.posts.map((r) => r.post.id)).toEqual(["k2", "k3"]);
+    expect(out.funnel).toEqual({
+      scanned: 13,
+      ads: 1,
+      duplicates: 2,
+      mediaOnly: 1,
+      scoringFailed: 2,
+      clickbait: 2,
+      belowReadFloor: 1,
+      contradicted: 1,
+      rankedOut: 1,
+      shown: 2,
+    });
+    expect(bucketSum(out.funnel)).toBe(out.funnel.scanned);
+    expect(FunnelCountsSchema.safeParse(out.funnel).success).toBe(true);
+    expect(out.metrics.funnel).toEqual(out.funnel);
+  });
+
+  it("adds up without a Verifier and when nothing is judgeable", async () => {
+    const plain = await runPipeline(pipeline(false), input, {
+      timelineSize: 3,
+      verifyConcurrency: 1,
+    });
+    expect(plain.funnel).toMatchObject({ contradicted: 0, rankedOut: 1, shown: 3 });
+    expect(bucketSum(plain.funnel)).toBe(13);
+
+    const onlyMedia = await runPipeline(
+      pipeline(true),
+      [post("ad", { promoted: true }), post("img", { text: "", mediaOnly: true })],
+      { timelineSize: 3, verifyConcurrency: 1 },
+    );
+    expect(onlyMedia.funnel).toEqual({
+      scanned: 2,
+      ads: 1,
+      duplicates: 0,
+      mediaOnly: 1,
+      scoringFailed: 0,
+      clickbait: 0,
+      belowReadFloor: 0,
+      contradicted: 0,
+      rankedOut: 0,
+      shown: 0,
+    });
+  });
+
+  it("schema rejects a funnel that does not add up", () => {
+    expect(
+      FunnelCountsSchema.safeParse({
+        scanned: 3,
+        ads: 1,
+        duplicates: 0,
+        mediaOnly: 0,
+        scoringFailed: 0,
+        clickbait: 0,
+        belowReadFloor: 0,
+        contradicted: 0,
+        rankedOut: 0,
+        shown: 1,
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe("pipelineConfigFromSettings", () => {
+  it("maps 0-10 user settings onto the pipeline's 0..1 scale", () => {
+    const settings = SettingsSchema.parse({
+      maxClickbait: 6,
+      minReadValue: 3,
+      verifyEnabled: false,
+    });
+    expect(pipelineConfigFromSettings(settings)).toEqual({
+      selector: { maxClickbaitScore: 0.6, minReadWorthinessScore: 0.3 },
+      timelineSize: 20,
+      verify: false,
+      maxVerifications: 20,
+      minReadForVerify: 0.4,
+    });
+  });
+
+  it("keeps the pipeline defaults in step with the Settings defaults (owner: verify from 4/10)", () => {
+    const defaults = pipelineConfigFromSettings(SettingsSchema.parse({}));
+    expect(DEFAULT_MIN_READ_FOR_VERIFY).toBe(0.4);
+    expect(defaults.minReadForVerify).toBe(DEFAULT_MIN_READ_FOR_VERIFY);
+    expect(defaults.maxVerifications).toBe(DEFAULT_MAX_VERIFICATIONS);
+    expect(defaults.selector).toEqual({ maxClickbaitScore: 0.7, minReadWorthinessScore: 0.2 });
   });
 });

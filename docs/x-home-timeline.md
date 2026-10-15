@@ -61,6 +61,8 @@ On a `Tweet` (call it `T`):
 | links                              | `T.legacy.entities.urls[].url` (short) → `.expanded_url`                                                                                                               |
 | media                              | `T.legacy.extended_entities.media[]` (fallback `entities.media[]`): `.type` photo/video/animated_gif, `.media_url_https`, `.url` (short link in text), `.ext_alt_text` |
 | card                               | `T.card.legacy.name`, `.binding_values[].key/.value.string_value` (`unified_card` JSON in ads; often only `T.card.rest_id`)                                            |
+| media size                         | `media[].original_info.width/height`                                                                                                                                   |
+| video / GIF                        | `media[].video_info.duration_millis` (video), `.variants[].content_type/bitrate/url` (`video/mp4` + an HLS `application/x-mpegURL` without bitrate)                    |
 | likes / reposts / replies / quotes | `T.legacy.favorite_count` / `retweet_count` / `reply_count` / `quote_count`                                                                                            |
 | views                              | `T.views.count` (string), `T.views.state`                                                                                                                              |
 | reply                              | `T.legacy.in_reply_to_status_id_str`, `in_reply_to_screen_name`                                                                                                        |
@@ -74,13 +76,24 @@ Author, `U = T.core.user_results.result`:
 | handle   | `U.core.screen_name` (older: `U.legacy.screen_name`)                                            |
 | name     | `U.core.name` (older: `U.legacy.name`)                                                          |
 | verified | `U.is_blue_verified`, `U.verification.verified`, `U.verification.verified_type` (e.g. Business) |
+| avatar   | `U.avatar.image_url` (older: `U.legacy.profile_image_url_https`)                                |
 
 ## Mapping to `Post`
 
 - Repost → the original post, `repostedBy` = reposter handle (so duplicate
   originals share one id).
-- Quote → `quoted { id, authorHandle, text }`; the permalink short link is
-  removed from the text.
+- Quote → `quoted { id, authorHandle, text, authorName?, authorVerified?,
+publishedAt?, media? }`; the permalink short link is removed from the text.
+- Photo/video/GIF → `url` (photo, or the poster for video/GIF), `width/height`
+  from `original_info`, `durationMs` (video), `variants` = MP4 renditions only,
+  highest bitrate first.
+- Link card → `media[type=link].card { title?, description?, domain?, image? }`
+  from `binding_values` (`title`, `description`, `vanity_url`/`domain`, the
+  largest `*_image_original` image), on the link whose short URL is
+  `card_url`, else the last link. Organic tweets mostly carry only
+  `card.rest_id`, and that is usually the short URL of an attached video —
+  no link card then.
+- Author avatar → `authorAvatarUrl` (X serves the `_normal` 48 px size).
 - Short links replaced by their expanded URL in `text` and added as `link`
   media; media short links removed.
 - No own text, no quoted text, only media → `mediaOnly: true` (kept, flagged).

@@ -8,7 +8,10 @@ import {
   BridgeReplySchema,
   MAX_BRIDGE_MESSAGE_BYTES,
   PostBatchSchema,
+  SettingsFieldsSchema,
   SettingsSchema,
+  SYNCED_SETTING_FIELDS,
+  SyncedSettingsSchema,
 } from "./schemas.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -42,8 +45,52 @@ describe("SettingsSchema", () => {
       ...old,
       modeBTarget: 100,
       modeBStrategy: "minimized-window",
+      collectTarget: 250,
+      maxClickbait: 7,
+      minReadValue: 2,
+      minReadForVerify: 4,
+      maxVerifications: 20,
+      verifyEnabled: true,
     });
     expect(SettingsSchema.safeParse({ modeBStrategy: "headless" }).success).toBe(false);
+  });
+
+  it("defaults the pipeline settings (owner: verify from read value 4)", () => {
+    expect(SettingsSchema.parse({})).toMatchObject({
+      timelineSize: 20,
+      maxClickbait: 7,
+      minReadValue: 2,
+      minReadForVerify: 4,
+      maxVerifications: 20,
+      verifyEnabled: true,
+    });
+  });
+
+  it("enforces the bounds the Options page shows, and describes every field", () => {
+    for (const [key, field] of Object.entries(SYNCED_SETTING_FIELDS)) {
+      expect(field.label.length).toBeGreaterThan(0);
+      expect(
+        SettingsFieldsSchema.shape[key as keyof typeof SettingsFieldsSchema.shape].description,
+      ).toBe(field.description);
+      if (field.kind !== "integer") continue;
+      const at = (value: number) => SettingsSchema.safeParse({ [key]: value }).success;
+      expect([at(field.min), at(field.max)]).toEqual([true, true]);
+      expect([at(field.min - 1), at(field.max + 1), at(field.min + 0.5)]).toEqual([
+        false,
+        false,
+        false,
+      ]);
+    }
+    expect(SettingsSchema.safeParse({ verifyEnabled: "yes" }).success).toBe(false);
+  });
+
+  it("seeds collectTarget from the deprecated modeBTarget only when it is missing", () => {
+    expect(SettingsSchema.parse({ modeBTarget: 120 }).collectTarget).toBe(120);
+    expect(SettingsSchema.parse({ modeBTarget: 120, collectTarget: 400 }).collectTarget).toBe(
+      400,
+    );
+    expect(SettingsSchema.parse({}).collectTarget).toBe(250);
+    expect(SettingsSchema.safeParse({ collectTarget: 10_001 }).success).toBe(false);
   });
 
   it("defaults developer capture to OFF with a 250-post target", () => {
@@ -113,5 +160,78 @@ describe("Mode B run bridge message", () => {
         byteLength: 1,
       }).type,
     ).toBe("capture-oversized");
+  });
+});
+
+describe("collection and settings bridge messages", () => {
+  const synced = SyncedSettingsSchema.parse({});
+
+  it("accepts collection-complete with counts only and its acknowledgement", () => {
+    const message = {
+      type: "collection-complete",
+      sessionId: "2026-01-01T10-00-00-000Z",
+      uniquePostCount: 250,
+      responseCount: 14,
+      mode: "B",
+      reason: "target-reached",
+    };
+    expect(BridgeMessageSchema.parse({ ...message, text: "a post" })).toEqual(message);
+    const { sessionId: _sessionId, ...withoutSession } = message;
+    expect(BridgeMessageSchema.safeParse(withoutSession).success).toBe(true);
+    expect(BridgeMessageSchema.safeParse({ ...message, mode: "C" }).success).toBe(false);
+    expect(BridgeMessageSchema.safeParse({ ...message, reason: "x".repeat(65) }).success).toBe(
+      false,
+    );
+    expect(BridgeReplySchema.parse({ type: "collection-recorded" }).type).toBe(
+      "collection-recorded",
+    );
+  });
+
+  it("syncs only the pipeline settings and the collection target", () => {
+    expect(Object.keys(synced).sort()).toEqual(Object.keys(SYNCED_SETTING_FIELDS).sort());
+    expect(synced).toEqual({
+      collectTarget: 250,
+      timelineSize: 20,
+      maxClickbait: 7,
+      minReadValue: 2,
+      minReadForVerify: 4,
+      maxVerifications: 20,
+      verifyEnabled: true,
+    });
+    const parsed = BridgeMessageSchema.parse({
+      type: "settings-sync",
+      settings: { ...synced, modeBEnabled: true },
+    });
+    expect(parsed).toEqual({ type: "settings-sync", settings: synced });
+    expect(
+      BridgeMessageSchema.safeParse({
+        type: "settings-sync",
+        settings: { ...synced, maxClickbait: 0 },
+      }).success,
+    ).toBe(false);
+    expect(BridgeReplySchema.parse({ type: "settings-synced" }).type).toBe("settings-synced");
+  });
+
+  it("accepts the desktop's start-collection and link-status pushes", () => {
+    expect(BridgeReplySchema.parse({ type: "start-collection" })).toEqual({
+      type: "start-collection",
+    });
+    expect(BridgeReplySchema.parse({ type: "start-collection", target: 300 })).toEqual({
+      type: "start-collection",
+      target: 300,
+    });
+    expect(BridgeReplySchema.safeParse({ type: "start-collection", target: 0 }).success).toBe(
+      false,
+    );
+    expect(
+      BridgeReplySchema.parse({
+        type: "link-status",
+        desktopConnected: true,
+        extensionConnected: false,
+      }),
+    ).toEqual({ type: "link-status", desktopConnected: true, extensionConnected: false });
+    expect(
+      BridgeReplySchema.safeParse({ type: "link-status", desktopConnected: true }).success,
+    ).toBe(false);
   });
 });

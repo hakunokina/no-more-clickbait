@@ -82,9 +82,16 @@ export class CliNotAuthenticatedError extends Error {
 }
 
 export class CliRunError extends Error {
-  constructor(command: string, detail: string) {
+  /**
+   * Cost in USD the failed run still reported (claude: `total_cost_usd`
+   * of an error result, e.g. when the budget cap stopped it).
+   */
+  readonly costUsd: number | undefined;
+
+  constructor(command: string, detail: string, costUsd?: number) {
     super(`LLM CLI "${command}" failed: ${detail}`);
     this.name = "CliRunError";
+    this.costUsd = costUsd;
   }
 }
 
@@ -126,6 +133,11 @@ export interface CliProviderSpec {
   parseAuthStatus?: (stdout: string) => boolean | undefined;
   /** Extract the result from the CLI's stdout. Throws on garbage. */
   parseOutput(stdout: string): Omit<LlmResult, "durationMs"> & { durationMs?: number };
+  /**
+   * Cost a FAILED run still reported on stdout (non-zero exit or an
+   * unusable result), so spend is not lost from the metrics.
+   */
+  parseFailureCostUsd?: (stdout: string) => number | undefined;
   /** stderr/stdout fingerprint of "not logged in". */
   authFailurePattern?: RegExp;
   /**
@@ -225,13 +237,18 @@ export class CliLlmProvider implements LlmProvider {
       throw new CliRunError(
         this.#spec.command,
         firstLine(outcome.stderr) || `exit ${outcome.exitCode}`,
+        this.#spec.parseFailureCostUsd?.(outcome.stdout),
       );
     }
     try {
       const parsed = this.#spec.parseOutput(outcome.stdout);
       return { ...parsed, durationMs: parsed.durationMs ?? measuredMs };
     } catch (error) {
-      throw new CliRunError(this.#spec.command, `unparseable output: ${String(error)}`);
+      throw new CliRunError(
+        this.#spec.command,
+        `unparseable output: ${String(error)}`,
+        this.#spec.parseFailureCostUsd?.(outcome.stdout),
+      );
     }
   }
 
@@ -362,6 +379,36 @@ function claudeResultToLlmResult(parsed: unknown): ParsedCliResult {
     result.stopReason = parsed.stop_reason;
   }
   return result;
+}
+
+/**
+ * `total_cost_usd` of the result object in claude's stdout (json or
+ * stream-json), even when that result is an error; undefined if none.
+ */
+export function parseClaudeFailureCostUsd(stdout: string): number | undefined {
+  const costOf = (value: unknown): number | undefined =>
+    isRecord(value) &&
+    typeof value.total_cost_usd === "number" &&
+    Number.isFinite(value.total_cost_usd) &&
+    value.total_cost_usd >= 0
+      ? value.total_cost_usd
+      : undefined;
+  try {
+    const whole = costOf(JSON.parse(stdout));
+    if (whole !== undefined) return whole;
+  } catch {
+    // Not one JSON document: try stream-json lines below.
+  }
+  let cost: number | undefined;
+  for (const line of stdout.split("\n")) {
+    if (line.trim() === "") continue;
+    try {
+      cost = costOf(JSON.parse(line)) ?? cost;
+    } catch {
+      // A torn or non-JSON line carries no cost.
+    }
+  }
+  return cost;
 }
 
 /** Converts a completed call into a RunMetrics entry for the monitor UI. */
@@ -612,6 +659,7 @@ export function createClaudeCliProvider(options: ClaudeCliOptions = {}): CliLlmP
       },
       parseOutput:
         outputFormat === "stream-json" ? parseClaudeStreamJsonOutput : parseClaudeJsonOutput,
+      parseFailureCostUsd: parseClaudeFailureCostUsd,
     },
     { ...options, ...(env ? { env } : {}) },
   );

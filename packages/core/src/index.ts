@@ -3,3 +3,4 @@ export * from "./pipeline.js";
 export * from "./metrics.js";
 export * from "./hard-filter.js";
 export * from "./x/home-timeline.js";
+export * from "./timeline-doc.js";

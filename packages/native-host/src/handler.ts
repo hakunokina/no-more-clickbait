@@ -89,5 +89,13 @@ export async function handleBridgeMessage(
       await handlers.onModeBRun(parsed.data.run);
       return { type: "mode-b-run-recorded" };
     }
+    // Temporary: the schema exists (core #1935), the handlers do not yet —
+    // settings-sync lands with Pixel-2's work, collection-complete with Pixel-3's.
+    case "collection-complete":
+    case "settings-sync":
+      return {
+        type: "error",
+        message: `${parsed.data.type} is not supported by this host yet`,
+      };
   }
 }

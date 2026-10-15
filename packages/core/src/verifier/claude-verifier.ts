@@ -37,7 +37,9 @@ import {
  * unparseable output) or a reply that fails the schema becomes an
  * `unverifiable` result marked `failed`, recorded in the run metrics
  * as a failed call. CLI missing / not logged in and unexpected errors
- * propagate — they are not a judgement about one claim.
+ * propagate — they are not a judgement about one claim. When the
+ * failed CLI run still reported its cost (e.g. the budget cap hit),
+ * that cost is recorded with the failed call.
  */
 
 /** Mirrors VERIFIER_REPLY_JSON_SCHEMA; this is the check we trust. */
@@ -94,14 +96,29 @@ export function toVerificationResult(
   reply: VerifierReply,
 ): VerificationResult {
   const sources = cleanSources(reply.sources);
-  const base = { postId, claim, confidence: reply.confidence };
   if (
     (reply.status === "verified" || reply.status === "false_or_disputed") &&
     sources.length === 0
   ) {
-    return { ...base, status: "unverifiable", summary: NO_SOURCE_SUMMARY, sources: [] };
+    // The model's confidence was in the verdict it gave, not in this
+    // fallback: carrying it over would read as a sure "unverifiable".
+    return {
+      postId,
+      claim,
+      status: "unverifiable",
+      confidence: 0,
+      summary: NO_SOURCE_SUMMARY,
+      sources: [],
+    };
   }
-  return { ...base, status: reply.status, summary: capSummary(reply.summary), sources };
+  return {
+    postId,
+    claim,
+    status: reply.status,
+    confidence: reply.confidence,
+    summary: capSummary(reply.summary),
+    sources,
+  };
 }
 
 function failedResult(postId: string, claim: string): VerificationResult {
@@ -182,6 +199,10 @@ export function createClaudeVerifier(options: ClaudeVerifierOptions): Verifier {
           postId: post.id,
           postCount: 1,
           failed: true,
+          // A budget-capped run still reports what it spent.
+          ...(error instanceof CliRunError && error.costUsd !== undefined
+            ? { costUsd: error.costUsd }
+            : {}),
         });
         if (error instanceof CliRunError) return failedResult(post.id, claim);
         throw error;
