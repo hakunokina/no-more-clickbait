@@ -5,6 +5,8 @@ import {
   parseHomeTimeline,
   type BridgeMessage,
   type CaptureStats,
+  type CollectionComplete,
+  type CollectionStartResult,
   type ModeBRunSummary,
   type PostBatch,
   type Settings,
@@ -61,6 +63,19 @@ import { NATIVE_HOST_NAME, sendNativeOnce, syncSettings } from "./settings-sync.
 
 export { NATIVE_HOST_NAME };
 
+/*
+ * Desktop link: the worker keeps one long-lived native port open (it
+ * also keeps the worker alive, Chromium 105+). It opens with a `ping`,
+ * on which the host links up with the desktop app; the desktop's
+ * "Collect new timeline" arrives on it as `start-collection`. When the
+ * collection target is reached the worker sends `collection-complete`
+ * and starts a new counting session (= a new host session folder):
+ * a Mode B run's timeline is built at once, a Mode A one (the user's own
+ * scrolling) waits for the user's go in the desktop app.
+ */
+const LINK_RETRY_FIRST_MS = 5_000;
+const LINK_RETRY_MAX_MS = 60_000;
+
 const CAPTURE_NOTIFICATION_ID = "nmc-capture-target";
 const MODE_B_NOTIFICATION_ID = "nmc-mode-b-finished";
 const MODE_B_WATCHDOG_ALARM = "nmc-mode-b-watchdog";
@@ -72,13 +87,18 @@ let port: chrome.runtime.Port | null = null;
 /** Bumped on every new counting session; work started under an older value is stale. */
 let generation = 0;
 const session = new CaptureSession(chrome.storage.session);
+let linkRetryMs = LINK_RETRY_FIRST_MS;
+let linkTimer: ReturnType<typeof setTimeout> | null = null;
 
 function nativePort(): chrome.runtime.Port {
   if (port) return port;
   const opened = chrome.runtime.connectNative(NATIVE_HOST_NAME);
   const portGeneration = generation;
   opened.onDisconnect.addListener(() => {
-    if (port === opened) port = null;
+    if (port !== opened) return;
+    port = null;
+    // Host gone (crashed, not installed): reopen the link, backing off.
+    scheduleDesktopLink();
   });
   opened.onMessage.addListener((reply: unknown) => {
     void handleReply(reply, portGeneration).catch((error: unknown) => {
@@ -86,7 +106,28 @@ function nativePort(): chrome.runtime.Port {
     });
   });
   port = opened;
+  opened.postMessage({ type: "ping" } satisfies BridgeMessage);
   return opened;
+}
+
+/** Keeps the long-lived host port — and with it the desktop link — open. */
+function ensureDesktopLink(): void {
+  try {
+    nativePort();
+  } catch {
+    port = null;
+    scheduleDesktopLink();
+  }
+}
+
+function scheduleDesktopLink(): void {
+  if (linkTimer) return;
+  const delay = linkRetryMs;
+  linkRetryMs = Math.min(delay * 2, LINK_RETRY_MAX_MS);
+  linkTimer = setTimeout(() => {
+    linkTimer = null;
+    ensureDesktopLink();
+  }, delay);
 }
 
 function sendToDesktop(message: BridgeMessage): boolean {
@@ -117,6 +158,11 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
     return;
   }
   const reply = parsed.data;
+  linkRetryMs = LINK_RETRY_FIRST_MS;
+  if (reply.type === "start-collection") {
+    runCommand(() => startCollectionForDesktop(reply.target));
+    return;
+  }
   if (reply.type === "capture-accepted" || reply.type === "capture-rejected") {
     if (reply.type === "capture-rejected") {
       console.error(`[nmc] developer capture refused: ${reply.message}`);
@@ -206,21 +252,55 @@ async function handleCapture(
 
   const posts = parseHomeTimeline(payload);
   if (posts.length === 0) return;
-  // With capture ON the host's count is the single source (see top).
-  if (!settings?.devCaptureEnabled) {
-    const uniqueCount = await session.countPosts(posts);
-    if (captureGeneration === generation) {
-      await updateBadge(uniqueCount);
-      await modeB.onCount(uniqueCount, "extension");
-    }
-  }
-
+  // Stored before counting: the count may complete the collection, and
+  // the batch that reached the target belongs to it.
   const batch: PostBatch = {
     source: "x-home-timeline",
     capturedAt: new Date().toISOString(),
     posts,
   };
   sendToDesktop({ type: "post-batch", batch });
+
+  // With capture ON the host's count is the single source (see top).
+  if (!settings?.devCaptureEnabled) {
+    const uniqueCount = await session.countPosts(posts);
+    if (captureGeneration === generation) {
+      await updateBadge(uniqueCount);
+      const modeBRunning = (await modeB.current()) !== null;
+      await modeB.onCount(uniqueCount, "extension");
+      // Developer capture keeps its own semantics (one folder, capture
+      // continues past the target), so Mode A completes only without it.
+      if (!modeBRunning && settings) completeModeA(uniqueCount, settings, captureGeneration);
+    }
+  }
+}
+
+/**
+ * Ends the current collection: the host closes its session folder and
+ * tells the desktop app; the next posts start a new session.
+ */
+async function completeCollection(complete: Omit<CollectionComplete, "type">): Promise<void> {
+  sendToDesktop({ type: "collection-complete", ...complete });
+  await startNewCountingSession();
+  // The finished count stays on the badge until the next post is counted.
+  await updateBadge(complete.uniquePostCount);
+}
+
+/** Mode A: the user's own scrolling reached the collection target. */
+function completeModeA(count: number, settings: Settings, countGeneration: number): void {
+  if (count < settings.collectTarget || countGeneration !== generation) return;
+  runCommand(async () => {
+    // Another message may have completed this session already.
+    if (countGeneration !== generation || (await modeB.current())) return;
+    await completeCollection({
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: count,
+      // The extension counter does not track responses outside a Mode B run.
+      responseCount: 0,
+    });
+    await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
+  });
 }
 
 /**
@@ -235,6 +315,7 @@ async function startNewCountingSession(): Promise<void> {
   await session.reset();
   await updateBadge(0);
   await chrome.action.setBadgeBackgroundColor({ color: DEFAULT_BADGE_COLOR });
+  ensureDesktopLink();
 }
 
 // --- Mode B ---------------------------------------------------------
@@ -285,6 +366,20 @@ async function finishModeB(summary: ModeBRunSummary): Promise<void> {
   if (summary.counter === "host" && summary.stopReason !== "permission-missing") {
     sendToDesktop({ type: "mode-b-run", run: summary });
   }
+  // A run that started gets its timeline built — unless the user stopped
+  // it (cancel, settings change): then its posts just stay collected.
+  if (
+    summary.stopReason !== "permission-missing" &&
+    summary.stopReason !== "cancelled" &&
+    summary.stopReason !== "settings-changed"
+  ) {
+    await completeCollection({
+      mode: "B",
+      reason: summary.stopReason,
+      uniquePostCount: summary.uniquePostCount,
+      responseCount: summary.responseCount,
+    });
+  }
   const reached = summary.stopReason === "target-reached";
   await chrome.action.setBadgeBackgroundColor({
     color: reached ? TARGET_BADGE_COLOR : DEFAULT_BADGE_COLOR,
@@ -304,12 +399,12 @@ async function finishModeB(summary: ModeBRunSummary): Promise<void> {
   }
 }
 
-async function startModeB(): Promise<void> {
+async function startModeB(target?: number): Promise<void> {
   const settings = await loadSettings();
   if (!settings.modeBEnabled || (await modeB.current())) return;
   const start: ModeBStart = {
     strategy: settings.modeBStrategy,
-    target: settings.collectTarget,
+    target: target ?? settings.collectTarget,
     counter: settings.devCaptureEnabled ? "host" : "extension",
   };
   if (!(await chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }))) {
@@ -321,6 +416,23 @@ async function startModeB(): Promise<void> {
   await alarms()?.create(MODE_B_WATCHDOG_ALARM, { periodInMinutes: 0.5 });
   await chrome.action.setBadgeBackgroundColor({ color: RUNNING_BADGE_COLOR });
   await modeB.start(start);
+}
+
+/** The desktop app asked for a new timeline ("Collect new timeline"). */
+async function startCollectionForDesktop(target: number | undefined): Promise<void> {
+  const settings = await loadSettings();
+  const goal = target ?? settings.collectTarget;
+  const answer = (outcome: CollectionStartResult["outcome"]): void => {
+    sendToDesktop({ type: "collection-start-result", outcome, target: goal });
+  };
+  if (!settings.modeBEnabled) return answer("mode-b-off");
+  if (await modeB.current()) return answer("busy");
+  if (!(await chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }))) {
+    return answer("permission-missing");
+  }
+  // Answered on this port: starting the run opens a new host session.
+  answer("started");
+  await startModeB(goal);
 }
 
 /** Commands run one at a time: a double click must not reset a running count. */
@@ -401,3 +513,4 @@ for (const startup of [chrome.runtime.onStartup, chrome.runtime.onInstalled]) {
 // A restarted service worker picks up a run that was in progress.
 listenToWatchdog();
 void modeB.resume();
+ensureDesktopLink();

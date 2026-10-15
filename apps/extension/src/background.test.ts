@@ -173,6 +173,17 @@ function stats(uniquePostCount: number) {
   };
 }
 
+/** The port the worker currently uses (a new one per counting session). */
+function currentPort(): FakePort {
+  const port = fake.ports.at(-1);
+  if (!port) throw new Error("no native port opened");
+  return port;
+}
+
+function postedTypes(port: FakePort | undefined): string[] {
+  return port?.posted.map((m) => m.type) ?? [];
+}
+
 /** Lets the worker's promise chains run to completion. */
 async function settle(): Promise<void> {
   for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve));
@@ -195,7 +206,7 @@ describe("background worker", () => {
     captureTimeline();
     await settle();
     expect(fake.badge.text).toBe("4");
-    expect(fake.ports[0]?.posted.map((m) => m.type)).toEqual(["post-batch"]);
+    expect(postedTypes(fake.ports[0])).toEqual(["ping", "post-batch"]);
   });
 
   it("shows the host's count while developer capture is on and skips its own counting", async () => {
@@ -203,8 +214,8 @@ describe("background worker", () => {
     await settle();
     captureTimeline();
     await settle();
-    const port = fake.ports[0];
-    expect(port?.posted.map((m) => m.type)).toEqual(["raw-capture", "post-batch"]);
+    const port = currentPort();
+    expect(postedTypes(port)).toEqual(["ping", "raw-capture", "post-batch"]);
     expect(fake.badge.text).toBe("");
     expect(fake.sessionArea.size).toBe(0); // host is the single source
 
@@ -218,7 +229,7 @@ describe("background worker", () => {
     await settle();
     captureTimeline();
     await settle();
-    fake.ports[0]?.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(10) });
+    currentPort().onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(10) });
     await settle();
     expect(fake.badge.color).toBe("#137333");
     expect(fake.chrome.notifications.create).toHaveBeenCalledTimes(1);
@@ -246,10 +257,12 @@ describe("background worker", () => {
     await settle();
     expect(fake.badge.text).toBe("");
 
-    // The next capture opens a new host session.
+    // The new session's port (and desktop link) opens right away.
+    expect(fake.ports).toHaveLength(2);
     captureTimeline();
     await settle();
     expect(fake.ports).toHaveLength(2);
+    expect(postedTypes(currentPort())).toEqual(["ping", "raw-capture", "post-batch"]);
   });
 
   it("syncs the pipeline settings to the desktop once per browser start", async () => {
@@ -291,11 +304,143 @@ describe("background worker", () => {
     captureTimeline();
     await settle();
     const { uniquePostCount: _dropped, ...oldStats } = stats(5);
-    fake.ports[0]?.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: oldStats });
+    currentPort().onMessage.emit({ type: "capture-accepted", sequence: 1, stats: oldStats });
     await settle();
     expect(fake.badge.text).toBe("?");
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("pnpm build"));
     expect(fake.chrome.notifications.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("desktop link in the background worker", () => {
+  const modeBOn = {
+    modeBEnabled: true,
+    collectTarget: 4,
+    modeBStrategy: "minimized-window",
+  };
+
+  it("opens the long-lived host port with a ping at startup", () => {
+    expect(fake.ports).toHaveLength(1);
+    expect(postedTypes(fake.ports[0])).toEqual(["ping"]);
+  });
+
+  it("reopens the port with backoff when the host goes away", async () => {
+    vi.useFakeTimers();
+    try {
+      fake.ports[0]?.onDisconnect.emit();
+      expect(fake.ports).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fake.ports).toHaveLength(2);
+      fake.ports[1]?.onDisconnect.emit();
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fake.ports).toHaveLength(2); // second wait is 10 s
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(fake.ports).toHaveLength(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("answers the desktop's start-collection with the Mode B off instruction", async () => {
+    await setSettings({ collectTarget: 300 });
+    await settle();
+    currentPort().onMessage.emit({ type: "start-collection" });
+    await settle();
+    expect(currentPort().posted.at(-1)).toEqual({
+      type: "collection-start-result",
+      outcome: "mode-b-off",
+      target: 300,
+    });
+    expect(fake.chrome.windows.create).not.toHaveBeenCalled();
+  });
+
+  it("starts Mode B for the desktop and completes the collection at the target", async () => {
+    await setSettings(modeBOn);
+    await settle();
+    const linkPort = currentPort();
+    linkPort.onMessage.emit({ type: "start-collection", target: 4 });
+    await settle();
+    expect(linkPort.posted.at(-1)).toEqual({
+      type: "collection-start-result",
+      outcome: "started",
+      target: 4,
+    });
+    expect(fake.chrome.windows.create).toHaveBeenCalledTimes(1);
+
+    const runPort = currentPort();
+    expect(runPort).not.toBe(linkPort); // the run has its own host session
+    captureTimeline(RUN_TAB);
+    await settle();
+    expect(runPort.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 1,
+    });
+    expect(postedTypes(runPort)).toEqual(["ping", "post-batch", "collection-complete"]);
+    expect(currentPort()).not.toBe(runPort);
+    expect(fake.badge.text).toBe("4");
+  });
+
+  it("says busy while a run is going", async () => {
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    currentPort().onMessage.emit({ type: "start-collection" });
+    await settle();
+    expect(currentPort().posted.at(-1)).toMatchObject({ outcome: "busy" });
+  });
+
+  it("does not complete a collection the user cancelled", async () => {
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    modeBCommand("stop");
+    await settle();
+    expect(lastRun()).toMatchObject({ stopReason: "cancelled" });
+    expect(fake.ports.flatMap((port) => postedTypes(port))).not.toContain(
+      "collection-complete",
+    );
+  });
+
+  it("completes a Mode A collection once the user's own scrolling reaches the target", async () => {
+    await setSettings({ collectTarget: 4 });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    await settle();
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+    });
+    // The batch that reached the target went first, into the same session.
+    expect(postedTypes(port)).toEqual(["ping", "post-batch", "collection-complete"]);
+    expect(currentPort()).not.toBe(port);
+    expect(fake.badge).toEqual({ text: "4", color: "#137333" });
+
+    // A new session counts from zero: the same 4 posts complete it again.
+    const second = currentPort();
+    captureTimeline();
+    await settle();
+    expect(postedTypes(second)).toEqual(["ping", "post-batch", "collection-complete"]);
+  });
+
+  it("leaves developer capture sessions alone at the target", async () => {
+    await setCapture(true, 4);
+    await settle();
+    captureTimeline();
+    await settle();
+    currentPort().onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(4) });
+    await settle();
+    expect(fake.ports.flatMap((port) => postedTypes(port))).not.toContain(
+      "collection-complete",
+    );
   });
 });
 
@@ -353,15 +498,19 @@ describe("Mode B in the background worker", () => {
     await settle();
     captureTimeline(RUN_TAB);
     await settle();
-    const port = fake.ports[0];
-    port?.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(4) });
+    const port = currentPort();
+    port.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(4) });
     await settle();
     expect(lastRun()).toMatchObject({ counter: "host", stopReason: "target-reached" });
-    expect(port?.posted.map((m) => m.type)).toEqual([
+    expect(postedTypes(port)).toEqual([
+      "ping",
       "raw-capture",
       "post-batch",
       "mode-b-run",
+      "collection-complete",
     ]);
+    // The finished run's session is closed; the next posts go to a new one.
+    expect(currentPort()).not.toBe(port);
   });
 
   it("stops on a rate-limited response from the run's tab", async () => {

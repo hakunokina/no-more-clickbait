@@ -91,7 +91,7 @@ How a run behaves:
 | Path                   | What it is                                                              |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `apps/extension`       | MV3 extension for Chrome/Brave (Mode A listener, Mode B auto-scroll)    |
-| `apps/desktop`         | Electron tray app with a compact token-monitor window                   |
+| `apps/desktop`         | Electron tray app: runs the pipeline, token monitor, reading window     |
 | `packages/core`        | Shared zod schemas, pipeline interfaces + run metrics, LLM CLI provider |
 | `packages/native-host` | Native Messaging host (browser ⇄ desktop bridge, stdio only)            |
 
@@ -190,8 +190,37 @@ the payload shape and measure collection time:
 pnpm --filter @nmc/desktop start
 ```
 
-It starts in the system tray; click the tray icon for the status window,
-where you can check that your `claude` CLI is installed and logged in.
+It starts in the system tray; click the tray icon for the status window
+(the token monitor), where you can check that your `claude` CLI is
+installed and logged in.
+
+How the pieces talk:
+
+- The extension keeps one native port open while the browser runs; the
+  host process the browser starts for it links up with the desktop app
+  over a **named pipe** (`\\.\pipe\no-more-clickbait-<user>`, no TCP
+  port). Both ends prove a per-start random token kept in your
+  `%LOCALAPPDATA%` before anything else is said: Windows' default pipe
+  permissions let other local accounts _read_, so the handshake is what
+  keeps the link yours.
+- **Collect new timeline** (tray menu, status window or reading window)
+  asks the extension to run Mode B. With Mode B off you are told to browse
+  x.com/home yourself instead.
+- A Mode B collection builds the timeline as soon as it finishes. A Mode A
+  collection (your own scrolling reached the target) does **not** spend
+  LLM quota on its own: you get a notification and a **Build timeline**
+  button.
+- The pipeline (hard filter → `claude` scoring → selection → source
+  checks) runs in the desktop app, one run at a time, cancellable; the
+  status window shows the stage, counts, tokens and cost live. The
+  finished timeline opens in the reading window; links open in your
+  browser.
+
+> **Collected posts stay on your machine.** Every collection is saved
+> under `%LOCALAPPDATA%\NoMoreClickbait\sessions\<time>\` (post batches,
+> then `timeline.html`/`timeline.json`/`result.json` once built), so a
+> collection survives the desktop app being closed. Only the newest 10
+> sessions are kept. They contain your feed: never share or commit them.
 
 ## Configuration
 

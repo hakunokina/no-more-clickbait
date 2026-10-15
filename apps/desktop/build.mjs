@@ -1,5 +1,5 @@
 // Bundles main (ESM), preload (CJS — required for sandboxed preloads)
-// and the renderer into dist/.
+// and the renderer pages (monitor, reading window) into dist/.
 import { build } from "esbuild";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -36,8 +36,8 @@ await build({
 });
 
 await build({
-  entryPoints: [join(root, "src/renderer/renderer.ts")],
-  outfile: join(dist, "renderer/renderer.js"),
+  entryPoints: [join(root, "src/renderer/renderer.ts"), join(root, "src/renderer/reader.ts")],
+  outdir: join(dist, "renderer"),
   bundle: true,
   format: "iife",
   platform: "browser",
@@ -46,5 +46,7 @@ await build({
   logLevel: "info",
 });
 
-await cp(join(root, "src/renderer/index.html"), join(dist, "renderer/index.html"));
+for (const page of ["index.html", "reader.html"]) {
+  await cp(join(root, "src/renderer", page), join(dist, "renderer", page));
+}
 console.log(`Desktop app built to ${dist}`);

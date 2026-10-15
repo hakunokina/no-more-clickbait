@@ -6,11 +6,14 @@
 // Sends framed fake messages to dist/main.js, then asserts:
 //  1. a raw developer capture lands verbatim under NMC_INBOX_DIR with a
 //     counts/times-only summary.json, and the reply carries the stats;
-//  2. a post-batch written right before stdin closes still hits disk
-//     (regression: the host used to exit on stdin "end" without waiting
-//     for in-flight async handlers, losing the last batch);
+//  2. a post-batch written right before stdin closes still hits disk in
+//     the collection session folder (regression: the host used to exit on
+//     stdin "end" without waiting for in-flight async handlers, losing the
+//     last batch);
 //  3. two overlapping synthetic HomeTimeline responses count as distinct
 //     organic posts (uniquePostCount), apart from the rough postCount.
+// LOCALAPPDATA points at the temp dir too, so collection sessions never
+// touch the real %LOCALAPPDATA%\NoMoreClickbait.
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -71,7 +74,7 @@ const syntheticBody = JSON.stringify({
 // --- Run 1: developer capture round-trip -------------------------------
 {
   const child = spawn(process.execPath, [hostEntry], {
-    env: { ...process.env, NMC_INBOX_DIR: inbox },
+    env: { ...process.env, NMC_INBOX_DIR: inbox, LOCALAPPDATA: inbox },
     stdio: ["pipe", "pipe", "inherit"],
   });
   const repliesPromise = readReplies(child, 2);
@@ -125,7 +128,7 @@ const syntheticBody = JSON.stringify({
 // --- Run 2: last batch survives an immediate stdin close ---------------
 {
   const child = spawn(process.execPath, [hostEntry], {
-    env: { ...process.env, NMC_INBOX_DIR: inbox },
+    env: { ...process.env, NMC_INBOX_DIR: inbox, LOCALAPPDATA: inbox },
     stdio: ["pipe", "pipe", "inherit"],
   });
   // Write and close immediately, without waiting for the reply: the host
@@ -138,10 +141,12 @@ const syntheticBody = JSON.stringify({
   );
   const code = await new Promise((resolve) => child.once("exit", resolve));
   assert(code === 0, `host exits 0, got ${code}`);
-  const files = await readdir(inbox);
-  const batches = files.filter((name) => name.startsWith("batch-"));
+  const sessionsDir = join(inbox, "NoMoreClickbait", "sessions");
+  const sessions = await readdir(sessionsDir);
+  assert(sessions.length === 1, `one collection session, got ${sessions.length}`);
+  const batches = await readdir(join(sessionsDir, sessions[0], "batches"));
   assert(batches.length === 1, `one batch file written before exit, got ${batches.length}`);
-  console.log(`stdin-close smoke OK — batch file: ${batches[0]}`);
+  console.log(`stdin-close smoke OK — batch file: ${sessions[0]}/batches/${batches[0]}`);
 }
 
 // --- Run 3: distinct organic count across overlapping responses ------
@@ -156,7 +161,7 @@ const syntheticBody = JSON.stringify({
   );
   const dedupInbox = await mkdtemp(join(tmpdir(), "nmc-smoke-dedup-"));
   const child = spawn(process.execPath, [hostEntry], {
-    env: { ...process.env, NMC_INBOX_DIR: dedupInbox },
+    env: { ...process.env, NMC_INBOX_DIR: dedupInbox, LOCALAPPDATA: dedupInbox },
     stdio: ["pipe", "pipe", "inherit"],
   });
   const repliesPromise = readReplies(child, 2);
@@ -176,7 +181,9 @@ const syntheticBody = JSON.stringify({
   // Synthetic fixture: 5 distinct organic posts, 10 rough tweet- entries.
   assert(replies[1]?.stats?.uniquePostCount === 5, "two responses → 5 distinct posts");
   assert(replies[1]?.stats?.postCount === 10, "rough count keeps the repeats");
-  const [sessionName] = await readdir(dedupInbox);
+  const [sessionName] = (await readdir(dedupInbox)).filter(
+    (name) => name !== "NoMoreClickbait",
+  );
   const summary = JSON.parse(
     await readFile(join(dedupInbox, sessionName, "summary.json"), "utf8"),
   );

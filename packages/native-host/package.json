@@ -16,7 +16,8 @@
     "smoke": "node scripts/smoke-capture.mjs"
   },
   "dependencies": {
-    "@nmc/core": "workspace:*"
+    "@nmc/core": "workspace:*",
+    "zod": "^3.23.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

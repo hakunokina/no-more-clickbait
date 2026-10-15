@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    />
+    <title>No More Clickbait — akış</title>
+    <style>
+      /* Tokens from docs/design/timeline-mockup.md */
+      :root {
+        color-scheme: light dark;
+        --bg: #ffffff; --surface-2: #eceff1; --text: #0f1419; --muted: #536471;
+        --border: #d5dde2; --accent: #0b57d0; --focus: #0b57d0; --ok: #176934; --warn: #8a4b00;
+        --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #0e1116; --surface-2: #1e252e; --text: #e7e9ea; --muted: #9aa5b1;
+          --border: #2f3640; --accent: #8ab4f8; --focus: #8ab4f8; --ok: #72d39c; --warn: #f2b45a;
+        }
+      }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, sans-serif; }
+      .app { container-type: inline-size; }
+      main { max-width: 640px; margin: 0 auto; padding: var(--s6) var(--s4); text-align: center; }
+      @container (max-width: 480px) { main { padding: var(--s5) var(--s3); } }
+      h1 { font-size: 1.15rem; margin: 0 0 var(--s2); }
+      p { margin: 0 0 var(--s4); }
+      .muted { color: var(--muted); font-size: 14px; }
+      .steps { list-style: none; margin: 0 auto var(--s5); padding: 0; max-width: 360px; text-align: left; }
+      .steps li { display: grid; grid-template-columns: 24px 1fr; gap: var(--s2); padding: var(--s2) 0; align-items: start; }
+      .steps li small { display: block; color: var(--muted); font-size: 13px; }
+      .steps li[aria-current="step"] { font-weight: 600; }
+      .st-done { color: var(--ok); }
+      .st-wait { color: var(--muted); }
+      .spinner { width: 16px; height: 16px; margin-top: 3px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .spinner { animation: none; border-top-color: var(--border); border-right-color: var(--accent); } }
+      .skeleton { padding: var(--s3) 0; border-top: 1px solid var(--border); display: grid; grid-template-columns: 40px 1fr; gap: var(--s3); text-align: left; }
+      .skeleton i { display: block; background: var(--surface-2); border-radius: 6px; height: 12px; margin-bottom: 8px; }
+      .skeleton > i:first-child { width: 40px; height: 40px; border-radius: 50%; }
+      .icon { font-size: 28px; color: var(--warn); margin-bottom: var(--s2); }
+      .btn-row { display: flex; flex-wrap: wrap; gap: var(--s2); justify-content: center; margin-top: var(--s4); }
+      button { min-height: 44px; padding: 0 var(--s5); border-radius: 999px; font: inherit; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--text); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+      button:disabled { opacity: 0.6; cursor: default; }
+      :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+      details { text-align: left; max-width: 480px; margin: 0 auto; font-size: 14px; }
+      .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+      pre { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--muted); }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <main id="view" aria-live="polite">
+        <h1>Yükleniyor…</h1>
+      </main>
+    </div>
+    <script src="reader.js"></script>
+  </body>
+</html>

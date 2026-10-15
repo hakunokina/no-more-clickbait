@@ -549,6 +549,24 @@ export const CollectionCompleteSchema = z.object({
 });
 export type CollectionComplete = z.infer<typeof CollectionCompleteSchema>;
 
+/** The extension's answer to the desktop's `start-collection` push. */
+export const CollectionStartResultSchema = z.object({
+  type: z.literal("collection-start-result"),
+  outcome: z.enum([
+    "started",
+    /** Mode B is off: the user collects by browsing x.com/home (Mode A). */
+    "mode-b-off",
+    /** A Mode B run is already going. */
+    "busy",
+    /** Mode B lacks an optional permission it needs. */
+    "permission-missing",
+    "error",
+  ]),
+  /** Distinct posts the collection is working towards. */
+  target: z.number().int().min(1).max(10_000).optional(),
+});
+export type CollectionStartResult = z.infer<typeof CollectionStartResultSchema>;
+
 /** Messages from the browser extension to the desktop app (via native host). */
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
@@ -558,6 +576,7 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   /** A finished Mode B run, recorded in the capture session's summary. */
   z.object({ type: z.literal("mode-b-run"), run: ModeBRunSummarySchema }),
   CollectionCompleteSchema,
+  CollectionStartResultSchema,
   /** The user's synced settings, saved by the host for the desktop pipeline. */
   z.object({ type: z.literal("settings-sync"), settings: SyncedSettingsSchema }),
 ]);
@@ -582,7 +601,7 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
     stats: CaptureStatsSchema,
   }),
   z.object({ type: z.literal("mode-b-run-recorded") }),
-  /** Ack of `collection-complete`. */
+  /** Ack of `collection-complete` and `collection-start-result`. */
   z.object({ type: z.literal("collection-recorded") }),
   /** Ack of `settings-sync`: the host saved them. */
   z.object({ type: z.literal("settings-synced") }),
