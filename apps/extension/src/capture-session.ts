@@ -92,6 +92,11 @@ export class CaptureSession {
     });
   }
 
+  /** Distinct organic posts so far, after every count already queued. */
+  uniqueCount(): Promise<number> {
+    return this.#enqueue(async () => (await this.#load()).filter.stats.kept);
+  }
+
   /**
    * True exactly once each time `count` climbs to `target`; a count
    * back under the target (e.g. the host started a new capture

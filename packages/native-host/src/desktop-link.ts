@@ -308,6 +308,12 @@ export interface LinkClientOptions {
    */
   retryMs?: number;
   maxRetryMs?: number;
+  /**
+   * A peer that accepts the connection but never finishes the handshake
+   * (a squatter on the pipe name, a hung desktop app) is dropped after
+   * this long and the next attempt is scheduled.
+   */
+  handshakeTimeoutMs?: number;
   /** Diagnostics only (stderr); never feed content. */
   log?(line: string): void;
 }
@@ -372,6 +378,11 @@ export class LinkClient {
     const socket = connect(this.#options.path ?? desktopPipePath());
     const ownNonce = newNonce();
     let state: "welcome" | "ready" | "open" = "welcome";
+    const timer = setTimeout(() => {
+      this.#options.log?.("desktop link: no handshake from the peer; disconnecting");
+      connection.close();
+    }, this.#options.handshakeTimeoutMs ?? 5_000);
+    timer.unref?.();
     const connection = new FramedConnection(
       socket,
       (message) => {
@@ -393,6 +404,7 @@ export class LinkClient {
         }
         if (state === "ready") {
           if (!ReadySchema.safeParse(message).success) return connection.close();
+          clearTimeout(timer);
           state = "open";
           this.#ready = true;
           this.#delayMs = this.#options.retryMs ?? 5_000;
@@ -403,6 +415,7 @@ export class LinkClient {
         if (command.success) this.#options.onCommand(command.data);
       },
       () => {
+        clearTimeout(timer);
         const wasReady = this.#ready;
         this.#ready = false;
         this.#connection = null;

@@ -292,10 +292,12 @@ function completeModeA(count: number, settings: Settings, countGeneration: numbe
   runCommand(async () => {
     // Another message may have completed this session already.
     if (countGeneration !== generation || (await modeB.current())) return;
+    // Batches that arrived while this waited in the queue went to this
+    // session too: report the count as it stands now.
     await completeCollection({
       mode: "A",
       reason: "target-reached",
-      uniquePostCount: count,
+      uniquePostCount: await session.uniqueCount(),
       // The extension counter does not track responses outside a Mode B run.
       responseCount: 0,
     });

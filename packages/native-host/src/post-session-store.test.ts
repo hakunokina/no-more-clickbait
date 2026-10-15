@@ -116,15 +116,43 @@ describe("PostSessionStore", () => {
     ]);
   });
 
-  it("keeps only the newest sessions, never the one being written", async () => {
-    for (let hour = 10; hour < 14; hour += 1) {
-      await mkdir(join(root, `2026-01-01T${hour}-00-00-000Z-abcd`), { recursive: true });
+  /** A session folder holding one batch file, optionally complete/processed. */
+  async function session(
+    hour: number,
+    state: {
+      complete?: boolean;
+      processed?: "done" | "cancelled" | "superseded" | "error";
+    } = {},
+    batches = 1,
+  ): Promise<string> {
+    const id = `2026-01-01T${hour}-00-00-000Z-abcd`;
+    const dir = join(root, id);
+    await mkdir(join(dir, "batches"), { recursive: true });
+    for (let n = 1; n <= batches; n += 1) {
+      await writeFile(join(dir, "batches", `000${n}.json`), "{}");
     }
+    if (state.complete) {
+      await writeFile(
+        join(dir, "complete.json"),
+        JSON.stringify({
+          mode: "A",
+          reason: "target-reached",
+          uniquePostCount: 1,
+          responseCount: 0,
+          completedAt: clock,
+        }),
+      );
+    }
+    if (state.processed) await markSessionProcessed(dir, state.processed, () => clock);
+    return id;
+  }
+
+  it("keeps only the newest sessions, never the one being written", async () => {
+    for (let hour = 10; hour < 14; hour += 1) await session(hour);
     await mkdir(join(root, "not-a-session"));
     await pruneSessions(root, 2, "2026-01-01T10-00-00-000Z-abcd");
     expect((await readdir(root)).sort()).toEqual([
       "2026-01-01T10-00-00-000Z-abcd",
-      "2026-01-01T12-00-00-000Z-abcd",
       "2026-01-01T13-00-00-000Z-abcd",
       "not-a-session",
     ]);
@@ -133,5 +161,48 @@ describe("PostSessionStore", () => {
     await store.addBatch(batch(clock, ["1"]));
     const ids = (await listSessions(root)).map((s) => s.id);
     expect(ids).toEqual(["2026-01-01T13-00-00-000Z-abcd", store.sessionId]);
+  });
+
+  it("keeps the timeline being read, the run in flight and the failed run; drops leftovers first", async () => {
+    const done = await session(10, { complete: true, processed: "done" });
+    const failed = await session(11, { complete: true, processed: "error" });
+    const running = await session(12, { complete: true });
+    const plain = await session(13, { complete: true, processed: "done" }, 1);
+    // Heavy Mode A browsing: superseded, cancelled and empty sessions pile up.
+    const superseded = await session(14, { complete: true, processed: "superseded" });
+    const cancelled = await session(15, { complete: true, processed: "cancelled" });
+    const empty = await session(16, {}, 0);
+    const current = await session(17);
+
+    await pruneSessions(root, 5, current);
+    let ids = (await listSessions(root)).map((s) => s.id);
+    expect(ids).toEqual([done, failed, running, plain, current]);
+    expect(ids).not.toContain(superseded);
+    expect(ids).not.toContain(cancelled);
+    expect(ids).not.toContain(empty);
+
+    // Squeezed further: the oldest done goes, the newest done stays.
+    await pruneSessions(root, 4, current);
+    ids = (await listSessions(root)).map((s) => s.id);
+    expect(ids).toEqual([failed, running, plain, current]);
+
+    // Never below the protected ones, even with a tiny limit.
+    await pruneSessions(root, 1, current);
+    ids = (await listSessions(root)).map((s) => s.id);
+    expect(ids).toEqual([failed, running, plain, current]);
+  });
+
+  it("records a failed run with its reason", async () => {
+    const id = await session(10, { complete: true });
+    await markSessionProcessed(join(root, id), "error", () => clock, {
+      kind: "cli-error",
+      message: "The claude CLI failed.",
+    });
+    const [listed] = await listSessions(root);
+    expect(listed?.processed).toEqual({
+      status: "error",
+      processedAt: clock,
+      error: { kind: "cli-error", message: "The claude CLI failed." },
+    });
   });
 });

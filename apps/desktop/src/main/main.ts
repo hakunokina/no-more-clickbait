@@ -9,7 +9,7 @@ import {
   type IpcMainInvokeEvent,
 } from "electron";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { createClaudeCliProvider, type LlmAvailability } from "@nmc/core/llm";
 import {
   desktopPipePath,
@@ -20,7 +20,9 @@ import {
 } from "@nmc/native-host";
 import { renderTimeline } from "@nmc/timeline-renderer";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
+import { READER_PAGE_ARG } from "../preload/reader-bridge.js";
 import { createClaudeStages } from "./claude-stages.js";
+import { ipcAllowed } from "./ipc-policy.js";
 import { PipelineRunner } from "./pipeline-runner.js";
 import { ReadingWindow } from "./reading-window.js";
 import { SessionController } from "./session-controller.js";
@@ -29,9 +31,9 @@ import { loadDesktopSettings } from "./settings-file.js";
 /**
  * Desktop shell: lives in the system tray with a compact "token monitor"
  * window and a reading window. Security posture is strict: sandbox on,
- * context isolation on, node integration off, a single narrow preload
- * bridge, no remote content except the allow-listed feed media in the
- * reading window.
+ * context isolation on, node integration off, a narrow preload bridge
+ * per window (none at all for a timeline page's main world), no remote
+ * content except the allow-listed feed media in the reading window.
  *
  * Wiring: the browser-launched native host connects over the user-only
  * link pipe (see @nmc/native-host desktop-link.ts); collected posts are
@@ -43,6 +45,8 @@ import { loadDesktopSettings } from "./settings-file.js";
 const here = dirname(fileURLToPath(import.meta.url));
 const rendererDir = join(here, "renderer");
 const preload = join(here, "preload.cjs");
+const readerPage = join(rendererDir, "reader.html");
+const readerPageUrl = pathToFileURL(readerPage).href;
 const root = sessionsRoot();
 
 // Secrets (future providers) go through ./electron-secret-store.ts
@@ -64,8 +68,9 @@ let link: LinkServer | null = null;
 let lastStage: RunStage = "idle";
 
 const reader = new ReadingWindow({
-  preload,
-  appPage: join(rendererDir, "reader.html"),
+  preload: join(here, "reader-preload.cjs"),
+  preloadArguments: [`${READER_PAGE_ARG}${readerPageUrl}`],
+  appPage: readerPage,
   fileRoots: [rendererDir, root],
 });
 
@@ -81,7 +86,7 @@ const controller = new SessionController({
     notify(
       `${uniquePostCount} posts collected`,
       "Build the timeline now? Click to open, then choose “Build timeline”.",
-      openReader,
+      () => void openReader(),
     );
   },
   onReady: ({ timelinePath, selected }) => {
@@ -121,15 +126,20 @@ function broadcast(status: DesktopStatus): void {
   tray?.setToolTip(`No More Clickbait — ${STAGE_LABELS[status.run.stage]}`);
   const stage = status.run.stage;
   if (stage === "error" && lastStage !== "error" && !reader.webContents) {
-    notify("timeline not prepared", status.run.error?.message ?? "The run failed.", openReader);
+    notify(
+      "timeline not prepared",
+      status.run.error?.message ?? "The run failed.",
+      () => void openReader(),
+    );
   }
   lastStage = stage;
 }
 
-function openReader(): void {
+/** Opens the timeline, or our status page (preparing, error, timeline gone…). */
+async function openReader(): Promise<void> {
   const status = controller.status;
   const showTimeline = !isRunActive(status.run.stage) && status.run.hasTimeline;
-  reader.open(showTimeline ? controller.timelinePath : null);
+  reader.open(showTimeline ? await controller.availableTimeline() : null);
 }
 
 function createMonitor(): BrowserWindow {
@@ -184,7 +194,7 @@ function createTray(): void {
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: "Collect new timeline", click: () => void startCollection() },
-      { label: "Open reading window", click: openReader },
+      { label: "Open reading window", click: () => void openReader() },
       { label: "Show status", click: showMonitor },
       { type: "separator" },
       { label: "Quit", click: () => app.quit() },
@@ -193,15 +203,21 @@ function createTray(): void {
   tray.on("click", toggleMonitor);
 }
 
-/** Only our own two windows may call into main. */
-function fromOurWindow(event: IpcMainInvokeEvent): boolean {
+/** Only our own two windows may call into main, each within ipc-policy.ts. */
+function callerAllowed(channel: string, event: IpcMainInvokeEvent): boolean {
   const sender = event.sender;
-  return sender === monitor?.webContents || sender === reader.webContents;
+  const window =
+    sender === monitor?.webContents
+      ? "monitor"
+      : sender === reader.webContents
+        ? "reader"
+        : null;
+  return ipcAllowed(channel, window, event.senderFrame?.url ?? null, readerPageUrl);
 }
 
 function handle<T>(channel: string, fn: () => T | Promise<T>): void {
   ipcMain.handle(channel, (event) => {
-    if (!fromOurWindow(event)) throw new Error("unexpected IPC sender");
+    if (!callerAllowed(channel, event)) throw new Error("unexpected IPC sender");
     return fn();
   });
 }
