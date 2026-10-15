@@ -25,10 +25,16 @@ export interface LlmResult {
   text: string;
   inputTokens?: number;
   outputTokens?: number;
+  /** Thinking tokens, already included in outputTokens. */
+  thinkingTokens?: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   /** Provider-reported cost in USD (claude CLI: `total_cost_usd`). */
   costUsd?: number;
+  /** Model that served the call (claude CLI: the `modelUsage` key). */
+  model?: string;
+  /** Why generation stopped (claude CLI: `stop_reason`). */
+  stopReason?: string;
   /** Call duration; provider-reported when available, else measured. */
   durationMs: number;
 }
@@ -272,10 +278,19 @@ function claudeResultToLlmResult(parsed: unknown): ParsedCliResult {
   };
   assign("inputTokens", num(usage?.input_tokens));
   assign("outputTokens", num(usage?.output_tokens));
+  const outputDetails = isRecord(usage?.output_tokens_details)
+    ? usage.output_tokens_details
+    : undefined;
+  assign("thinkingTokens", num(outputDetails?.thinking_tokens));
   assign("cacheReadTokens", num(usage?.cache_read_input_tokens));
   assign("cacheCreationTokens", num(usage?.cache_creation_input_tokens));
   assign("costUsd", num(parsed.total_cost_usd));
   assign("durationMs", num(parsed.duration_ms));
+  const models = isRecord(parsed.modelUsage) ? Object.keys(parsed.modelUsage) : [];
+  if (models.length > 0) result.model = models.join(",");
+  if (typeof parsed.stop_reason === "string" && parsed.stop_reason !== "") {
+    result.stopReason = parsed.stop_reason;
+  }
   return result;
 }
 
@@ -293,6 +308,7 @@ export function llmResultToCallMetrics(
     durationMs: result.durationMs,
     ...(result.inputTokens !== undefined ? { inputTokens: result.inputTokens } : {}),
     ...(result.outputTokens !== undefined ? { outputTokens: result.outputTokens } : {}),
+    ...(result.thinkingTokens !== undefined ? { thinkingTokens: result.thinkingTokens } : {}),
     ...(result.cacheReadTokens !== undefined
       ? { cacheReadTokens: result.cacheReadTokens }
       : {}),
@@ -300,6 +316,8 @@ export function llmResultToCallMetrics(
       ? { cacheCreationTokens: result.cacheCreationTokens }
       : {}),
     ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+    ...(result.model !== undefined ? { model: result.model } : {}),
+    ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
   };
 }
 
