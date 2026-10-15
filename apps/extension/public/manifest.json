@@ -42,6 +42,18 @@
       "js": ["reddit-content.js"],
       "world": "ISOLATED",
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["instagram-injected.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.instagram.com/*"],
+      "js": ["instagram-content.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
     }
   ]
 }

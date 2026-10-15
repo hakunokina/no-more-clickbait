@@ -276,6 +276,43 @@ describe("background worker", () => {
     expect(fake.chrome.notifications.create).not.toHaveBeenCalled();
   });
 
+  it("forwards Instagram captures only with developer capture on, apart from X's counts", async () => {
+    // Made-up body, no real data.
+    const instagramCapture = {
+      kind: "instagram-capture",
+      operation: "ssr",
+      bodyText: '{"xdt_api__v1__feed__timeline__connection":{"edges":[]}}',
+    };
+    fake.chrome.runtime.onMessage.emit(instagramCapture, { id: "test", tab: { id: USER_TAB } });
+    await settle();
+    expect(postedTypes(currentPort())).toEqual(["ping"]);
+
+    await setCapture(true);
+    await settle();
+    fake.chrome.runtime.onMessage.emit(instagramCapture, { id: "test", tab: { id: USER_TAB } });
+    await settle();
+    const port = currentPort();
+    expect(port.posted).toEqual([
+      { type: "ping" },
+      expect.objectContaining({
+        type: "raw-capture",
+        source: "instagram",
+        operation: "ssr",
+        bodyText: instagramCapture.bodyText,
+      }),
+    ]);
+
+    port.onMessage.emit({
+      type: "capture-accepted",
+      source: "instagram",
+      sequence: 1,
+      stats: stats(5),
+    });
+    await settle();
+    expect(fake.badge.text).toBe("");
+    expect(fake.chrome.notifications.create).not.toHaveBeenCalled();
+  });
+
   it("turns the badge green at the target and back to default on reset", async () => {
     await setCapture(true, 10);
     await settle();

@@ -162,3 +162,63 @@ export function isWorkerRedditCaptureMessage(
     typeof v["bodyText"] === "string"
   );
 }
+
+/**
+ * Instagram developer capture, the same three hops as Reddit's. MAIN
+ * world -> isolated content script: one home-feed `/graphql/query`
+ * response the page itself fetched, raw (`label` = transport only).
+ */
+export interface InstagramResponseMessage {
+  source: typeof PAGE_MESSAGE_SOURCE;
+  kind: "instagram-response";
+  label: string;
+  bodyText: string;
+}
+
+/** Isolated content script -> MAIN world: read response bodies only while armed. */
+export interface InstagramArmMessage {
+  source: typeof PAGE_MESSAGE_SOURCE;
+  kind: "instagram-arm";
+  armed: boolean;
+}
+
+/** Content script -> service worker: one Instagram body for developer capture. */
+export interface WorkerInstagramCaptureMessage {
+  kind: "instagram-capture";
+  /** "ssr" (the document's embedded first page) or a "graphql-query:…" label. */
+  operation: string;
+  bodyText: string;
+}
+
+export function isInstagramResponseMessage(value: unknown): value is InstagramResponseMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["source"] === PAGE_MESSAGE_SOURCE &&
+    v["kind"] === "instagram-response" &&
+    typeof v["label"] === "string" &&
+    typeof v["bodyText"] === "string"
+  );
+}
+
+export function isInstagramArmMessage(value: unknown): value is InstagramArmMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["source"] === PAGE_MESSAGE_SOURCE &&
+    v["kind"] === "instagram-arm" &&
+    typeof v["armed"] === "boolean"
+  );
+}
+
+export function isWorkerInstagramCaptureMessage(
+  value: unknown,
+): value is WorkerInstagramCaptureMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["kind"] === "instagram-capture" &&
+    typeof v["operation"] === "string" &&
+    typeof v["bodyText"] === "string"
+  );
+}
