@@ -3,7 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { ManagedSettingsSchema } from "@nmc/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { BrowserIdentity } from "./browser-identity.js";
 import {
   desktopDataDir,
   desktopPipePath,
@@ -15,6 +17,7 @@ import {
   writeLinkToken,
   type DesktopCommand,
   type HostEvent,
+  type LinkedHost,
 } from "./desktop-link.js";
 import { encodeMessage, MessageDecoder } from "./framing.js";
 
@@ -62,6 +65,7 @@ describe("desktop link", () => {
   let server: LinkServer;
   let client: LinkClient | null;
   const events: HostEvent[] = [];
+  const senders: LinkedHost[] = [];
   const commands: DesktopCommand[] = [];
   let hostCount = 0;
 
@@ -71,13 +75,17 @@ describe("desktop link", () => {
     tokenPath = join(dir, "link-token");
     token = await writeLinkToken(tokenPath);
     events.length = 0;
+    senders.length = 0;
     commands.length = 0;
     hostCount = 0;
     client = null;
     server = new LinkServer({
       path,
       token,
-      onEvent: (event) => events.push(event),
+      onEvent: (event, from) => {
+        events.push(event);
+        senders.push(from);
+      },
       onHostsChanged: (count) => (hostCount = count),
       handshakeTimeoutMs: 500,
     });
@@ -90,16 +98,70 @@ describe("desktop link", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  function startClient(retryMs = 50): LinkClient {
+  function startClient(retryMs = 50, browser?: BrowserIdentity): LinkClient {
     client = new LinkClient({
       path,
       tokenPath,
       retryMs,
       onCommand: (command) => commands.push(command),
+      ...(browser ? { browser: Promise.resolve(browser) } : {}),
     });
     client.start();
     return client;
   }
+
+  it("learns each host's browser and sends a command to the chosen one", async () => {
+    const brave: BrowserIdentity = { family: "brave", exePath: "C:\\B\\brave.exe" };
+    const edgeCommands: DesktopCommand[] = [];
+    const brave_ = startClient(50, brave);
+    await waitFor(() => brave_.connected && hostCount === 1);
+    const edge = new LinkClient({
+      path,
+      tokenPath,
+      retryMs: 50,
+      browser: { family: "edge", exePath: null },
+      onCommand: (command) => edgeCommands.push(command),
+    });
+    edge.start();
+    try {
+      await waitFor(() => edge.connected && hostCount === 2);
+      expect(server.hosts.map((host) => host.browser.family)).toEqual(["brave", "edge"]);
+
+      const push: DesktopCommand = {
+        type: "settings-push",
+        settings: ManagedSettingsSchema.parse({ maxClickbait: 3 }),
+        stamp: { updatedAt: "2026-10-15T10:00:00.000Z", source: "desktop" },
+      };
+      expect(server.send(push, (host) => host.browser.family === "brave")).toBe(true);
+      await waitFor(() => commands.length === 1);
+      expect(commands).toEqual([push]);
+      expect(edgeCommands).toEqual([]);
+      // Without a choice the newest host gets it; nobody matches: not sent.
+      expect(server.send({ type: "start-collection" })).toBe(true);
+      await waitFor(() => edgeCommands.length === 1);
+      expect(server.send(push, (host) => host.browser.family === "vivaldi")).toBe(false);
+
+      const state: HostEvent = {
+        type: "settings-state",
+        origin: "sync",
+        settings: push.settings,
+        stamp: push.stamp,
+        saved: true,
+      };
+      expect(brave_.send(state)).toBe(true);
+      await waitFor(() => events.length === 1);
+      expect(events).toEqual([state]);
+      expect(senders[0]?.browser).toEqual(brave);
+    } finally {
+      await edge.close();
+    }
+  });
+
+  it("counts a host that names no browser as `other`", async () => {
+    const link = startClient();
+    await waitFor(() => link.connected && hostCount === 1);
+    expect(server.hosts).toEqual([{ browser: { family: "other", exePath: null } }]);
+  });
 
   it("persists and re-reads the token", async () => {
     await expect(readLinkToken(tokenPath)).resolves.toBe(token);

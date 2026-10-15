@@ -451,6 +451,112 @@ export const SyncedSettingsSchema = SettingsFieldsSchema.pick({
 });
 export type SyncedSettings = z.infer<typeof SyncedSettingsSchema>;
 
+interface ChoiceSettingField<V extends string = string> {
+  kind: "choice";
+  default: V;
+  options: readonly { value: V; label: string }[];
+  label: string;
+  description: string;
+}
+
+/**
+ * The extension's collection switches the desktop app can change too,
+ * with the same UI-copy shape as SYNCED_SETTING_FIELDS. Choice values
+ * are the schema's enum values (a test keeps them in step).
+ */
+export const EXTENSION_SETTING_FIELDS = {
+  modeBEnabled: {
+    kind: "boolean",
+    default: false,
+    label: "Mode B: collect automatically in a hidden window",
+    description:
+      "Off by default, and risky: X is opened out of sight and scrolled automatically until " +
+      "enough posts are gathered. Automated browsing sits in a grey area of X's Terms of " +
+      "Service and may put your account at risk. Turning it on needs the browser's “alarms” " +
+      "permission, which only the extension's options page can ask for.",
+  },
+  modeBStrategy: {
+    kind: "choice",
+    default: "minimized-window",
+    options: [
+      { value: "minimized-window", label: "Minimized window" },
+      { value: "offscreen-window", label: "Small window in the screen corner (visible)" },
+    ],
+    label: "Where Mode B collects",
+    description:
+      "Use the corner window if the minimized one stops loading posts. Browsers keep at " +
+      "least half of a window on screen, so the corner window stays partly visible.",
+  },
+  modeBPacing: {
+    kind: "choice",
+    default: "normal",
+    options: [
+      { value: "normal", label: "Normal" },
+      { value: "fast", label: "Fast" },
+    ],
+    label: "Mode B scroll pace",
+    description: "Fast scrolls twice as quickly, but may be more likely to be noticed by X.",
+  },
+  devCaptureEnabled: {
+    kind: "boolean",
+    default: false,
+    label: "Developer capture: save raw timeline responses locally",
+    description:
+      "Off by default. Raw timeline responses are written outside the repo for debugging. " +
+      "They are personal data — never share or commit them. Toggling it starts a new count.",
+  },
+} as const satisfies {
+  modeBEnabled: BooleanSettingField;
+  modeBStrategy: ChoiceSettingField<ModeBSurface>;
+  modeBPacing: ChoiceSettingField<ModeBPacing>;
+  devCaptureEnabled: BooleanSettingField;
+};
+
+export type ExtensionSettingKey = keyof typeof EXTENSION_SETTING_FIELDS;
+
+/**
+ * Every setting the desktop app shows and may change: the synced
+ * pipeline settings plus the extension's collection switches. The
+ * extension stays their owner (chrome.storage); the native host keeps
+ * the desktop's copy in settings.json.
+ */
+export const ManagedSettingsSchema = SettingsFieldsSchema.pick({
+  collectTarget: true,
+  timelineSize: true,
+  maxClickbait: true,
+  minReadValue: true,
+  minReadForVerify: true,
+  maxVerifications: true,
+  verifyEnabled: true,
+  modeBEnabled: true,
+  modeBStrategy: true,
+  modeBPacing: true,
+  devCaptureEnabled: true,
+});
+export type ManagedSettings = z.infer<typeof ManagedSettingsSchema>;
+
+/**
+ * When and where a settings set was last saved. Two copies (extension,
+ * settings.json, a desktop change waiting for the browser) are
+ * reconciled by it: the later save wins.
+ */
+export const SettingsStampSchema = z.object({
+  updatedAt: z.string().datetime(),
+  source: z.enum(["extension", "desktop"]),
+});
+export type SettingsStamp = z.infer<typeof SettingsStampSchema>;
+
+/** Stamp of settings saved before stamps existed: older than any real save. */
+export const UNSTAMPED: SettingsStamp = {
+  updatedAt: "1970-01-01T00:00:00.000Z",
+  source: "extension",
+};
+
+/** True when `a` was saved strictly later than `b` (ties are not newer). */
+export function isNewerStamp(a: SettingsStamp, b: SettingsStamp): boolean {
+  return Date.parse(a.updatedAt) > Date.parse(b.updatedAt);
+}
+
 /** Hard ceiling for one framed native-messaging message (extension + host). */
 export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
@@ -602,6 +708,21 @@ export const CollectionStartResultSchema = z.object({
 });
 export type CollectionStartResult = z.infer<typeof CollectionStartResultSchema>;
 
+/**
+ * The extension's answer to the desktop's `settings-push`: the settings
+ * it now has (the pushed ones, or its own later save) for the host to
+ * save and the desktop to show.
+ */
+export const SettingsPushResultSchema = z.object({
+  type: z.literal("settings-push-result"),
+  outcome: z.enum(["applied", "kept-newer"]),
+  settings: ManagedSettingsSchema,
+  stamp: SettingsStampSchema,
+  /** Mode B was asked for but stays off: its optional permission is missing. */
+  modeBPermissionMissing: z.boolean().optional(),
+});
+export type SettingsPushResult = z.infer<typeof SettingsPushResultSchema>;
+
 /** Messages from the browser extension to the desktop app (via native host). */
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
@@ -613,8 +734,17 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   CollectionCompleteSchema,
   CollectionStartResultSchema,
   CollectionProgressSchema,
-  /** The user's synced settings, saved by the host for the desktop pipeline. */
-  z.object({ type: z.literal("settings-sync"), settings: SyncedSettingsSchema }),
+  /**
+   * The user's settings, saved by the host for the desktop (older
+   * extensions send only the synced ones; the rest take defaults).
+   * Without a stamp they count as older than any stamped save.
+   */
+  z.object({
+    type: z.literal("settings-sync"),
+    settings: ManagedSettingsSchema,
+    stamp: SettingsStampSchema.optional(),
+  }),
+  SettingsPushResultSchema,
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
@@ -639,8 +769,17 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mode-b-run-recorded") }),
   /** Ack of `collection-complete`, `collection-start-result` and `collection-progress`. */
   z.object({ type: z.literal("collection-recorded") }),
-  /** Ack of `settings-sync`: the host saved them. */
+  /** Ack of `settings-sync` / `settings-push-result`: the host handled them. */
   z.object({ type: z.literal("settings-synced") }),
+  /**
+   * Push: settings changed in the desktop app. The extension applies
+   * them unless its own copy is newer, then answers `settings-push-result`.
+   */
+  z.object({
+    type: z.literal("settings-push"),
+    settings: ManagedSettingsSchema,
+    stamp: SettingsStampSchema,
+  }),
   /** Push: the desktop asks the extension to start collecting. */
   z.object({
     type: z.literal("start-collection"),
