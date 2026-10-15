@@ -91,6 +91,12 @@ const BUILD_AFTER_STOP: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Stops the user caused themselves: the session waits in the monitor
+ * ("Build timeline anyway") without a notification.
+ */
+const QUIET_STOPS: ReadonlySet<string> = new Set(["settings-changed"]);
+
+/**
  * What a finished collection with posts becomes (owner's decision):
  * - "build": the user asked for it (Mode B) and it ended normally or
  *   X stopped giving posts — run at once, even short of the target;
@@ -329,7 +335,7 @@ export class SessionController {
           reason: done.reason,
           target: done.target,
         },
-        done.live,
+        done.live && !QUIET_STOPS.has(done.reason),
       );
     }
     await this.#refreshUnfinished();

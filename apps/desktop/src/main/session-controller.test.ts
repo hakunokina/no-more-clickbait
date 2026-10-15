@@ -479,6 +479,17 @@ describe("SessionController", () => {
     expect(c.status.run.stage).toBe("ready");
   });
 
+  it("keeps a run stopped by a settings change waiting, without a notification", async () => {
+    const id = await stoppedSession("settings-changed", 3);
+    const c = controller();
+    c.handleHostEvent(completeEvent(id, "settings-changed", 3));
+    await expect.poll(() => c.status.pending?.sessionId).toBe(id);
+    expect(asked).toEqual([]);
+    expect(c.status.run.stage).toBe("idle");
+    await c.buildPending();
+    expect(c.status.run.stage).toBe("ready");
+  });
+
   it("never builds a collection the user cancelled", async () => {
     const id = await stoppedSession("cancelled", 3);
     const c = controller();
