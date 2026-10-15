@@ -136,6 +136,12 @@ export const TimelineDocSchema = z
     doc.cards.forEach((card, index) => {
       if (card.rank !== index + 1) issue(`card ${index} has rank ${card.rank}`);
     });
+    const labels = doc.bySource?.map((count) => count.label) ?? [];
+    if (new Set(labels).size !== labels.length) issue("bySource labels must be unique");
+    const missing = doc.missingSources?.map((source) => source.label) ?? [];
+    if (new Set(missing).size !== missing.length) issue("missingSources labels must be unique");
+    if (missing.some((label) => labels.includes(label)))
+      issue("a source cannot be both in bySource and missingSources");
     const shown = doc.cards.length;
     if (doc.status.state === "error") return;
     if (!doc.funnel) return issue("only an error doc may omit the funnel");

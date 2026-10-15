@@ -2,6 +2,7 @@ import { genericItemIdFromText, genericItemIdFromUrl } from "../feed-item.js";
 import type { GenericItem } from "../schemas.js";
 import {
   documentBase,
+  ELEMENT_NODE,
   MAX_AUTHOR_CHARS,
   MAX_TEXT_CHARS,
   MAX_TITLE_CHARS,
@@ -11,6 +12,7 @@ import {
   selectAll,
   visibleText,
   type DomElement,
+  type DomNode,
   type DomQueryRoot,
 } from "./dom.js";
 import {
@@ -295,13 +297,31 @@ function readTime(
   return Number.isNaN(time) ? undefined : new Date(time).toISOString();
 }
 
-/** The card's language: the nearest `lang` attribute up the tree (the page's `<html lang>`). */
+/**
+ * The card's language: the nearest `lang` attribute up the tree (the
+ * page's `<html lang>`), crossing shadow roots to their host.
+ */
 function readLang(card: DomElement): string | undefined {
-  for (let node: DomElement | null = card; node; node = node.parentElement) {
+  for (
+    let node: DomElement | null = card;
+    node;
+    node = node.parentElement ?? shadowHost(node)
+  ) {
     const lang = node.getAttribute("lang");
     if (lang !== null) return normalizeLang(lang);
   }
   return undefined;
+}
+
+/** The element a shadow root's top element lives under; null in the document. */
+function shadowHost(node: DomElement): DomElement | null {
+  const root = node.getRootNode?.();
+  const host = root && "host" in root ? (root as { host: unknown }).host : null;
+  return typeof host === "object" &&
+    host !== null &&
+    (host as DomNode).nodeType === ELEMENT_NODE
+    ? (host as DomElement)
+    : null;
 }
 
 /** The page's declared icon (`<link rel="icon">`), when the root holds the document head. */

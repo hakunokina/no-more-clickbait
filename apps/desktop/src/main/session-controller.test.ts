@@ -8,6 +8,7 @@ import { renderTimeline, TIMELINE_CSP } from "@nmc/timeline-renderer";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import {
+  missingSourcesOf,
   SessionController,
   TIMELINE_DOC_FILE,
   TIMELINE_FILE,
@@ -70,6 +71,21 @@ async function completeSession(
     responseCount: 1,
   })) as string;
 }
+
+describe("missingSourcesOf", () => {
+  it("lists enabled sources that delivered nothing while others did", () => {
+    const delivered = [{ label: "x", in: 4, shown: 2 }];
+    expect(missingSourcesOf(["x", "custom:Site"], delivered)).toEqual([
+      { label: "custom:Site", reason: expect.any(String) as string },
+    ]);
+    expect(missingSourcesOf(["x"], delivered)).toEqual([]);
+  });
+
+  it("lists nothing when no source delivered (not a partial timeline)", () => {
+    expect(missingSourcesOf(["x", "custom:Site"], undefined)).toEqual([]);
+    expect(missingSourcesOf(["x"], [])).toEqual([]);
+  });
+});
 
 describe("SessionController", () => {
   let root: string;
@@ -184,8 +200,12 @@ describe("SessionController", () => {
     );
     const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
       funnel: { scanned: number; duplicates: number; shown: number };
+      bySource?: unknown;
+      missingSources?: unknown;
     };
     expect(doc.funnel).toMatchObject({ scanned: 3, duplicates: 1, shown: 2 });
+    expect(doc.bySource).toEqual([{ label: "x", in: 3, shown: 2 }]);
+    expect(doc).not.toHaveProperty("missingSources");
     expect(c.status.run.funnel).toMatchObject({ scanned: 3, shown: 2 });
     const [session] = await listSessions(root);
     expect(session?.processed?.status).toBe("done");
