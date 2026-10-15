@@ -101,6 +101,43 @@ describe("parseFeed — Atom and RSS 1.0", () => {
     );
     expect(() => parseFeed("", options)).toThrow(/not well-formed XML: no root element/);
   });
+
+  it("never resolves an opaque guid against the feed URL", () => {
+    const options = { sourceLabel: "x", feedUrl: "https://f.example.invalid/rss.xml" };
+    const item = (guid: string): string =>
+      `<item><title>T</title><description>D</description>${guid}</item>`;
+    // Opaque ids (isPermaLink missing or "false") without a link are
+    // skipped — GenericItem.url is required, so there is no linkless
+    // feed item — instead of fabricating "…/rss.xml/post-123".
+    for (const guid of ["<guid>post-123</guid>", '<guid isPermaLink="false">post-123</guid>']) {
+      expect(
+        parseFeed(`<rss version="2.0"><channel>${item(guid)}</channel></rss>`, options),
+      ).toEqual([]);
+    }
+    // An absolute http(s) guid still backs the link, whatever the flag says…
+    expect(
+      parseFeed(
+        `<rss version="2.0"><channel>${item('<guid isPermaLink="true">https://f.example.invalid/a</guid>')}</channel></rss>`,
+        options,
+      ).map((entry) => entry.url),
+    ).toEqual(["https://f.example.invalid/a"]);
+    expect(
+      parseFeed(
+        `<rss version="2.0"><channel>${item('<guid>https://f.example.invalid/b</guid>')}</channel></rss>`,
+        options,
+      ).map((entry) => entry.url),
+    ).toEqual(["https://f.example.invalid/b"]);
+    // …but "false" means "not a permalink" even for an absolute URL,
+    // and a relative guid is never resolved against the feed URL.
+    for (const guid of [
+      '<guid isPermaLink="false">https://f.example.invalid/c</guid>',
+      '<guid isPermaLink="true">/gundem/d</guid>',
+    ]) {
+      expect(
+        parseFeed(`<rss version="2.0"><channel>${item(guid)}</channel></rss>`, options),
+      ).toEqual([]);
+    }
+  });
 });
 
 describe("parseXml", () => {

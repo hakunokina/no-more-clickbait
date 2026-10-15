@@ -1,4 +1,5 @@
 import { selectAll, type DomElement, type DomQueryRoot } from "./dom.js";
+import { SelectorSchema } from "./site-rule.js";
 
 /**
  * Selector writing for the picker (pure functions over the DOM; design:
@@ -83,30 +84,77 @@ function firstMatch(root: DomQueryRoot, selector: string): DomElement | null {
   }
 }
 
+export type FieldSelectorResult =
+  | { ok: true; selector: string }
+  | { ok: false; reason: "outside-card" | "selector-too-long" };
+
 /**
  * A selector for a field, relative to its card: the first match of it
- * in `card` is `el` (that is how the engine reads it). ":scope" when
- * `el` is the card; null when `el` is not inside `card`.
+ * in `card` is `el` (that is how the engine reads it), and it always
+ * passes the rule schema. ":scope" when `el` is the card. When no
+ * schema-fitting selector reads `el`, the reason says so instead of a
+ * selector the rule could never carry ("selector-too-long": the
+ * positional fallback exceeds `MAX_SELECTOR_CHARS` and no shorter
+ * suffix reads `el` either).
  */
-export function fieldSelectorFor(el: DomElement, card: DomElement): string | null {
-  if (el === card) return ":scope";
-  if (!isInside(el, card)) return null;
+export function fieldSelectorForResult(
+  el: DomElement,
+  card: DomElement,
+): FieldSelectorResult {
+  if (el === card) return { ok: true, selector: ":scope" };
+  if (!isInside(el, card)) return { ok: false, reason: "outside-card" };
   const tag = tagOf(el);
   const features = featuresOf(el);
   const own = [...new Set([...features.map((f) => `${tag}${f}`), ...features, tag])];
   for (const candidate of own) {
-    if (firstMatch(card, candidate) === el) return candidate;
+    if (isFitting(candidate) && firstMatch(card, candidate) === el)
+      return { ok: true, selector: candidate };
   }
   for (let anc = el.parentElement; anc && anc !== card; anc = anc.parentElement) {
     const ancTag = tagOf(anc);
     for (const prefix of featuresOf(anc).map((f) => `${ancTag}${f}`)) {
       for (const candidate of own) {
         const selector = `${prefix} ${candidate}`;
-        if (firstMatch(card, selector) === el) return selector;
+        if (isFitting(selector) && firstMatch(card, selector) === el)
+          return { ok: true, selector };
       }
     }
   }
-  return `:scope > ${nthPath(el, card)}`;
+  for (const selector of scopeFallbacks(el, card)) {
+    if (isFitting(selector) && firstMatch(card, selector) === el)
+      return { ok: true, selector };
+  }
+  return { ok: false, reason: "selector-too-long" };
+}
+
+/**
+ * A selector for a field, relative to its card: the first match of it
+ * in `card` is `el` (that is how the engine reads it). ":scope" when
+ * `el` is the card; null when `el` is not inside `card` or no
+ * schema-fitting selector reads it (see `fieldSelectorForResult`).
+ */
+export function fieldSelectorFor(el: DomElement, card: DomElement): string | null {
+  const result = fieldSelectorForResult(el, card);
+  return result.ok ? result.selector : null;
+}
+
+/** A generated selector the rule schema accepts (length and structure). */
+function isFitting(selector: string): boolean {
+  return SelectorSchema.safeParse(selector).success;
+}
+
+/**
+ * The positional fallback, longest first: the full `:scope >` path,
+ * then shorter descendant suffixes. The engine reads the first match,
+ * so a shorter suffix whose first match is still `el` reads the same.
+ */
+function scopeFallbacks(el: DomElement, card: DomElement): string[] {
+  const parts = nthPath(el, card).split(" > ");
+  const fallbacks = [`:scope > ${parts.join(" > ")}`];
+  for (let i = 1; i < parts.length; i += 1) {
+    fallbacks.push(`:scope ${parts.slice(i).join(" > ")}`);
+  }
+  return fallbacks;
 }
 
 /** "div:nth-of-type(2) > span:nth-of-type(1)" from below `root` down to `el`. */

@@ -106,6 +106,43 @@ describe("extractItems — news page", () => {
     expect([matched, excluded, cards.length]).toEqual([8, 1, 7]);
     expect(cards.some((card) => card.getAttribute("data-id") === "103")).toBe(false);
   });
+
+  it("validates item.exclude even when the card selector matches nothing", () => {
+    const gone = rule({ item: { selector: "article.np-gone", exclude: ["span["] } });
+    // A fresh document per evaluation: happy-dom reports an invalid
+    // selector only on the first use per element, so reusing one document
+    // would make the second call pass silently.
+    const { cards, matched, invalidSelectors } = matchCards(page("news.html"), gone.item!);
+    expect([matched, cards.length]).toEqual([0, 0]);
+    expect(invalidSelectors).toEqual(["span["]);
+    expect(extractItems(page("news.html"), gone).stats.invalidSelectors).toEqual(["span["]);
+  });
+
+  it("reports no invalid selector when a 0-match exclusion is valid", () => {
+    const gone = rule({ item: { selector: "article.np-gone", exclude: [".np-card"] } });
+    expect(matchCards(doc, gone.item!).invalidSelectors).toEqual([]);
+  });
+
+  it("leaves inline-hidden text out of the fields", () => {
+    document.body.innerHTML =
+      `<article class="c"><h2>Başlık<span style="display:none"> gizli promo</span></h2>` +
+      `<p>Metin<span style="VISIBILITY : hidden !important"> gizli</span>` +
+      `<span style="display:block"> görünen</span></p></article>`;
+    const hidden = rule({
+      id: "o.example.invalid/x",
+      name: "O",
+      url: "https://o.example.invalid/x",
+      match: ["o.example.invalid/x"],
+      item: { selector: "article.c" },
+      fields: { title: { selector: "h2" }, text: { selector: "p" } },
+      exclude: { within: [] },
+    });
+    const { items } = extractItems(document, hidden);
+    expect(items).toHaveLength(1);
+    expect(items[0]?.title).toBe("Başlık");
+    expect(items[0]?.text).toBe("Metin görünen");
+    document.body.innerHTML = "";
+  });
 });
 
 describe("extractItems — URLs and fallbacks", () => {

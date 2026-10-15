@@ -113,6 +113,17 @@ describe("SiteRuleSchema", () => {
     }
     expect(errorsOf({ ...newsRule, item: { selector: "a[title='(x']:has(.b)" } })).toEqual([]);
   });
+
+  it("tells quoted ';{}' apart from declaration noise", () => {
+    for (const selector of ['[data-x="a;b"]', "[data-x='a;b']", '[data-x="a{b}"]']) {
+      expect(errorsOf({ ...newsRule, item: { selector } })).toEqual([]);
+    }
+    for (const selector of ["a{color:red}", "a;b", "a}"]) {
+      expect(errorsOf({ ...newsRule, item: { selector } })).toEqual([
+        "item.selector: not a CSS selector",
+      ]);
+    }
+  });
 });
 
 describe("parseSiteRule / serializeSiteRule", () => {
