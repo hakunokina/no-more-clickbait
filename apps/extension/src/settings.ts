@@ -1,6 +1,7 @@
 import { SettingsSchema, type Settings } from "@nmc/core";
+import { SETTINGS_STORAGE_KEY } from "./settings-key.js";
 
-export const SETTINGS_STORAGE_KEY = "nmc-settings";
+export { SETTINGS_STORAGE_KEY };
 
 export async function loadSettings(): Promise<Settings> {
   const stored = await chrome.storage.local.get(SETTINGS_STORAGE_KEY);

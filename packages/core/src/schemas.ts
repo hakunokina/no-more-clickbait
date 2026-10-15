@@ -454,9 +454,14 @@ export type SyncedSettings = z.infer<typeof SyncedSettingsSchema>;
 /** Hard ceiling for one framed native-messaging message (extension + host). */
 export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
+/** Which site a developer capture came from; absent means "x". */
+export const CaptureSourceSchema = z.enum(["x", "reddit", "instagram"]);
+export type CaptureSource = z.infer<typeof CaptureSourceSchema>;
+
 /** One raw timeline response body, forwarded verbatim for developer capture. */
 export const RawCaptureSchema = z.object({
   type: z.literal("raw-capture"),
+  source: CaptureSourceSchema.optional(),
   /** Which GraphQL operation produced it, e.g. "HomeTimeline". */
   operation: z.string().min(1).max(64),
   /** ISO 8601 time the response was captured in the browser. */
@@ -469,6 +474,7 @@ export type RawCapture = z.infer<typeof RawCaptureSchema>;
 /** Reports a response the extension refused to send (frame ceiling). */
 export const OversizedCaptureSchema = z.object({
   type: z.literal("capture-oversized"),
+  source: CaptureSourceSchema.optional(),
   operation: z.string().min(1).max(64),
   capturedAt: z.string().datetime(),
   /** Framed byte length that exceeded MAX_BRIDGE_MESSAGE_BYTES. */
@@ -628,11 +634,14 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("batch-accepted"), postCount: z.number().int().nonnegative() }),
   z.object({
     type: z.literal("capture-accepted"),
+    /** The capture's source; `stats` are that source's session counts. */
+    source: CaptureSourceSchema.optional(),
     sequence: z.number().int().positive(),
     stats: CaptureStatsSchema,
   }),
   z.object({
     type: z.literal("capture-rejected"),
+    source: CaptureSourceSchema.optional(),
     message: z.string(),
     stats: CaptureStatsSchema,
   }),

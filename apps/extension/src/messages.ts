@@ -102,3 +102,63 @@ export function isModeBPageReport(value: unknown): value is ModeBPageReport {
     typeof v["scrolled"] === "boolean"
   );
 }
+
+/**
+ * Reddit developer capture. MAIN world -> isolated content script: one
+ * reddit.com response the page itself fetched (`label` = its normalised
+ * URL path), raw. The content script adds its own DOM snapshots.
+ */
+export interface RedditResponseMessage {
+  source: typeof PAGE_MESSAGE_SOURCE;
+  kind: "reddit-response";
+  label: string;
+  bodyText: string;
+}
+
+/** Isolated content script -> MAIN world: read response bodies only while armed. */
+export interface RedditArmMessage {
+  source: typeof PAGE_MESSAGE_SOURCE;
+  kind: "reddit-arm";
+  armed: boolean;
+}
+
+/** Content script -> service worker: one Reddit body for developer capture. */
+export interface WorkerRedditCaptureMessage {
+  kind: "reddit-capture";
+  /** URL path label, or "dom-initial" / "dom-added" for DOM snapshots. */
+  operation: string;
+  bodyText: string;
+}
+
+export function isRedditResponseMessage(value: unknown): value is RedditResponseMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["source"] === PAGE_MESSAGE_SOURCE &&
+    v["kind"] === "reddit-response" &&
+    typeof v["label"] === "string" &&
+    typeof v["bodyText"] === "string"
+  );
+}
+
+export function isRedditArmMessage(value: unknown): value is RedditArmMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["source"] === PAGE_MESSAGE_SOURCE &&
+    v["kind"] === "reddit-arm" &&
+    typeof v["armed"] === "boolean"
+  );
+}
+
+export function isWorkerRedditCaptureMessage(
+  value: unknown,
+): value is WorkerRedditCaptureMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["kind"] === "reddit-capture" &&
+    typeof v["operation"] === "string" &&
+    typeof v["bodyText"] === "string"
+  );
+}

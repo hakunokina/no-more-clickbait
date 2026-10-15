@@ -1,6 +1,7 @@
 import {
   BridgeMessageSchema,
   type BridgeReply,
+  type CaptureSource,
   type CaptureStats,
   type CollectionComplete,
   type CollectionProgress,
@@ -21,8 +22,8 @@ export interface BridgeHandlers {
   onRawCapture?: (capture: RawCapture) => Promise<{ sequence: number }>;
   /** Records a refused oversized capture (counter + summary only). */
   onOversizedCapture?: (capture: OversizedCapture) => Promise<void> | void;
-  /** Cumulative capture counts, reported back to the extension. */
-  captureStats?: () => CaptureStats;
+  /** Cumulative capture counts of one source, reported back to the extension. */
+  captureStats?: (source: CaptureSource) => CaptureStats;
   /** Records a finished Mode B run's counts in the session summary. */
   onModeBRun?: (run: ModeBRunSummary) => Promise<void> | void;
   /** Closes the collection session and tells the desktop app it can run. */
@@ -80,18 +81,22 @@ export async function handleBridgeMessage(
         return { type: "error", message: "developer capture is not configured on this host" };
       }
       const { sequence } = await handlers.onRawCapture(parsed.data);
+      const { source } = parsed.data;
       return {
         type: "capture-accepted",
+        ...(source ? { source } : {}),
         sequence,
-        stats: handlers.captureStats?.() ?? EMPTY_STATS,
+        stats: handlers.captureStats?.(source ?? "x") ?? EMPTY_STATS,
       };
     }
     case "capture-oversized": {
       await handlers.onOversizedCapture?.(parsed.data);
+      const { source } = parsed.data;
       return {
         type: "capture-rejected",
+        ...(source ? { source } : {}),
         message: `oversized ${parsed.data.operation} response (${parsed.data.byteLength} bytes framed) exceeds the bridge ceiling and was not captured`,
-        stats: handlers.captureStats?.() ?? EMPTY_STATS,
+        stats: handlers.captureStats?.(source ?? "x") ?? EMPTY_STATS,
       };
     }
     case "mode-b-run": {
