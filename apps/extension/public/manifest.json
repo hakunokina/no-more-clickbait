@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "No More Clickbait",
+  "version": "0.1.0",
+  "description": "Reads your own X home timeline from your own browser session and hands it to the No More Clickbait desktop app for clickbait filtering. Your cookies never leave this device.",
+  "permissions": ["storage", "nativeMessaging"],
+  "optional_permissions": ["tabs"],
+  "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "No More Clickbait"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["injected.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["content.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
+    }
+  ]
+}

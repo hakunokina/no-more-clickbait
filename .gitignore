@@ -1,2 +1,20 @@
 .dex/*
 !.dex/stack.md
+
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+
+# Local runtime data — real captures never enter the repo
+*.local/
+inbox/
+captures/
+
+# Secrets: only .env.example is tracked
+.env
+.env.*
+!.env.example
+
+.DS_Store
+Thumbs.db

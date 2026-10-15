@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'"
+    />
+    <title>No More Clickbait</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; line-height: 1.5; }
+      h1 { font-size: 1.05rem; margin: 0 0 0.25rem; }
+      .sub { margin: 0 0 1rem; opacity: 0.75; font-size: 0.9rem; }
+      section { border: 1px solid #8884; border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 0.75rem; }
+      h2 { font-size: 0.9rem; margin: 0 0 0.5rem; }
+      dl { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.75rem; margin: 0; font-size: 0.9rem; }
+      dt { opacity: 0.75; }
+      dd { margin: 0; font-variant-numeric: tabular-nums; }
+      button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
+      button:disabled { opacity: 0.6; }
+      :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
+      .ok { color: #1c7c3c; }
+      .bad { color: #b3261e; }
+    </style>
+  </head>
+  <body>
+    <h1>No More Clickbait</h1>
+    <p class="sub">Your feed, filtered. Finite by design.</p>
+
+    <section aria-labelledby="usage-h">
+      <h2 id="usage-h">Token monitor</h2>
+      <dl>
+        <dt>Input tokens</dt><dd id="tokens-in">—</dd>
+        <dt>Output tokens</dt><dd id="tokens-out">—</dd>
+        <dt>Cache tokens</dt><dd id="tokens-cache">—</dd>
+        <dt>Estimated cost</dt><dd id="cost">—</dd>
+        <dt>Last run</dt><dd id="last-run">Never</dd>
+        <dt>Collection span</dt><dd id="collection-span">—</dd>
+        <dt>Posts kept / seen</dt><dd id="posts-kept">—</dd>
+      </dl>
+      <p class="sub">Counters bind to core <code>RunMetrics</code> once the scoring pipeline lands.</p>
+    </section>
+
+    <section aria-labelledby="llm-h">
+      <h2 id="llm-h">LLM provider (your local CLI)</h2>
+      <p id="llm-status" role="status" aria-live="polite">Not checked yet.</p>
+      <button id="check-llm" type="button">Check <code>claude</code> CLI</button>
+    </section>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
