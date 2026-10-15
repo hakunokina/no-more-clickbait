@@ -15,8 +15,10 @@ import {
   runPipeline,
   type Scorer,
   type SelectorOptions,
+  type VerificationStats,
+  type Verifier,
 } from "../pipeline.js";
-import type { Post, RankedPost, ScoreEntry } from "../schemas.js";
+import type { Post, RankedPost, ScoreEntry, VerificationResult } from "../schemas.js";
 import {
   parseHomeTimelineWithStats,
   type HomeTimelineParseStats,
@@ -26,9 +28,9 @@ import {
 /**
  * Offline run over one developer-capture session directory (raw
  * HomeTimeline dumps + summary.json written by the native host):
- * parse → HardFilter → Scorer → Selector, no Verifier yet. Produces a
- * report with every score, the selection, the unjudged (media-only)
- * posts and the RunMetrics, for
+ * parse → HardFilter → Scorer → Selector → Verifier (optional).
+ * Produces a report with every score, the selection, the verification
+ * results, the unjudged (media-only) posts and the RunMetrics, for
  * measuring a real batch end to end. Captures are personal data: the
  * caller writes the report outside the repo (next to the capture).
  */
@@ -175,6 +177,13 @@ export interface CaptureRunOptions {
   metrics: RunMetricsCollector;
   selector: SelectorOptions;
   timelineSize: number;
+  /** Omit to run without verification (every post `verification: null`). */
+  verifier?: Verifier;
+  /** Max simultaneous Verifier calls (default 4). */
+  verifyConcurrency?: number;
+  maxVerifications?: number;
+  /** Read-worthiness (0..1) a check-worthy post needs to be verified. */
+  minReadForVerify?: number;
 }
 
 export interface CaptureRunReport {
@@ -188,6 +197,8 @@ export interface CaptureRunReport {
   scores: ScoreEntry[];
   distribution: ScoreDistribution;
   selected: RankedPost[];
+  /** Verification counts and results; absent when run without a Verifier. */
+  verification?: VerificationStats;
   /** Media-only posts passed through unscored, outside the selection count. */
   unjudged: Post[];
   metrics: RunMetrics;
@@ -221,11 +232,18 @@ export async function runCapture(
           return ranked;
         },
       },
+      ...(options.verifier ? { verifier: options.verifier } : {}),
     },
     capture.posts,
     {
       timelineSize: options.timelineSize,
-      verifyConcurrency: 1,
+      verifyConcurrency: options.verifyConcurrency ?? 4,
+      ...(options.maxVerifications !== undefined
+        ? { maxVerifications: options.maxVerifications }
+        : {}),
+      ...(options.minReadForVerify !== undefined
+        ? { minReadForVerify: options.minReadForVerify }
+        : {}),
       metrics,
       ...(capture.collection ? { collection: capture.collection } : {}),
     },
@@ -241,6 +259,7 @@ export async function runCapture(
     scores,
     distribution: scoreDistribution(scores),
     selected: result.posts,
+    ...(result.verification ? { verification: result.verification } : {}),
     unjudged: result.unjudged,
     metrics: result.metrics,
     totals: summarizeRunMetrics(result.metrics),
@@ -252,14 +271,33 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function scoreTags(score: ScoreEntry, post: Post, readFirst: boolean): string[] {
+function scoreTags(score: ScoreEntry, readFirst: boolean): string[] {
   const read = `okuma ${Math.round(score.readWorthinessScore * 10)}/10`;
   const clickbait = `clickbait ${Math.round(score.clickbaitScore * 10)}/10`;
   return [
     ...(readFirst ? [read, clickbait] : [clickbait, read]),
     ...(score.checkWorthy ? ["doğrulanmalı"] : []),
-    ...(post.mediaOnly ? ["yalnız medya"] : []),
   ];
+}
+
+/** Badge text per verification status (cautious wording, never "yanlış"). */
+export const VERIFICATION_BADGES = {
+  verified: "✓ kaynaklarla doğrulandı",
+  false_or_disputed: "⚠ kaynaklarla çelişiyor",
+  unverifiable: "? doğrulanamadı",
+} as const satisfies Record<VerificationResult["status"], string>;
+
+/** Badge, summary and source lines of one verification. */
+function verificationLines(verification: VerificationResult): string[] {
+  const confidence = Math.round(verification.confidence * 100);
+  const lines = [
+    `- Doğrulama: **${VERIFICATION_BADGES[verification.status]}** (güven %${confidence}` +
+      `${verification.failed ? ", çağrı başarısız" : ""}) — ${oneLine(verification.summary)}`,
+  ];
+  for (const source of verification.sources) {
+    lines.push(`  - Kaynak: [${oneLine(source.title).replace(/[[\]]/g, "")}](${source.url})`);
+  }
+  return lines;
 }
 
 /** Text, quote and link lines of one post (scores excluded). */
@@ -279,6 +317,7 @@ function postBody(post: Post): string[] {
  */
 export function renderSelectedMarkdown(report: CaptureRunReport): string {
   const s = report.selector;
+  const v = report.verification;
   const lines = [
     `# Seçilen ${report.selected.length} gönderi`,
     "",
@@ -286,14 +325,24 @@ export function renderSelectedMarkdown(report: CaptureRunReport): string {
       `(0-10) · sıralama: okuma değeri ↓, clickbait ↑ · ilk ${s.timelineSize} · ` +
       `kuralı geçen aday: ${s.candidates}`,
     "",
+    v
+      ? `Doğrulama: ${v.calls} iddia · doğrulandı ${v.byStatus.verified} · ` +
+        `çelişiyor ${v.byStatus.false_or_disputed} · doğrulanamadı ${v.byStatus.unverifiable} ` +
+        `(başarısız çağrı ${v.failed}) · seçimden çıkan ${v.rejected} · ` +
+        `yedekten gelen ${v.backfilled} · okuma eşiği altında doğrulanmayan ` +
+        `${v.skippedBelowRead} · bütçe dışı kalan ${v.skippedOverBudget}`
+      : "Doğrulama: kapalı",
+    "",
   ];
-  for (const [index, { post, score }] of report.selected.entries()) {
+  for (const [index, { post, score, verification }] of report.selected.entries()) {
+    const badge = verification ? [VERIFICATION_BADGES[verification.status]] : [];
     lines.push(
-      `## ${index + 1}. @${post.authorHandle} — ${scoreTags(score, post, true).join(" · ")}`,
+      `## ${index + 1}. @${post.authorHandle} — ${[...scoreTags(score, true), ...badge].join(" · ")}`,
       "",
     );
     lines.push(...postBody(post));
     if (score.checkWorthyClaim) lines.push(`- İddia: ${oneLine(score.checkWorthyClaim)}`);
+    if (verification) lines.push(...verificationLines(verification));
     if (score.reason) lines.push(`- Gerekçe: ${oneLine(score.reason)}`);
     lines.push(`- Bağlantı: ${post.url}`, "");
   }
@@ -346,7 +395,7 @@ export function renderClickbaitTopMarkdown(
   ];
   for (const [index, { post, score }] of judged.entries()) {
     lines.push(
-      `## ${index + 1}. @${post.authorHandle} — ${scoreTags(score, post, false).join(" · ")}`,
+      `## ${index + 1}. @${post.authorHandle} — ${scoreTags(score, false).join(" · ")}`,
       "",
     );
     lines.push(...postBody(post));

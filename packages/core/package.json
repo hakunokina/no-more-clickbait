@@ -16,6 +16,10 @@
     "./scorer": {
       "types": "./dist/scorer/index.d.ts",
       "import": "./dist/scorer/index.js"
+    },
+    "./verifier": {
+      "types": "./dist/verifier/index.d.ts",
+      "import": "./dist/verifier/index.js"
     }
   },
   "scripts": {

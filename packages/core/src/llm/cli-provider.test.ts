@@ -294,7 +294,9 @@ describe("createClaudeCliProvider (fake process)", () => {
     });
     await createClaudeCliProvider({ spawnFn }).complete({ prompt: "veri" });
     const withPrompt = calls[0]?.args ?? [];
-    expect(withPrompt[withPrompt.indexOf("--system-prompt") + 1]).toBe("Sen bir puanlayıcısın.");
+    expect(withPrompt[withPrompt.indexOf("--system-prompt") + 1]).toBe(
+      "Sen bir puanlayıcısın.",
+    );
     expect(calls[0]?.stdin).toBe("veri");
     expect(calls[1]?.args).not.toContain("--system-prompt");
   });
@@ -421,5 +423,99 @@ describe("output parsers", () => {
     expect(() =>
       parseClaudeJsonOutput(JSON.stringify({ is_error: true, result: "boom" })),
     ).toThrow(/boom/);
+  });
+});
+
+describe("structured output, budget cap and helper-model usage", () => {
+  it("passes the JSON Schema and the budget cap, and reads structured_output", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({
+      stdout: JSON.stringify({
+        type: "result",
+        is_error: false,
+        result: "prose the schema replaced",
+        structured_output: { status: "verified" },
+      }),
+    }));
+    const provider = createClaudeCliProvider({ spawnFn, maxBudgetUsd: 0.5 });
+    const result = await provider.complete({
+      prompt: "verify",
+      jsonSchema: { type: "object" },
+    });
+    expect(result.text).toBe('{"status":"verified"}');
+    const args = calls[0]?.args ?? [];
+    expect(args[args.indexOf("--json-schema") + 1]).toBe('{"type":"object"}');
+    expect(args[args.indexOf("--max-budget-usd") + 1]).toBe("0.5");
+  });
+
+  it("rejects a non-positive budget and keeps both flags out of extraArgs", () => {
+    expect(() => createClaudeCliProvider({ maxBudgetUsd: 0 })).toThrow(/maxBudgetUsd/);
+    expect(() => createClaudeCliProvider({ extraArgs: ["--json-schema={}"] })).toThrow(
+      /--json-schema/,
+    );
+    expect(() => createClaudeCliProvider({ extraArgs: ["--max-budget-usd", "9"] })).toThrow(
+      /--max-budget-usd/,
+    );
+  });
+
+  it("sums tokens over every model when a tool ran on a helper model", () => {
+    // Shape measured with claude 2.1.300: WebSearch runs on a second model
+    // whose tokens appear only in modelUsage, not in `usage`.
+    const parsed = parseClaudeJsonOutput(
+      JSON.stringify({
+        type: "result",
+        is_error: false,
+        result: "{}",
+        usage: {
+          input_tokens: 4,
+          output_tokens: 420,
+          output_tokens_details: { thinking_tokens: 201 },
+          server_tool_use: { web_search_requests: 0 },
+        },
+        modelUsage: {
+          "claude-opus-5-5": {
+            inputTokens: 4,
+            outputTokens: 420,
+            cacheReadInputTokens: 2162,
+            cacheCreationInputTokens: 3198,
+            thinkingTokens: 201,
+            webSearchRequests: 0,
+          },
+          "claude-haiku-5-5": {
+            inputTokens: 12662,
+            outputTokens: 939,
+            cacheReadInputTokens: 0,
+            cacheCreationInputTokens: 0,
+            thinkingTokens: 427,
+            webSearchRequests: 1,
+          },
+        },
+      }),
+    );
+    expect(parsed).toMatchObject({
+      inputTokens: 12666,
+      outputTokens: 1359,
+      thinkingTokens: 628,
+      cacheReadTokens: 2162,
+      cacheCreationTokens: 3198,
+      webSearchRequests: 1,
+      model: "claude-opus-5-5,claude-haiku-5-5",
+    });
+  });
+
+  it("falls back to server_tool_use for the search count", () => {
+    const parsed = parseClaudeJsonOutput(
+      JSON.stringify({
+        type: "result",
+        is_error: false,
+        result: "x",
+        usage: {
+          input_tokens: 1,
+          output_tokens: 1,
+          server_tool_use: { web_search_requests: 2 },
+        },
+      }),
+    );
+    expect(parsed.webSearchRequests).toBe(2);
+    expect(parsed.inputTokens).toBe(1);
   });
 });

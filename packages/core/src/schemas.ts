@@ -102,22 +102,61 @@ export const ScoreEntrySchema = z.object({
 });
 export type ScoreEntry = z.infer<typeof ScoreEntrySchema>;
 
-export const VerdictSchema = z.enum([
-  "supported",
-  "contradicted",
-  // The UI must never overclaim: absence of evidence is its own verdict.
+export const VerificationStatusSchema = z.enum([
+  /** Sources back the claim. */
+  "verified",
+  /** Sources contradict or dispute the claim (wording stays cautious). */
+  "false_or_disputed",
+  // The UI must never overclaim: absence of evidence is its own status.
   "unverifiable",
 ]);
-export type Verdict = z.infer<typeof VerdictSchema>;
+export type VerificationStatus = z.infer<typeof VerificationStatusSchema>;
 
-export const VerificationResultSchema = z.object({
-  postId: z.string().min(1),
-  claim: z.string().min(1),
-  verdict: VerdictSchema,
-  /** Short human-readable explanation of the verdict. */
-  rationale: z.string(),
-  sources: z.array(z.object({ title: z.string(), url: z.string().url() })),
+export const VerificationSourceSchema = z.object({
+  url: z
+    .string()
+    .url()
+    .refine((url) => /^https?:\/\//i.test(url), "source url must be http(s)"),
+  title: z.string(),
 });
+export type VerificationSource = z.infer<typeof VerificationSourceSchema>;
+
+/** Most words a verification summary may carry (it is a badge caption). */
+export const MAX_VERIFICATION_SUMMARY_WORDS = 25;
+
+export const VerificationResultSchema = z
+  .object({
+    postId: z.string().min(1),
+    claim: z.string().min(1),
+    status: VerificationStatusSchema,
+    /** 0..1: how sure the Verifier is of `status`. */
+    confidence: z.number().min(0).max(1),
+    /** Short Turkish explanation, at most MAX_VERIFICATION_SUMMARY_WORDS words. */
+    summary: z
+      .string()
+      .refine(
+        (text) => text.trim().split(/\s+/).length <= MAX_VERIFICATION_SUMMARY_WORDS,
+        `summary must be at most ${MAX_VERIFICATION_SUMMARY_WORDS} words`,
+      ),
+    sources: z.array(VerificationSourceSchema),
+    /**
+     * True when no judgement was obtained (CLI error, timeout, unusable
+     * reply): the status is then the `unverifiable` fallback.
+     */
+    failed: z.boolean().optional(),
+  })
+  .superRefine((result, ctx) => {
+    if (
+      (result.status === "verified" || result.status === "false_or_disputed") &&
+      result.sources.length === 0
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sources"],
+        message: `${result.status} requires at least one source`,
+      });
+    }
+  });
 export type VerificationResult = z.infer<typeof VerificationResultSchema>;
 
 /** A post that survived the whole pipeline, with its judgements attached. */

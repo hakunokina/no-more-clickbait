@@ -1,8 +1,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { RunMetricsCollector } from "../metrics.js";
+import { RunMetricsCollector, summarizeRunMetrics } from "../metrics.js";
+import { DEFAULT_MAX_VERIFICATIONS, DEFAULT_MIN_READ_FOR_VERIFY } from "../pipeline.js";
 import { createClaudeScorer, createClaudeScorerProvider } from "../scorer/claude-scorer.js";
+import {
+  createClaudeVerifier,
+  createClaudeVerifierProvider,
+} from "../verifier/claude-verifier.js";
 import {
   loadCapture,
   renderClickbaitTopMarkdown,
@@ -16,12 +21,21 @@ import {
  *   pnpm build
  *   pnpm --filter @nmc/core nmc-run --capture <dir> [--out <result.json>]
  *       [--top 50] [--max-clickbait 7] [--min-read 2] [--responses N]
+ *       [--no-verify] [--max-verify 20] [--verify-concurrency 4]
+ *       [--min-read-verify 5]
  *
  * Selection: clickbait < --max-clickbait, ranked by read value
  * (clickbait breaking ties), the first --top taken; --min-read is only
  * a floor, so the timeline ends shorter when it leaves fewer posts.
  * Media-only posts are not scored; they are listed separately as
  * unjudged, outside the --top count.
+ *
+ * Verification is on by default: check-worthy claims among the selected
+ * posts with read value ≥ --min-read-verify get one web-search call
+ * each (at most --max-verify per run, higher read value first,
+ * --verify-concurrency in parallel); posts whose claim sources
+ * contradict are replaced from further down the list.
+ * --no-verify skips the stage.
  *
  * --responses N runs on the first N dumps only (a capture session can
  * keep growing after the measured batch); collection metrics are then
@@ -43,6 +57,10 @@ const { values } = parseArgs({
     "max-clickbait": { type: "string", default: "7" },
     "min-read": { type: "string", default: "2" },
     responses: { type: "string" },
+    "no-verify": { type: "boolean", default: false },
+    "max-verify": { type: "string", default: String(DEFAULT_MAX_VERIFICATIONS) },
+    "verify-concurrency": { type: "string", default: "4" },
+    "min-read-verify": { type: "string", default: String(DEFAULT_MIN_READ_FOR_VERIFY * 10) },
   },
 });
 
@@ -66,6 +84,10 @@ const maxResponses =
   values.responses !== undefined
     ? intOption("responses", values.responses, 1, 100_000)
     : undefined;
+const verify = !values["no-verify"];
+const maxVerify = intOption("max-verify", values["max-verify"], 1, DEFAULT_MAX_VERIFICATIONS);
+const verifyConcurrency = intOption("verify-concurrency", values["verify-concurrency"], 1, 20);
+const minReadVerify = intOption("min-read-verify", values["min-read-verify"], 0, 10);
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const outFile = values.out
   ? resolve(values.out)
@@ -89,6 +111,14 @@ const report = await runCapture(capture, {
   metrics,
   selector: { maxClickbaitScore: maxClickbait / 10, minReadWorthinessScore: minRead / 10 },
   timelineSize: top,
+  ...(verify
+    ? {
+        verifier: createClaudeVerifier({ provider: createClaudeVerifierProvider(), metrics }),
+        verifyConcurrency,
+        maxVerifications: maxVerify,
+        minReadForVerify: minReadVerify / 10,
+      }
+    : {}),
 });
 
 await mkdir(dirname(outFile), { recursive: true });
@@ -99,6 +129,23 @@ const clickbaitTopFile = join(dirname(outFile), "clickbait-top.md");
 await writeFile(clickbaitTopFile, renderClickbaitTopMarkdown(report, capture.posts), "utf8");
 
 const t = report.totals;
+const stageTotals = (stage: string) => {
+  const totals = summarizeRunMetrics({
+    ...report.metrics,
+    llmCalls: report.metrics.llmCalls.filter((call) => call.stage === stage),
+  });
+  return {
+    calls: totals.llmCallCount,
+    failedCalls: totals.failedCallCount,
+    llmMs: totals.totalDurationMs,
+    totalInputTokens: totals.inputTokens + totals.cacheReadTokens + totals.cacheCreationTokens,
+    outputTokens: totals.outputTokens,
+    thinkingTokens: totals.thinkingTokens,
+    webSearchRequests: totals.webSearchRequests,
+    costUsd: totals.costUsd,
+  };
+};
+const v = report.verification;
 console.log(
   JSON.stringify(
     {
@@ -122,6 +169,19 @@ console.log(
       thinkingTokens: t.thinkingTokens,
       costUsd: t.costUsd,
       stageDurationsMs: report.metrics.stageDurationsMs,
+      scorer: stageTotals("scorer"),
+      verification: v
+        ? {
+            claims: v.calls,
+            byStatus: v.byStatus,
+            failed: v.failed,
+            rejected: v.rejected,
+            backfilled: v.backfilled,
+            skippedBelowRead: v.skippedBelowRead,
+            skippedOverBudget: v.skippedOverBudget,
+            ...stageTotals("verifier"),
+          }
+        : "off",
     },
     null,
     2,
