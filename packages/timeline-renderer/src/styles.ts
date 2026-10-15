@@ -290,3 +290,111 @@ a.quote:hover, a.linkcard:hover { background: var(--surface); }
   .stats li[data-k="views"] { display: none; }
 }
 `;
+
+/**
+ * Added only to a page that holds Instagram or generic cards
+ * (docs/design/timeline-cards-mockup.html), so an X-only page stays
+ * byte for byte what it was. Static, like TIMELINE_CSS.
+ */
+export const CARDS_CSS = `
+/* Cards: tokens */
+:root { --fs-title: 1.0625rem; --reel-h: min(80vh, 640px); }
+
+/* Source line (mixed feed only, X and Instagram cards) */
+.src {
+  display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s1) calc(var(--avatar) - 16px);
+  color: var(--muted); font-size: var(--fs-small); font-weight: 600; min-width: 0;
+}
+.src svg.i { width: 16px; height: 16px; }
+.src__sep { font-weight: 400; }
+.src__mark {
+  width: 16px; height: 16px; border-radius: 4px; flex: none; display: grid; place-items: center;
+  background: var(--muted); color: var(--bg); font-size: .625rem; font-weight: 800; line-height: 1;
+}
+.src__mark svg.i { width: 12px; height: 12px; stroke-width: 2.4; }
+.src__repost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+/* Instagram card */
+.ig__head { display: grid; grid-template-columns: var(--avatar) minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.ig__who { min-width: 0; }
+.ig__line { display: flex; align-items: center; gap: 0 var(--s1); min-width: 0; line-height: 1.3; }
+.ig__handle { color: var(--text); font-weight: 700; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+a.ig__handle:hover { text-decoration: underline; }
+.ig__sub { margin: 1px 0 0; color: var(--muted); font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig__paid { color: var(--text); }
+.ig__media { display: block; position: relative; margin-top: var(--s3); border: 1px solid var(--border); border-radius: var(--r-media); overflow: hidden; background: var(--media-bg); }
+.ig__frame { position: relative; width: 100%; max-height: min(80vh, 720px); overflow: hidden; }
+.ig__ratio { display: block; width: 100%; height: auto; }
+.ig__frame .media__zoom { position: absolute; inset: 0; }
+.ig__frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.ig__fallback { display: none; position: absolute; inset: 0; margin: 0; padding: var(--s4); place-items: center; text-align: center; color: var(--muted); font-size: var(--fs-meta); background: var(--media-bg); pointer-events: none; }
+.ig__frame[data-broken] .ig__fallback { display: grid; }
+.ig__frame[data-broken] img, .ig__frame[data-broken] .chip { visibility: hidden; }
+
+/* Carousel: scrolling track + arrow buttons + counter chip + dots */
+.car__track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+.car__track::-webkit-scrollbar { display: none; }
+.car__slide { flex: 0 0 100%; scroll-snap-align: start; position: relative; }
+.car__count {
+  position: absolute; top: var(--s2); right: var(--s2); z-index: 1; background: rgb(0 0 0 / .72); color: #fff;
+  border-radius: var(--r-pill); font-size: .75rem; font-weight: 700; padding: 4px 8px; font-variant-numeric: tabular-nums;
+}
+.car__btn {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; width: 32px; height: 32px; border-radius: 50%;
+  border: 0; background: rgb(255 255 255 / .92); color: #0f1419; display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 1px 4px rgb(0 0 0 / .3);
+}
+.car__btn svg.i { width: 18px; height: 18px; stroke-width: 2.5; }
+.car__btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
+.car__prev { left: var(--s2); } .car__next { right: var(--s2); }
+.car__dots { display: flex; justify-content: center; gap: 4px; padding: var(--s2) 0 0; }
+.car__dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.car__dots i[data-on] { background: var(--accent); }
+
+/* Reel: vertical 9:16, never cropped; height capped, centred */
+.reel-wrap { display: grid; place-items: center; background: var(--media-bg); }
+.reel { position: relative; aspect-ratio: 9 / 16; width: min(100%, calc(var(--reel-h) * 9 / 16)); background: #000; }
+.reel video, .reel img { display: block; width: 100%; height: 100%; max-height: none; object-fit: cover; }
+.reel__tag {
+  position: absolute; top: var(--s2); left: var(--s2); display: inline-flex; align-items: center; gap: 4px;
+  background: rgb(0 0 0 / .72); color: #fff; border-radius: 4px; font-size: .75rem; font-weight: 700; padding: 4px 6px;
+}
+.reel__tag svg.i { width: 14px; height: 14px; }
+.reel[data-state="playing"] .reel__tag { display: none; }
+.ig__frame.video video { width: 100%; height: 100%; max-height: none; position: absolute; inset: 0; }
+
+.ig__caption { margin: var(--s3) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ig__caption.is-clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ig__caption b { font-weight: 700; }
+
+/* Generic card (Reddit + custom sites) */
+.site-badge {
+  width: var(--avatar); height: var(--avatar); border-radius: 10px; display: grid; place-items: center;
+  color: #fff; font-weight: 800; font-size: 1rem; user-select: none;
+}
+.site-badge--reddit { background: hsl(16 55% 38%); }
+.gen__head { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s1); line-height: 1.3; min-width: 0; }
+.gen__place { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.gen__meta, .gen__dot { color: var(--muted); font-size: var(--fs-meta); }
+.gen__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.gen__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s3); margin-top: var(--s1); align-items: start; }
+.gen__title { margin: 0; font-size: var(--fs-title); line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
+.flair {
+  display: inline-block; vertical-align: 2px; margin-left: var(--s1); padding: 0 6px; border: 1px solid var(--border);
+  border-radius: var(--r-pill); color: var(--muted); font-size: .75rem; font-weight: 600; line-height: 1.5; white-space: nowrap;
+}
+.gen__text { margin: var(--s1) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gen__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.gen__text--lead { margin-top: 0; }
+.gen__domain { display: inline-flex; align-items: center; gap: var(--s1); margin-top: var(--s2); min-height: 28px; font-size: var(--fs-small); color: var(--muted); text-decoration: none; max-width: 100%; }
+.gen__domain span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.gen__domain:hover { text-decoration: underline; color: var(--accent); }
+.gen__domain svg.i { width: 14px; height: 14px; }
+
+/* Narrow column */
+@container app (max-width: 480px) {
+  .ig__head { gap: var(--s2); }
+  .ig__media { margin-inline: calc(var(--s3) * -1); border-radius: 0; border-inline: 0; }
+  .gen__body { gap: var(--s2); }
+}
+`;

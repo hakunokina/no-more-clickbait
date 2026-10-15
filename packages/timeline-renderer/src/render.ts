@@ -1,8 +1,15 @@
 import { createHash } from "node:crypto";
 import {
+  isGenericItem,
+  isInstagramPost,
+  feedSourceLabel,
   isXCard,
+  platformOf,
   scoreOutOfTen,
   type FunnelCounts,
+  type GenericItem,
+  type InstagramMedia,
+  type InstagramPost,
   type Post,
   type PostMedia,
   type ScoreLevel,
@@ -11,17 +18,20 @@ import {
   type VerificationResult,
   type XTimelineCard,
 } from "@nmc/core";
-import { TIMELINE_SCRIPT } from "./client-script.js";
-import { TIMELINE_CSS } from "./styles.js";
+import { CARDS_SCRIPT, TIMELINE_SCRIPT } from "./client-script.js";
+import { CARDS_CSS, TIMELINE_CSS } from "./styles.js";
 
 /**
- * TimelineDoc → one self-contained HTML page (the approved mockup,
- * docs/design/timeline-mockup.html, without its developer strip).
+ * TimelineDoc → one self-contained HTML page (the approved mockups,
+ * docs/design/timeline-mockup.html and, for Instagram and generic cards,
+ * timeline-cards-mockup.html, without their developer strips).
  *
  * Feed content is untrusted: every string is HTML-escaped, every URL is
- * parsed and allow-listed (media only from X's CDNs, links https only),
- * the CSP admits nothing but those CDNs and the page's own style/script
- * by hash, and there are no inline handlers or style attributes.
+ * parsed and allow-listed (media only from X's and Instagram's CDNs,
+ * links https only), the CSP admits nothing but those CDNs and the
+ * page's own style/script by hash, and there are no inline handlers or
+ * style attributes. Generic (Reddit, custom site) images are not shown
+ * at all: the page would have to admit every site's host.
  */
 
 export interface RenderOptions {
@@ -45,6 +55,10 @@ const POST_HOSTS = new Set([
   "www.twitter.com",
   "mobile.twitter.com",
 ]);
+/** Instagram serves media from per-region hosts under these two domains. */
+const IG_MEDIA_DOMAINS = [".cdninstagram.com", ".fbcdn.net"];
+const IG_POST_HOSTS = new Set(["instagram.com", "www.instagram.com"]);
+const IG_HANDLE = /^[A-Za-z0-9._]{1,30}$/;
 const HANDLE = /^[A-Za-z0-9_]{1,50}$/;
 const STATUS_ID = /^\d{1,30}$/;
 /** X marks text it cannot classify with these; they are not languages. */
@@ -55,15 +69,40 @@ function sha256(text: string): string {
   return `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;
 }
 
-export const TIMELINE_CSP = [
-  "default-src 'none'",
-  "img-src https://pbs.twimg.com data:",
-  "media-src https://video.twimg.com",
-  `style-src ${sha256(TIMELINE_CSS)}`,
-  `script-src ${sha256(TIMELINE_SCRIPT)}`,
-  "base-uri 'none'",
-  "form-action 'none'",
-].join("; ");
+function buildCsp(css: string, script: string, instagram: boolean): string {
+  const ig = instagram ? IG_MEDIA_DOMAINS.map((d) => ` https://*${d}`).join("") : "";
+  return [
+    "default-src 'none'",
+    `img-src https://pbs.twimg.com${ig} data:`,
+    `media-src https://video.twimg.com${ig}`,
+    `style-src ${sha256(css)}`,
+    `script-src ${sha256(script)}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join("; ");
+}
+
+/** The CSP of a page with X cards only (the X CDNs). */
+export const TIMELINE_CSP = buildCsp(TIMELINE_CSS, TIMELINE_SCRIPT, false);
+
+/**
+ * The page's style, script and CSP. An X-only page gets exactly the
+ * X-era assets; Instagram/generic cards add their CSS and script, and
+ * Instagram cards add Instagram's CDNs to the CSP.
+ */
+function pageAssets(cards: readonly TimelineCard[]): {
+  css: string;
+  script: string;
+  csp: string;
+} {
+  if (cards.every(isXCard)) {
+    return { css: TIMELINE_CSS, script: TIMELINE_SCRIPT, csp: TIMELINE_CSP };
+  }
+  const css = TIMELINE_CSS + CARDS_CSS;
+  const script = TIMELINE_SCRIPT + CARDS_SCRIPT;
+  const instagram = cards.some((card) => isInstagramPost(card.post));
+  return { css, script, csp: buildCsp(css, script, instagram) };
+}
 
 const ESCAPES: Record<string, string> = {
   "&": "&amp;",
@@ -92,6 +131,14 @@ export function safeUrl(raw: string | undefined, hosts?: ReadonlySet<string>): U
   return url;
 }
 
+/** An https URL on one of Instagram's media CDNs; else undefined. */
+export function igMediaUrl(raw: string | undefined): URL | undefined {
+  const url = safeUrl(raw);
+  return url && IG_MEDIA_DOMAINS.some((domain) => url.hostname.endsWith(domain))
+    ? url
+    : undefined;
+}
+
 /* ── Icons (decorative, aria-hidden) ─────────────────────────── */
 
 const ICON = {
@@ -114,6 +161,12 @@ const ICON = {
   left: '<path d="M15 5l-7 7 7 7"/>',
   right: '<path d="M9 5l7 7-7 7"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
+  camera:
+    '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/>',
+  reel: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 8h18M8 3l3 5M14 3l3 5"/><path d="M10 11.5v5l4.5-2.5z"/>',
+  plays: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
 } as const;
 type IconName = keyof typeof ICON;
 
@@ -222,6 +275,11 @@ function langAttr(lang: string | undefined): string {
   if (!lang || NON_LANGUAGES.has(lang) || !/^[a-z]{2,3}(-[A-Za-z0-9]{1,8})*$/.test(lang))
     return "";
   return ` lang="${esc(lang)}"`;
+}
+
+/** Instagram/generic text: its own language when valid, else "und" (unknown). */
+function langOrUnd(lang: string | undefined): string {
+  return langAttr(lang) || ' lang="und"';
 }
 
 /** X serves 48px `_normal` avatars; `_bigger` (73px) keeps 40px sharp on HiDPI. */
@@ -499,7 +557,23 @@ function renderStats(ctx: Ctx, metrics: Post["metrics"]): string {
   );
 }
 
-function renderCard(ctx: Ctx, card: XTimelineCard, total: number): string {
+/**
+ * "Kaynak: X" / "Kaynak: Instagram" above an X or Instagram card, only
+ * in a feed with more than one platform; on X it carries the repost
+ * line (one line, not two). Generic cards have their place row instead.
+ */
+function sourceLine(platform: "x" | "instagram", repostedBy?: string): string {
+  const [label, mark] = platform === "x" ? ["X", "X"] : ["Instagram", icon("camera")];
+  return (
+    `<div class="src"><span class="src__mark" aria-hidden="true">${mark}</span><span><span class="sr-only">Kaynak: </span>${label}</span>` +
+    (repostedBy
+      ? `<span class="src__sep" aria-hidden="true">·</span>${icon("repost")}<span class="src__repost">@${esc(repostedBy)} yeniden paylaştı</span>`
+      : "") +
+    `</div>`
+  );
+}
+
+function renderXCard(ctx: Ctx, card: XTimelineCard, total: number, mixed: boolean): string {
   const { post } = card;
   const pid = `p${card.rank}`;
   const name = post.authorName?.trim() || `@${post.authorHandle}`;
@@ -513,9 +587,11 @@ function renderCard(ctx: Ctx, card: XTimelineCard, total: number): string {
     .join("");
   return (
     `<article class="post" id="${pid}" tabindex="0" aria-posinset="${card.rank}" aria-setsize="${total}" aria-labelledby="${pid}-name"${text ? ` aria-describedby="${pid}-text"` : ""}>` +
-    (post.repostedBy
-      ? `<div class="post__repost">${icon("repost")}<span>@${esc(post.repostedBy)} yeniden paylaştı</span></div>`
-      : "") +
+    (mixed
+      ? sourceLine("x", post.repostedBy)
+      : post.repostedBy
+        ? `<div class="post__repost">${icon("repost")}<span>@${esc(post.repostedBy)} yeniden paylaştı</span></div>`
+        : "") +
     `<div class="post__grid">${avatar(post.authorHandle, name, post.authorAvatarUrl)}<div class="post__main">` +
     `<div class="post__head">` +
     (profile
@@ -545,14 +621,408 @@ function renderCard(ctx: Ctx, card: XTimelineCard, total: number): string {
   );
 }
 
+/* ── Shared by the Instagram and generic cards ────────────────── */
+
+type Stat = [
+  key: string,
+  ic: IconName,
+  label: string,
+  value: number | undefined,
+  shown?: string | undefined,
+];
+
+function statsList(ctx: Ctx, stats: Stat[]): string {
+  return (
+    `<ul class="stats" aria-label="Etkileşimler">` +
+    stats
+      .map(([key, ic, label, value, shown]) =>
+        value === undefined
+          ? ""
+          : `<li data-k="${key}" title="${label}">${icon(ic)}<span class="sr-only">${label}: </span>${esc(shown ?? ctx.compact.format(value))}</li>`,
+      )
+      .join("") +
+    `</ul>`
+  );
+}
+
+/** Engagement, "Neden burada?" and the open-at-source link: the X card's footer. */
+function cardFoot(
+  ctx: Ctx,
+  pid: string,
+  card: TimelineCard,
+  total: number,
+  stats: Stat[],
+  openLabel: string,
+  openUrl: URL | undefined,
+): string {
+  return (
+    `<div class="post__foot">${statsList(ctx, stats)}<div class="post__actions">` +
+    `<button class="link-btn why-btn" type="button" aria-expanded="false" aria-controls="${pid}-why">Neden burada?</button>` +
+    (openUrl
+      ? `<a class="open-x" href="${esc(openUrl.href)}" target="_blank" rel="noopener noreferrer">${openLabel}${icon("external")}<span class="sr-only"> (yeni pencerede)</span></a>`
+      : "") +
+    `</div></div>` +
+    renderWhy(pid, card, total)
+  );
+}
+
+function moreButton(targetId: string): string {
+  return `<button class="link-btn" type="button" data-more aria-expanded="false" aria-controls="${targetId}">Devamını oku</button>`;
+}
+
+/* ── Instagram card ──────────────────────────────────────────── */
+
+const IG_LONG_CAPTION = 180;
+
+/** Like X's: a 40px picture from the CDN (initials if it fails to load), else initials. */
+function igAvatar(post: InstagramPost): string {
+  const name = post.authorName?.trim() || post.authorHandle;
+  const initialsSpan = (hidden: boolean) =>
+    `<span class="avatar ${hueClass(post.authorHandle)}" aria-hidden="true"${hidden ? " hidden" : ""}>${esc(initials(name))}</span>`;
+  const src = igMediaUrl(post.authorAvatarUrl);
+  if (!src) return initialsSpan(false);
+  return (
+    `<img class="avatar" src="${esc(src.href)}" alt="" width="40" height="40" loading="lazy" decoding="async" data-fallback>` +
+    initialsSpan(true)
+  );
+}
+
+/** The first frame's aspect ratio, kept within Instagram's 4:5 … 1.91:1 (1:1 without a size). */
+function igRatio(m: InstagramMedia): string {
+  const r = m.width && m.height ? Math.min(1.91, Math.max(0.8, m.width / m.height)) : 1;
+  // An SVG viewBox holds the frame's height: style attributes are outside the CSP.
+  return `<svg class="ig__ratio" viewBox="0 0 1000 ${Math.round(1000 / r)}" aria-hidden="true" focusable="false"></svg>`;
+}
+
+function igPhoto(
+  pid: string,
+  m: InstagramMedia,
+  src: URL,
+  k: number,
+  n: number,
+  ratio: string,
+): string {
+  const alt = m.altText?.trim() ?? "";
+  const altId = `${pid}-alt-${k + 1}`;
+  const position = n > 1 ? ` (${k + 1}/${n})` : "";
+  const dims = m.width && m.height ? ` width="${m.width}" height="${m.height}"` : "";
+  return (
+    `<div class="ig__frame">${ratio}` +
+    `<button class="media__zoom" type="button"><img src="${esc(src.href)}" alt="${esc(alt)}"${dims} loading="lazy" decoding="async"><span class="sr-only">${alt ? ` — büyüt${position}` : `Görsel — büyüt${position}`}</span></button>` +
+    (alt
+      ? `<button class="chip" type="button" aria-expanded="false" aria-controls="${altId}" data-alt>ALT<span class="sr-only"> metnini göster</span></button>` +
+        `<p class="alt-pop" id="${altId}" hidden>${esc(alt)}</p>`
+      : "") +
+    `<p class="ig__fallback" aria-hidden="true">${esc(alt ? `Görsel yüklenemedi: ${alt}` : "Görsel yüklenemedi")}</p>` +
+    `</div>`
+  );
+}
+
+/**
+ * A reel or a carousel's video: X's video player in an Instagram frame,
+ * idle until asked (no autoplay). Without a playable rendition: the
+ * poster and a play link to the post on Instagram.
+ */
+function igVideo(
+  m: InstagramMedia,
+  postUrl: URL | undefined,
+  reel: boolean,
+  frame: string,
+): string {
+  const poster = igMediaUrl(m.url);
+  const src = igMediaUrl(m.videoUrl);
+  const alt = m.altText?.trim() ?? "";
+  const length = m.durationMs !== undefined ? duration(m.durationMs) : "";
+  const what = reel ? "Reel'i oynat" : "Videoyu oynat";
+  const label = `${what}${length ? `, süre ${length}` : ""}${alt ? `. ${alt}` : ""}`;
+  const dims = m.width && m.height ? ` width="${m.width}" height="${m.height}"` : "";
+  const tag = reel
+    ? `<span class="reel__tag" aria-hidden="true">${icon("reel")}Reel</span>`
+    : "";
+  const chip = length
+    ? `<span class="chip chip--dur" aria-hidden="true">${esc(length)}</span>`
+    : "";
+  const box = reel ? "reel video" : "ig__frame video";
+  if (src) {
+    return (
+      `<div class="${box}" data-state="idle">${frame}` +
+      `<video${dims} preload="none" playsinline${poster ? ` poster="${esc(poster.href)}"` : ""} aria-label="${esc(alt || (reel ? "Reel" : "Video"))}">` +
+      `<source src="${esc(src.href)}" type="video/mp4"></video>` +
+      `${tag}<button class="video__play" type="button" aria-label="${esc(label)}">${icon("play")}</button>${chip}</div>`
+    );
+  }
+  if (!poster) return "";
+  const open = postUrl
+    ? `<a class="video__play" href="${esc(postUrl.href)}" target="_blank" rel="noopener noreferrer" aria-label="${esc(`${label} (Instagram'da, yeni pencerede)`)}">${icon("play")}</a>`
+    : "";
+  return `<div class="${box}">${frame}<img src="${esc(poster.href)}" alt=""${dims} loading="lazy" decoding="async">${tag}${open}${chip}</div>`;
+}
+
+function igMedia(pid: string, post: InstagramPost, postUrl: URL | undefined): string {
+  if (post.kind === "reel") {
+    const video = post.media.find((m) => m.type === "video");
+    const reel = video ? igVideo(video, postUrl, true, "") : "";
+    if (reel) return `<div class="media ig__media reel-wrap">${reel}</div>`;
+  }
+  // Frames from Instagram's CDN only, numbered after that filter (like X's photos).
+  const frames = post.media.filter((m) =>
+    m.type === "image" ? igMediaUrl(m.url) : igMediaUrl(m.url) || igMediaUrl(m.videoUrl),
+  );
+  const n = frames.length;
+  const first = frames[0];
+  if (!first) return "";
+  const ratio = igRatio(first);
+  const frame = (m: InstagramMedia, k: number) => {
+    const src = m.type === "image" ? igMediaUrl(m.url) : undefined;
+    return src ? igPhoto(pid, m, src, k, n, ratio) : igVideo(m, postUrl, false, ratio);
+  };
+  if (n === 1) return `<div class="media ig__media">${frame(first, 0)}</div>`;
+  return (
+    `<div class="media ig__media car" data-car data-idx="0" role="group" aria-roledescription="carousel" aria-label="${n} görsellik carousel">` +
+    `<span class="car__count" aria-hidden="true">1/${n}</span>` +
+    `<div class="car__track">` +
+    frames
+      .map(
+        (m, k) =>
+          `<div class="car__slide" role="group" aria-roledescription="slide" aria-label="${k + 1} / ${n}"${k ? " inert" : ""}>${frame(m, k)}</div>`,
+      )
+      .join("") +
+    `</div>` +
+    `<button class="car__btn car__prev" type="button" data-car-step="-1" aria-label="Önceki görsel" hidden>${icon("left")}</button>` +
+    `<button class="car__btn car__next" type="button" data-car-step="1" aria-label="Sonraki görsel">${icon("right")}</button>` +
+    `<span class="sr-only" aria-live="polite" data-car-live></span>` +
+    `</div>` +
+    `<div class="car__dots" aria-hidden="true">${frames.map((_, k) => `<i${k ? "" : " data-on"}></i>`).join("")}</div>`
+  );
+}
+
+function renderIgCard(
+  ctx: Ctx,
+  card: TimelineCard & { post: InstagramPost },
+  total: number,
+  mixed: boolean,
+): string {
+  const { post } = card;
+  const pid = `p${card.rank}`;
+  const handle = post.authorHandle;
+  const profile = IG_HANDLE.test(handle) ? `https://www.instagram.com/${handle}/` : undefined;
+  const postUrl = safeUrl(post.url, IG_POST_HOSTS);
+  const caption = post.caption.trim();
+  const long = caption.length > IG_LONG_CAPTION;
+  const m = post.metrics ?? {};
+  const coauthors = (post.coauthors ?? [])
+    .map(({ handle: co }) =>
+      IG_HANDLE.test(co)
+        ? ` ve <a class="ig__handle" href="https://www.instagram.com/${co}/" target="_blank" rel="noopener noreferrer">${esc(co)}</a>`
+        : ` ve <span class="ig__handle">${esc(co)}</span>`,
+    )
+    .join("");
+  // A paid partnership is not an ad (ads never reach the feed): shown, labelled.
+  const partner = post.paidPartnership?.partner?.trim();
+  const sub = [
+    post.paidPartnership
+      ? `<span class="ig__paid">Ücretli ortaklık</span>${partner ? ` · ${esc(partner)}` : ""}`
+      : "",
+    post.location?.trim() ? esc(post.location.trim()) : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    `<article class="post post--ig" id="${pid}" tabindex="0" aria-posinset="${card.rank}" aria-setsize="${total}" aria-labelledby="${pid}-name"${caption ? ` aria-describedby="${pid}-text"` : ""}>` +
+    (mixed ? sourceLine("instagram") : "") +
+    `<div class="ig__head">${igAvatar(post)}<div class="ig__who"><div class="ig__line">` +
+    (profile
+      ? `<a class="ig__handle" id="${pid}-name" href="${esc(profile)}" target="_blank" rel="noopener noreferrer">${esc(handle)}</a>`
+      : `<span class="ig__handle" id="${pid}-name">${esc(handle)}</span>`) +
+    (post.authorVerified ? VERIFIED_BADGE : "") +
+    coauthors +
+    `<span class="post__dot" aria-hidden="true">·</span>${timeTag(ctx, post.publishedAt)}` +
+    `</div>` +
+    (sub ? `<p class="ig__sub">${sub}</p>` : "") +
+    `</div></div>` +
+    igMedia(pid, post, postUrl) +
+    (caption
+      ? `<p class="ig__caption${long ? " is-clamped" : ""}" id="${pid}-text"${langOrUnd(post.lang)}><b>${esc(handle)}</b> ${esc(caption)}</p>`
+      : "") +
+    (long ? moreButton(`${pid}-text`) : "") +
+    renderVerify(pid, card.verification) +
+    cardFoot(
+      ctx,
+      pid,
+      card,
+      total,
+      [
+        ["likes", "like", "Beğeni", m.likes],
+        ["comments", "reply", "Yorum", m.comments],
+        ["views", "plays", "Oynatma", m.views],
+      ],
+      "Instagram'da aç",
+      postUrl,
+    ) +
+    `</article>`
+  );
+}
+
+/* ── Generic card (Reddit + custom sites) ────────────────────── */
+
+const GENERIC_LONG_TEXT = 320;
+
+function isReddit(item: GenericItem): boolean {
+  return item.sourceLabel === "reddit";
+}
+
+/** A link's host as parsed, not the page's own domain text: where a click goes. */
+function genericHost(item: GenericItem, raw: string): string {
+  try {
+    return new URL(raw).hostname.replace(/^www\./, "") || item.domain;
+  } catch {
+    return item.domain;
+  }
+}
+
+function renderGenericCard(
+  ctx: Ctx,
+  card: TimelineCard & { post: GenericItem },
+  total: number,
+): string {
+  const { post } = card;
+  const pid = `p${card.rank}`;
+  const reddit = isReddit(post);
+  const url = safeUrl(post.url);
+  // The domain row goes where the link goes: the outside target of a Reddit link post.
+  const targetRaw = post.linkUrl ?? post.url;
+  const target = safeUrl(targetRaw);
+  const host = genericHost(post, targetRaw);
+  const place = post.community?.trim() || post.domain;
+  // Round = a person, square = a site or community.
+  const badge = reddit
+    ? `<span class="site-badge site-badge--reddit" aria-hidden="true">r/</span>`
+    : `<span class="site-badge ${hueClass(host)}" aria-hidden="true">${esc(Array.from(place)[0]?.toLocaleUpperCase("tr-TR") ?? "")}</span>`;
+  const author = post.author?.trim();
+  const meta = [
+    author ? esc(reddit ? `u/${author}` : author) : "",
+    post.publishedAt
+      ? `<time datetime="${esc(post.publishedAt)}" title="${esc(ctx.abs.format(new Date(post.publishedAt)))}">${esc(relTime(ctx, post.publishedAt))}</time>`
+      : "",
+  ].filter(Boolean);
+  const title = post.title?.trim() ?? "";
+  const text = post.text?.trim() ?? "";
+  const long = text.length > GENERIC_LONG_TEXT;
+  const titleId = `${pid}-title`;
+  const textId = `${pid}-text`;
+  // A Reddit self post's domain repeats the place row; every link shows where it goes.
+  const domain =
+    reddit && post.linkUrl === undefined
+      ? ""
+      : target
+        ? `<a class="gen__domain" href="${esc(target.href)}" target="_blank" rel="noopener noreferrer">${icon("link")}<span>${esc(host)}</span><span class="sr-only"> (yeni pencerede)</span></a>`
+        : `<span class="gen__domain">${icon("link")}<span>${esc(host)}</span></span>`;
+  const lang = langOrUnd(post.lang);
+  const flair = post.flair?.trim()
+    ? `<span class="flair"><span class="sr-only">Etiket: </span>${esc(post.flair.trim())}</span>`
+    : "";
+  const { score, comments } = post.engagement ?? {};
+  return (
+    `<article class="post post--gen" id="${pid}" tabindex="0" aria-posinset="${card.rank}" aria-setsize="${total}" aria-labelledby="${title ? titleId : `${pid}-place`}"${text ? ` aria-describedby="${textId}"` : ""}>` +
+    `<div class="post__grid">${badge}<div class="post__main">` +
+    `<div class="gen__head"><span class="gen__place" id="${pid}-place">${reddit ? `<span class="sr-only">Reddit, </span>` : ""}${esc(place)}</span>` +
+    (meta.length
+      ? `<span class="gen__dot" aria-hidden="true">·</span><span class="gen__meta">${meta.join(` <span aria-hidden="true">·</span> `)}</span>`
+      : "") +
+    `</div>` +
+    `<div class="gen__body"><div>` +
+    (title ? `<p class="gen__title" id="${titleId}"${lang}>${esc(title)}${flair}</p>` : "") +
+    (text
+      ? `<p class="gen__text${title ? "" : " gen__text--lead"}${long ? " is-clamped" : ""}" id="${textId}"${lang}>${esc(text)}</p>`
+      : "") +
+    (long ? moreButton(textId) : "") +
+    `</div></div>` +
+    domain +
+    renderVerify(pid, card.verification) +
+    cardFoot(
+      ctx,
+      pid,
+      card,
+      total,
+      [
+        // Reddit's zero and negative scores mean something: shown, with a real minus sign.
+        [
+          "score",
+          "up",
+          "Puan",
+          score,
+          score !== undefined && score < 0 ? `−${ctx.compact.format(-score)}` : undefined,
+        ],
+        ["comments", "reply", "Yorum", comments],
+      ],
+      "Kaynağa git",
+      url,
+    ) +
+    `</div></div></article>`
+  );
+}
+
+/** Each card by its platform; `mixed`: the feed holds more than one. */
+function renderCard(ctx: Ctx, card: TimelineCard, total: number, mixed: boolean): string {
+  const { post } = card;
+  if (isInstagramPost(post)) return renderIgCard(ctx, { ...card, post }, total, mixed);
+  if (isGenericItem(post)) return renderGenericCard(ctx, { ...card, post }, total);
+  return renderXCard(ctx, { ...card, post }, total, mixed);
+}
+
+const SOURCE_NAMES: Record<string, string> = {
+  x: "X",
+  instagram: "Instagram",
+  reddit: "Reddit",
+};
+
+/**
+ * A source label ("x", "instagram", "reddit", "custom:<rule>") as the
+ * reader knows it: a custom site by its host when one of its items is
+ * in the feed, else by the rule's name.
+ */
+function sourceName(label: string, cards: readonly TimelineCard[]): string {
+  const known = SOURCE_NAMES[label];
+  if (known) return known;
+  const item = cards.find(
+    ({ post }) => isGenericItem(post) && post.sourceLabel === label,
+  )?.post;
+  return item && isGenericItem(item)
+    ? genericHost(item, item.url)
+    : label.replace(/^custom:/, "");
+}
+
+/** "X, Instagram ve Reddit". */
+function listNames(names: readonly string[]): string {
+  return names.length > 1
+    ? `${names.slice(0, -1).join(", ")} ve ${names.at(-1)}`
+    : (names[0] ?? "");
+}
+
+/** The run's sources: the funnel's split when the doc has one, else the shown cards'. */
+function sourceLabels(doc: TimelineDoc, cards: readonly TimelineCard[]): string[] {
+  if (doc.bySource) return doc.bySource.map((count) => count.label);
+  return [...new Set(cards.map(({ post }) => feedSourceLabel(post)))];
+}
+
+/** "Instagram (Oturum kapalı) ve blog": the sources that brought nothing this run. */
+function missingNames(doc: TimelineDoc, cards: readonly TimelineCard[]): string {
+  return listNames(
+    (doc.missingSources ?? []).map(
+      ({ label, reason }) =>
+        `${sourceName(label, cards)}${reason?.trim() ? ` (${reason.trim()})` : ""}`,
+    ),
+  );
+}
+
 /* ── Done, tally, states ─────────────────────────────────────── */
 
 type TallyRow = [op: string, label: string, hint: string, value: number, mod?: string];
 
 /** Taranan − each bucket = Gösterilen; optional buckets only when non-zero. */
-function tallyRows(f: FunnelCounts, timelineSize: number): TallyRow[] {
+function tallyRows(f: FunnelCounts, timelineSize: number, scannedHint: string): TallyRow[] {
   const rows: (TallyRow | false)[] = [
-    ["", "Taranan", "Ana akıştan toplanan gönderi", f.scanned, "sum"],
+    ["", "Taranan", scannedHint, f.scanned, "sum"],
     ["−", "Reklam", "", f.ads],
     ["−", "Tekrar", "Aynı gönderi ya da yeniden paylaşımı", f.duplicates],
     ["−", "Clickbait", "Tık tuzağı olarak elenen", f.clickbait],
@@ -576,18 +1046,20 @@ function tallyRows(f: FunnelCounts, timelineSize: number): TallyRow[] {
   return rows.filter((row): row is TallyRow => row !== false);
 }
 
-function renderTally(f: FunnelCounts, timelineSize: number): string {
-  const rows = tallyRows(f, timelineSize).map(([op, label, hint, value, mod = ""]) => {
-    const cls = mod
-      .split(" ")
-      .filter(Boolean)
-      .map((m) => ` tally__row--${m}`)
-      .join("");
-    return (
-      `<div class="tally__row${cls}"><dt><span class="tally__op" aria-hidden="true">${op}</span>` +
-      `<span>${label}${hint ? `<span class="tally__hint">${esc(hint)}</span>` : ""}</span></dt><dd>${value}</dd></div>`
-    );
-  });
+function renderTally(f: FunnelCounts, timelineSize: number, scannedHint: string): string {
+  const rows = tallyRows(f, timelineSize, scannedHint).map(
+    ([op, label, hint, value, mod = ""]) => {
+      const cls = mod
+        .split(" ")
+        .filter(Boolean)
+        .map((m) => ` tally__row--${m}`)
+        .join("");
+      return (
+        `<div class="tally__row${cls}"><dt><span class="tally__op" aria-hidden="true">${op}</span>` +
+        `<span>${label}${hint ? `<span class="tally__hint">${esc(hint)}</span>` : ""}</span></dt><dd>${value}</dd></div>`
+      );
+    },
+  );
   return `<dl class="tally" aria-label="Döküm">${rows.join("")}</dl>`;
 }
 
@@ -598,7 +1070,20 @@ function collectButton(ctx: Ctx, primary: boolean): string {
     : `<button class="btn btn--ghost" type="button" data-action="collect">Yeni akış topla</button>`;
 }
 
-function renderDone(ctx: Ctx, doc: TimelineDoc, shown: number): string {
+/** "X 150 · Instagram 40 · Reddit 40" under Taranan, when more than one source was scanned. */
+function scannedHint(doc: TimelineDoc, cards: readonly TimelineCard[]): string {
+  const split = doc.bySource ?? [];
+  return split.length > 1
+    ? split.map((count) => `${sourceName(count.label, cards)} ${count.in}`).join(" · ")
+    : "Ana akıştan toplanan gönderi";
+}
+
+function renderDone(
+  ctx: Ctx,
+  doc: TimelineDoc,
+  cards: readonly TimelineCard[],
+  shown: number,
+): string {
   const lead =
     shown === 0
       ? "Bugün okumaya değer bir gönderi çıkmadı. Bu da bir sonuç."
@@ -610,7 +1095,9 @@ function renderDone(ctx: Ctx, doc: TimelineDoc, shown: number): string {
     `<section class="done" id="done" tabindex="-1" aria-labelledby="done-h">` +
     `<div class="done__icon" aria-hidden="true">${icon("check")}</div><h2 id="done-h">Bitti</h2>` +
     `<p class="done__lead">${lead}</p>` +
-    (doc.funnel ? renderTally(doc.funnel, doc.header.timelineSize) : "") +
+    (doc.funnel
+      ? renderTally(doc.funnel, doc.header.timelineSize, scannedHint(doc, cards))
+      : "") +
     collectButton(ctx, true) +
     `<p class="done__foot">${captured}Yeni akış yalnız sen isteyince hazırlanır.</p></section>`
   );
@@ -623,6 +1110,10 @@ function renderError(
   detail: string | undefined,
 ): string {
   const scanned = doc.funnel?.scanned;
+  const missing = missingNames(doc, []);
+  const details = [detail, missing && `Toplanamayan kaynak: ${missing}`]
+    .filter(Boolean)
+    .join("\n");
   const kept =
     scanned !== undefined
       ? ` Toplanan ${scanned} gönderi duruyor; yeniden denemek için yeniden toplamak gerekmez.`
@@ -634,19 +1125,25 @@ function renderError(
     `<section class="state state--error" role="alert" aria-labelledby="er-h">` +
     `<div class="state__icon" aria-hidden="true">${icon("alert")}</div><h2 id="er-h">Akış hazırlanamadı</h2>` +
     `<p>${esc(reason)}${kept}</p>` +
-    (detail
-      ? `<details class="error-detail"><summary>Teknik ayrıntı</summary><pre>${esc(detail)}</pre></details>`
+    (details
+      ? `<details class="error-detail"><summary>Teknik ayrıntı</summary><pre>${esc(details)}</pre></details>`
       : "") +
     buttons +
     `</section>`
   );
 }
 
-/** Words at 200/min plus a glance per photo, video/GIF and link. */
-function readingMinutes(doc: TimelineDoc, cards: XTimelineCard[]): number {
+/**
+ * Words at 200/min plus a glance per photo, video/GIF and link (X) or
+ * image and video (Instagram). Generic cards show no media.
+ */
+function readingMinutes(doc: TimelineDoc, cards: TimelineCard[]): number {
   let seconds = (doc.header.wordCount / 200) * 60;
   for (const { post } of cards) {
-    for (const m of post.media) seconds += m.type === "photo" ? 8 : m.type === "link" ? 5 : 15;
+    if (isGenericItem(post)) continue;
+    for (const m of post.media) {
+      seconds += m.type === "photo" || m.type === "image" ? 8 : m.type === "link" ? 5 : 15;
+    }
   }
   return Math.max(1, Math.round(seconds / 60));
 }
@@ -656,12 +1153,21 @@ function readingMinutes(doc: TimelineDoc, cards: XTimelineCard[]): number {
 export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): string {
   const ctx = makeCtx(doc, opts);
   // The schema already forbids them; a contradicted post never reaches the feed.
-  // X cards only: Instagram and generic cards get their own renderers.
-  const cards = doc.cards.filter(
-    (card): card is XTimelineCard =>
-      card.verification?.status !== "false_or_disputed" && isXCard(card),
-  );
+  const cards = doc.cards.filter((card) => card.verification?.status !== "false_or_disputed");
   const total = cards.length;
+  // Source lines only when the feed mixes platforms; the source list when the run read several.
+  const mixed = new Set(cards.map((card) => platformOf(card.post))).size > 1;
+  const sources = sourceLabels(doc, cards);
+  const sourceList =
+    sources.length > 1
+      ? ` Kaynaklar: ${esc(listNames(sources.map((l) => sourceName(l, cards))))}.`
+      : "";
+  // Some sources brought nothing, the others made the feed: said up front.
+  const missing = missingNames(doc, cards);
+  const missingNote = missing
+    ? `<p class="short-note">${esc(missing)} toplanamadı. Akış öteki kaynaklardan hazırlandı.</p>`
+    : "";
+  const assets = pageAssets(cards);
   const state = doc.status.state;
   const scanned = doc.funnel?.scanned;
 
@@ -672,20 +1178,21 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
     main = renderError(ctx, doc, doc.status.reason, doc.status.detail);
   } else if (total === 0) {
     meta = `<b>0 gönderi</b>${scanned !== undefined ? ` · ${scanned} gönderi tarandı` : ""}`;
-    main = renderDone(ctx, doc, 0);
+    main = missingNote + renderDone(ctx, doc, cards, 0);
   } else {
     meta =
       `<b>${total} gönderi</b> · ≈ ${readingMinutes(doc, cards)} dk okuma` +
       (scanned !== undefined ? ` · ${scanned} gönderiden seçildi` : "");
     main =
+      missingNote +
       (state === "short"
         ? `<p class="short-note">Bugün yalnız ${total} gönderi eşiği geçti (hedef ${doc.header.timelineSize}). Akış kısa bitiyor; doldurmak için eşik düşürülmedi.</p>`
         : "") +
-      `<p class="intro">Okuma değerine göre sıralı — en değerli üstte. Reklam, tekrar ve clickbait çıkarıldı.</p>` +
+      `<p class="intro">Okuma değerine göre sıralı — en değerli üstte.${sourceList} Reklam, tekrar ve clickbait çıkarıldı.</p>` +
       `<div class="feed" role="feed" aria-busy="false" aria-label="Akış, ${total} gönderi">` +
-      cards.map((card, i) => renderCard(ctx, { ...card, rank: i + 1 }, total)).join("") +
+      cards.map((card, i) => renderCard(ctx, { ...card, rank: i + 1 }, total, mixed)).join("") +
       `</div>` +
-      renderDone(ctx, doc, total);
+      renderDone(ctx, doc, cards, total);
   }
 
   const title = `${ctx.title.format(new Date(doc.header.generatedAt))} akışı`;
@@ -698,11 +1205,11 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="${TIMELINE_CSP}">
+<meta http-equiv="Content-Security-Policy" content="${assets.csp}">
 <meta name="referrer" content="no-referrer">
 <meta name="color-scheme" content="light dark">
 <title>${esc(title)} · No More Clickbait</title>
-<style>${TIMELINE_CSS}</style>
+<style>${assets.css}</style>
 </head>
 <body>
 <div class="stage"><div class="app">
@@ -722,7 +1229,7 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
 <p class="lightbox__cap" id="lb-cap"></p>
 </div>
 </dialog>
-<script>${TIMELINE_SCRIPT}</script>
+<script>${assets.script}</script>
 </body>
 </html>
 `;

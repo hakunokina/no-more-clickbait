@@ -176,3 +176,81 @@ export const TIMELINE_SCRIPT = `"use strict";
   });
 })();
 `;
+
+/**
+ * Appended to TIMELINE_SCRIPT only on a page with Instagram or generic
+ * cards (an X-only page keeps its exact script and hash): the Instagram
+ * carousel and the fallback for Instagram media that does not load
+ * (signed CDN links expire). Static, like TIMELINE_SCRIPT.
+ */
+export const CARDS_SCRIPT = `"use strict";
+(() => {
+  const doc = document;
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+
+  /* Carousel: arrow buttons, swipe/trackpad scrolling, hidden slides inert. */
+  function carSync(car, idx, announce) {
+    const slides = car.querySelectorAll(".car__slide");
+    const n = slides.length;
+    idx = Math.max(0, Math.min(n - 1, idx));
+    const changed = Number(car.dataset.idx) !== idx;
+    car.dataset.idx = String(idx);
+    slides.forEach((s, k) => { s.inert = k !== idx; });
+    car.querySelector(".car__count").textContent = (idx + 1) + "/" + n;
+    const dots = car.nextElementSibling;
+    if (dots && dots.classList.contains("car__dots")) {
+      dots.querySelectorAll("i").forEach((d, k) => d.toggleAttribute("data-on", k === idx));
+    }
+    const prev = car.querySelector(".car__prev");
+    const next = car.querySelector(".car__next");
+    const focused = doc.activeElement;
+    prev.hidden = idx === 0;
+    next.hidden = idx === n - 1;
+    // An arrow hidden at the end hands its focus to the other one.
+    if (focused === prev && prev.hidden) next.focus();
+    if (focused === next && next.hidden) prev.focus();
+    if (announce && changed) car.querySelector("[data-car-live]").textContent = "Görsel " + (idx + 1) + " / " + n;
+  }
+  function carGo(car, delta) {
+    const track = car.querySelector(".car__track");
+    const idx = Number(car.dataset.idx) + delta;
+    track.scrollTo({ left: idx * track.clientWidth, behavior: reduceMotion.matches ? "auto" : "smooth" });
+    carSync(car, idx, true);
+  }
+  doc.addEventListener("click", (e) => {
+    const step = e.target instanceof Element ? e.target.closest("[data-car-step]") : null;
+    if (step) carGo(step.closest("[data-car]"), Number(step.dataset.carStep));
+  });
+  const settle = new WeakMap();
+  doc.addEventListener("scroll", (e) => {
+    const track = e.target;
+    if (!(track instanceof Element) || !track.classList.contains("car__track")) return;
+    clearTimeout(settle.get(track));
+    settle.set(track, setTimeout(() => {
+      carSync(track.closest("[data-car]"), Math.round(track.scrollLeft / track.clientWidth), false);
+    }, 90));
+  }, true);
+  addEventListener("resize", () => {
+    doc.querySelectorAll("[data-car]").forEach((car) => {
+      const track = car.querySelector(".car__track");
+      track.scrollLeft = Number(car.dataset.idx) * track.clientWidth;
+    });
+  });
+
+  /* Instagram media that fails to load: the frame stays (no layout shift, the n/N count holds) with its alt text. */
+  function broken(img) {
+    const frame = img.closest(".ig__frame");
+    if (frame) { frame.dataset.broken = ""; return; }
+    const fallback = img.nextElementSibling;
+    if (img.classList.contains("avatar") && fallback && fallback.classList.contains("avatar")) {
+      img.hidden = true;
+      fallback.hidden = false;
+    }
+  }
+  const watched = ".ig__frame img, img.avatar[data-fallback]";
+  doc.addEventListener("error", (e) => {
+    if (e.target instanceof HTMLImageElement && e.target.matches(watched)) broken(e.target);
+  }, true);
+  doc.querySelectorAll(watched).forEach((img) => { if (img.complete && !img.naturalWidth) broken(img); });
+})();
+`;
