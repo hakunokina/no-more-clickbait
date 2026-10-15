@@ -1,1 +1,1 @@
-export { renderTimeline, TIMELINE_CSP, type RenderOptions } from "./render.js";
+export { renderTimeline, TIMELINE_CSPS, type RenderOptions } from "./render.js";

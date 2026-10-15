@@ -10,8 +10,8 @@ import {
   type TimelineDoc,
 } from "@nmc/core";
 import { describe, expect, it } from "vitest";
-import { CARDS_SCRIPT, TIMELINE_SCRIPT } from "./client-script.js";
-import { renderTimeline, TIMELINE_CSP } from "./render.js";
+import { CARDS_SCRIPTS, TIMELINE_SCRIPTS } from "./client-script.js";
+import { renderTimeline, TIMELINE_CSPS } from "./render.js";
 import { stateDocs } from "./state-docs.js";
 import { CARDS_CSS, TIMELINE_CSS } from "./styles.js";
 
@@ -21,7 +21,11 @@ const load = (name: string) =>
   );
 const mixed = load("timeline-doc-mixed.json");
 const xOnly = load("timeline-doc.json");
-const render = (doc: TimelineDoc) => renderTimeline(doc, { timeZone: "Europe/Istanbul" });
+const render = (doc: TimelineDoc) =>
+  renderTimeline(doc, { timeZone: "Europe/Istanbul", lang: "tr" });
+const TIMELINE_SCRIPT = TIMELINE_SCRIPTS.tr;
+const CARDS_SCRIPT = CARDS_SCRIPTS.tr;
+const TIMELINE_CSP = TIMELINE_CSPS.tr;
 const count = (html: string, needle: string) => html.split(needle).length - 1;
 const hash = (text: string) =>
   `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;

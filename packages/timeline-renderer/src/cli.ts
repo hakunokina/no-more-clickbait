@@ -2,26 +2,29 @@
 import { readFile, stat, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { TimelineDocSchema } from "@nmc/core";
+import { TimelineDocSchema, UI_LANGS, type UiLang } from "@nmc/core";
 import { renderTimeline } from "./render.js";
 
 /**
  * nmc-timeline: an nmc-run result folder (its timeline-doc.json) →
  * timeline.html in the same folder, to open in a browser.
  *
- *   pnpm --filter @nmc/timeline-renderer nmc-timeline <run-dir | timeline-doc.json> [--out <file.html>]
+ *   pnpm --filter @nmc/timeline-renderer nmc-timeline <run-dir | timeline-doc.json> [--out <file.html>] [--lang en|tr]
  *
  * The page holds feed content (personal data): it stays next to the run
  * result, outside the repo. Stdout carries the path and counts only.
  */
 
 const { values, positionals } = parseArgs({
-  options: { out: { type: "string" } },
+  options: { out: { type: "string" }, lang: { type: "string" } },
   allowPositionals: true,
 });
 const target = positionals[0];
-if (!target || positionals.length > 1) {
-  console.error("usage: nmc-timeline <run-dir | timeline-doc.json> [--out <file.html>]");
+const lang = values.lang ?? "en";
+if (!target || positionals.length > 1 || !(UI_LANGS as readonly string[]).includes(lang)) {
+  console.error(
+    "usage: nmc-timeline <run-dir | timeline-doc.json> [--out <file.html>] [--lang en|tr]",
+  );
   process.exit(2);
 }
 
@@ -36,7 +39,7 @@ if (!parsed.success) {
   process.exit(1);
 }
 const outFile = values.out ? resolve(values.out) : join(dirname(docFile), "timeline.html");
-await writeFile(outFile, renderTimeline(parsed.data), "utf8");
+await writeFile(outFile, renderTimeline(parsed.data, { lang: lang as UiLang }), "utf8");
 console.log(
   JSON.stringify({ state: parsed.data.status.state, cards: parsed.data.cards.length }),
 );

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SettingsSchema, type Post, type PostBatch } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
-import { renderTimeline, TIMELINE_CSP } from "@nmc/timeline-renderer";
+import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import {
@@ -227,7 +227,7 @@ describe("SessionController", () => {
     });
     await c.runSession(id);
     const html = await readFile(join(root, id, TIMELINE_FILE), "utf8");
-    expect(html).toContain(TIMELINE_CSP);
+    expect(html).toContain(TIMELINE_CSPS.en);
     expect(html).toContain('data-action="collect"');
     expect(html).toContain("synthetic post 1");
   });
