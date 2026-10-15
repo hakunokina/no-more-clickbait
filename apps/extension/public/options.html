@@ -69,12 +69,24 @@
             <select id="mode-b-strategy" aria-describedby="mode-b-strategy-hint">
               <option value="minimized-window">Minimized window</option>
               <option value="background-tab">Background tab in this window</option>
-              <option value="offscreen-window">Small window pushed off-screen</option>
+              <option value="offscreen-window">Small window in the screen corner (visible)</option>
             </select>
           </label>
           <p id="mode-b-strategy-hint" class="hint">
             Browsers may stop loading pages nobody can see. Try each surface once and compare the
-            last-run numbers below. Save before collecting.
+            last-run numbers below. Save before collecting. Browsers keep at least half of a
+            window on screen, so the corner window stays partly visible.
+          </p>
+          <label>
+            Scroll pacing (developer setting, applies at once)
+            <select id="mode-b-pacing" aria-describedby="mode-b-pacing-hint">
+              <option value="response">Wait for X to answer each scroll</option>
+              <option value="fixed">Fixed fast timer (0.36–0.70 s)</option>
+            </select>
+          </label>
+          <p id="mode-b-pacing-hint" class="hint">
+            Each scroll jumps to the bottom of the timeline. Compare both paces in the last-run
+            numbers below.
           </p>
           <button id="mode-b-run" type="button" aria-describedby="mode-b-status">
             Collect feed

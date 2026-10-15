@@ -28,9 +28,16 @@ export interface ModeBCommandMessage {
   command: "start" | "stop";
 }
 
+/**
+ * What a Mode B step does: `jump` to the bottom of the timeline, or
+ * `nudge` (a small scroll up and back down) when X did not load after a jump.
+ */
+export type ModeBStepAction = "jump" | "nudge";
+
 /** Service worker -> the Mode B tab content script: do one scroll step. */
 export interface ModeBStepMessage {
   kind: "mode-b-step";
+  action: ModeBStepAction;
 }
 
 /** What the page looked like when a Mode B step ran. */
@@ -85,7 +92,9 @@ export function isModeBStepMessage(value: unknown): value is ModeBStepMessage {
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as Record<string, unknown>)["kind"] === "mode-b-step"
+    (value as Record<string, unknown>)["kind"] === "mode-b-step" &&
+    ((value as Record<string, unknown>)["action"] === "jump" ||
+      (value as Record<string, unknown>)["action"] === "nudge")
   );
 }
 
