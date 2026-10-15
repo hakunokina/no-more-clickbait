@@ -260,7 +260,7 @@ export function applyStep(
 
 const MAX_ERROR_LENGTH = 300;
 
-function errorText(error: unknown): string {
+export function errorText(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
   return text.length > MAX_ERROR_LENGTH ? `${text.slice(0, MAX_ERROR_LENGTH)}…` : text;
 }
@@ -449,7 +449,19 @@ export class ModeBRunner {
         return "failed";
       }
       this.#run = newRun(start, pacing, now, surface.tabId, surface.windowId);
-      await this.#save();
+      try {
+        await this.#save();
+      } catch (error) {
+        // A run that is not stored does not exist: forget it and its surface.
+        this.#run = null;
+        try {
+          if (surface.windowId !== null) await this.#browser.closeWindow(surface.windowId);
+          else await this.#browser.closeTab(surface.tabId);
+        } catch {
+          // Already gone.
+        }
+        throw error;
+      }
       this.#schedule(this.#limits.firstStepDelayMs);
       return "started";
     });

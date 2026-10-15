@@ -28,6 +28,7 @@ import {
 } from "./messages.js";
 import {
   describeStopReason,
+  errorText,
   isRateLimited,
   MODE_B_LAST_RUN_KEY,
   MODE_B_PERMISSIONS,
@@ -543,10 +544,16 @@ async function startModeB(target?: number): Promise<void> {
   // Custom sites are collected alongside the run, into its session.
   startSiteRun();
   await modeB.start(start).catch(async (error: unknown) => {
-    // Thrown before a run existed: nothing will complete this collection.
-    // Its site run is waited out (holding the command queue) and dropped,
-    // so the next collection neither overlaps nor reports it.
-    await finishSiteRun();
+    // Thrown before a run existed: nothing else will complete this
+    // collection. It ends as a run that failed to open, which closes the
+    // session it opened and waits out (holding the command queue) and
+    // drops its site run, so the next collection neither overlaps nor
+    // reports it. The start's own error is the one rethrown.
+    try {
+      await finishModeB(refusedRun(start, Date.now(), "failed-to-open", errorText(error)));
+    } catch (finishError) {
+      console.error(`[nmc] Mode B could not end its failed start: ${String(finishError)}`);
+    }
     throw error;
   });
 }
