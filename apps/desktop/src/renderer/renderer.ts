@@ -165,7 +165,8 @@ el("open-reader").addEventListener("click", () => void window.nmc.openReader());
 el("open-settings").addEventListener("click", () => void window.nmc.openSettings());
 
 window.nmc.onStatus(render);
-void window.nmc.getStatus().then(render);
+// Without a status the page still shows, in English.
+void window.nmc.getStatus().then(render, () => localizePage(document, lang()));
 
 const button = el<HTMLButtonElement>("check-llm");
 const status = el("llm-status");

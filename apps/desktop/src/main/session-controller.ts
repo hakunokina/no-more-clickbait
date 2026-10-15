@@ -79,6 +79,8 @@ export interface SessionControllerDeps {
   onAwaitingConfirmation?(pending: { sessionId: string; uniquePostCount: number }): void;
   /** A timeline is ready (tray notification, reading window). */
   onReady(ready: { sessionId: string; timelinePath: string; selected: number }): void;
+  /** The timeline page was rewritten in a new language (reload it). */
+  onTimelineRewritten?(timelinePath: string): void;
   log?(line: string): void;
   now?(): string;
   /** How long to wait for the extension's answer / its next progress. */
@@ -161,6 +163,10 @@ export class SessionController {
   /** The collection was given up for silence (late progress revives it). */
   #silent = false;
   #lastTimeline: string | null = null;
+  /** The language #lastTimeline's page is written in. */
+  #timelineLang: UiLang | null = null;
+  /** The running timeline rewrite (see #relabelTimeline). */
+  #relabelling: Promise<boolean> = Promise.resolve(false);
   /** When this app asked for the collection in progress (null: unknown). */
   #requestedAt: string | null = null;
   /** A session is being run or rendered (wider than `runner.busy`). */
@@ -214,15 +220,31 @@ export class SessionController {
   /**
    * The windows' language changed: they re-word on the status push; the
    * newest timeline page is written again in the new language (from its
-   * timeline.json). Resolves true when it was rewritten.
+   * timeline.json). Resolves true when it was rewritten. During a run the
+   * page is left alone and rewritten when the run ends (#finish).
    */
   async setLang(lang: UiLang): Promise<boolean> {
     if (this.#status.lang === lang) return false;
     this.#update((status) => {
       status.lang = lang;
     });
+    return this.#relabelTimeline();
+  }
+
+  /**
+   * Rewrites the newest timeline page in the current language, one
+   * rewrite at a time: quick changes (en→tr→en) end in the last language.
+   */
+  #relabelTimeline(): Promise<boolean> {
+    const next = this.#relabelling.then(() => this.#rewriteTimeline());
+    this.#relabelling = next.catch(() => false);
+    return next;
+  }
+
+  async #rewriteTimeline(): Promise<boolean> {
     const path = this.#lastTimeline;
-    if (!path || this.#busy) return false;
+    const lang = this.#status.lang;
+    if (!path || this.#busy || this.#timelineLang === lang) return false;
     try {
       const raw = await readFile(join(dirname(path), TIMELINE_DOC_FILE), "utf8");
       const doc = TimelineDocSchema.parse(JSON.parse(raw));
@@ -236,7 +258,12 @@ export class SessionController {
             })),
           }
         : doc;
-      await writeFile(path, this.#deps.renderTimeline(relabelled, lang), "utf8");
+      const html = this.#deps.renderTimeline(relabelled, lang);
+      // The language changed again, or a run took over the page meanwhile.
+      if (this.#status.lang !== lang || this.#busy || this.#lastTimeline !== path) return false;
+      await writeFile(path, html, "utf8");
+      this.#timelineLang = lang;
+      this.#deps.onTimelineRewritten?.(path);
       return true;
     } catch (error) {
       this.#deps.log?.(
@@ -634,7 +661,7 @@ export class SessionController {
       status.run.endedAt = last.processed?.processedAt ?? null;
       status.run.error = {
         kind: isRunErrorKind(saved?.kind) ? saved.kind : "internal",
-        note: runErrorNote(saved?.message),
+        note: runErrorNote(saved),
         detail: null,
       };
     });
@@ -768,6 +795,7 @@ export class SessionController {
       return;
     }
     this.#lastTimeline = timelinePath;
+    this.#timelineLang = this.#status.lang;
     this.#finish((status) => {
       status.run.stage = "ready";
       status.run.counts = outcome.counts;
@@ -791,8 +819,9 @@ export class SessionController {
       join(this.#deps.sessionsRoot, sessionId),
       "error",
       () => this.#now(),
-      // In English: runErrorNote reads it back into a note.
-      { kind: error.kind, message: say("en", error.note).slice(0, 500) },
+      // runErrorNote reads it back into a note (by key; the English message
+      // is for people reading the file).
+      { kind: error.kind, note: error.note.key, message: say("en", error.note).slice(0, 500) },
     ).catch(() => undefined);
     this.#finish((status) => {
       status.run.stage = "error";
@@ -810,6 +839,9 @@ export class SessionController {
     const queued = this.#queued;
     this.#queued = null;
     if (queued) void this.runSession(queued);
+    // The language changed during the run: the page still open (an
+    // earlier timeline, when this run did not end in a new one) follows.
+    else void this.#relabelTimeline();
   }
 }
 

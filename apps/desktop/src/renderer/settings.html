@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-i18n-pending>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -9,6 +9,8 @@
     />
     <title>No More Clickbait — Settings</title>
     <style>
+      /* No words until the language is known (localizePage clears it). */
+      [data-i18n-pending] body { visibility: hidden; }
       :root { color-scheme: light dark; }
       body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; line-height: 1.5; }
       h1 { font-size: 1.05rem; margin: 0 0 0.25rem; }

@@ -53,6 +53,8 @@ export const SessionProcessedSchema = z.object({
   error: z
     .object({
       kind: z.string().max(64),
+      /** The desktop's message key, so a reworded message still reads back. */
+      note: z.string().max(64).optional(),
       message: z.string().max(500),
     })
     .optional(),

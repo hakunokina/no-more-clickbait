@@ -564,10 +564,16 @@ const RUN_ERROR_KEYS = [
 ] as const;
 
 /**
- * A failed run is saved with its English message (processed.json); this
- * finds its note again so the window can show it in either language.
+ * A failed run is saved with its note's key and English message
+ * (processed.json); this finds its note again so the window can show it
+ * in either language. Records from before the key was saved match on
+ * the English message.
  */
-export function runErrorNote(savedMessage: string | undefined): Note {
-  const key = RUN_ERROR_KEYS.find((candidate) => en[candidate] === savedMessage);
+export function runErrorNote(
+  saved: { note?: string | undefined; message?: string | undefined } | undefined,
+): Note {
+  const key =
+    RUN_ERROR_KEYS.find((candidate) => candidate === saved?.note) ??
+    RUN_ERROR_KEYS.find((candidate) => en[candidate] === saved?.message);
   return note(key ?? "errLastRunFailed");
 }

@@ -260,6 +260,83 @@ describe("SessionController", () => {
     await expect(c.setLang("en")).resolves.toBe(false); // unchanged
   });
 
+  it("ends quick language changes in the last one, one rewrite at a time", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1", "2"]);
+    const rendered: string[] = [];
+    const rewritten: string[] = [];
+    let backToEn: Promise<boolean> | null = null;
+    const c: SessionController = new SessionController({
+      sessionsRoot: root,
+      runner: new PipelineRunner(() => runStages),
+      loadSettings: async () => SettingsSchema.parse({ timelineSize: 2 }),
+      renderTimeline: (doc, lang) => {
+        rendered.push(lang);
+        // The user switches back while the Turkish page is being made.
+        if (lang === "tr" && !backToEn) backToEn = c.setLang("en");
+        return renderTimeline(doc, { actions: true, lang });
+      },
+      sendToHost: () => false,
+      onStatus: () => {},
+      onReady: () => {},
+      onTimelineRewritten: (path) => rewritten.push(path),
+    });
+    await c.runSession(id);
+    const page = () => readFile(join(root, id, TIMELINE_FILE), "utf8");
+    rendered.length = 0;
+
+    // en→tr, and back to en while the Turkish page is being made: it is
+    // not written over the (English) page.
+    await expect(c.setLang("tr")).resolves.toBe(false);
+    await expect(backToEn).resolves.toBe(false);
+    expect(rendered).toEqual(["tr"]);
+    expect(await page()).toContain('<html lang="en">');
+    expect(rewritten).toEqual([]);
+
+    // en→tr→en→tr at once: one rewrite, in the last language.
+    const results = await Promise.all([c.setLang("tr"), c.setLang("en"), c.setLang("tr")]);
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await page()).toContain('<html lang="tr">');
+    expect(rewritten).toEqual([join(root, id, TIMELINE_FILE)]);
+  });
+
+  it("rewrites the open timeline when the language changed during a run", async () => {
+    const first = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1", "2"]);
+    const second = await completeSession(root, "2026-01-01T11:00:00.000Z", ["3"]);
+    const rewritten: string[] = [];
+    const c = new SessionController({
+      sessionsRoot: root,
+      runner: new PipelineRunner(() => runStages),
+      loadSettings: async () => SettingsSchema.parse({ timelineSize: 2 }),
+      renderTimeline: (doc, lang) => renderTimeline(doc, { actions: true, lang }),
+      sendToHost: () => false,
+      onStatus: () => {},
+      onReady: () => {},
+      onTimelineRewritten: (path) => rewritten.push(path),
+    });
+    await c.runSession(first);
+    const page = () => readFile(join(root, first, TIMELINE_FILE), "utf8");
+
+    // The next run fails, and the language changes while it runs.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    runStages = stages({
+      checkAvailable: async () => {
+        await gate;
+        return { ok: false, reason: "not-found", detail: "ENOENT" };
+      },
+    });
+    const run = c.runSession(second);
+    await expect(c.setLang("tr")).resolves.toBe(false); // busy: left for later
+    expect(await page()).toContain('<html lang="en">');
+
+    release();
+    await run;
+    expect(c.status.run.stage).toBe("error");
+    // The earlier timeline, still the one to open, follows the language.
+    await expect.poll(() => rewritten).toEqual([join(root, first, TIMELINE_FILE)]);
+    expect(await page()).toContain('<html lang="tr">');
+  });
+
   it("starts the run from a host's Mode B collection-complete event", async () => {
     const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
     const c = controller();
@@ -365,7 +442,7 @@ describe("SessionController", () => {
     expect(c.status.run.error?.kind).toBe("cli-not-found");
     expect((await listSessions(root))[0]?.processed).toMatchObject({
       status: "error",
-      error: { kind: "cli-not-found" },
+      error: { kind: "cli-not-found", note: "errCliNotFound" },
     });
 
     // Not retried automatically (no error loop on every host reconnect)...
