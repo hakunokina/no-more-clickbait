@@ -146,7 +146,11 @@ function hasInlineHide(style: string | null): boolean {
     const colon = declaration.indexOf(":");
     if (colon < 0) continue;
     const property = declaration.slice(0, colon).trim().toLowerCase();
-    const value = declaration.slice(colon + 1).trim().toLowerCase().split(/\s+/, 1)[0];
+    const value = declaration
+      .slice(colon + 1)
+      .trim()
+      .toLowerCase()
+      .split(/\s+/, 1)[0];
     if (property === "display" && value === "none") return true;
     if (property === "visibility" && value === "hidden") return true;
   }

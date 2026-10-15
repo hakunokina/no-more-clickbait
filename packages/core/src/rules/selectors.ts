@@ -85,8 +85,7 @@ function firstMatch(root: DomQueryRoot, selector: string): DomElement | null {
 }
 
 export type FieldSelectorResult =
-  | { ok: true; selector: string }
-  | { ok: false; reason: "outside-card" | "selector-too-long" };
+  { ok: true; selector: string } | { ok: false; reason: "outside-card" | "selector-too-long" };
 
 /**
  * A selector for a field, relative to its card: the first match of it
@@ -97,10 +96,7 @@ export type FieldSelectorResult =
  * positional fallback exceeds `MAX_SELECTOR_CHARS` and no shorter
  * suffix reads `el` either).
  */
-export function fieldSelectorForResult(
-  el: DomElement,
-  card: DomElement,
-): FieldSelectorResult {
+export function fieldSelectorForResult(el: DomElement, card: DomElement): FieldSelectorResult {
   if (el === card) return { ok: true, selector: ":scope" };
   if (!isInside(el, card)) return { ok: false, reason: "outside-card" };
   const tag = tagOf(el);
@@ -121,8 +117,7 @@ export function fieldSelectorForResult(
     }
   }
   for (const selector of scopeFallbacks(el, card)) {
-    if (isFitting(selector) && firstMatch(card, selector) === el)
-      return { ok: true, selector };
+    if (isFitting(selector) && firstMatch(card, selector) === el) return { ok: true, selector };
   }
   return { ok: false, reason: "selector-too-long" };
 }

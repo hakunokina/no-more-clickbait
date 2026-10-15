@@ -198,6 +198,7 @@ export class SessionController {
       return path;
     } catch {
       this.#lastTimeline = null;
+      this.#timelineLang = null;
       this.#update((status) => {
         status.run.hasTimeline = false;
         status.run.timelineGone = true;
