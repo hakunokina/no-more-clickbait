@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  feedItemKey,
   SettingsSchema,
   type FeedItem,
   type Post,
@@ -142,6 +143,40 @@ describe("PipelineRunner", () => {
       "verifying",
     ]);
     expect(runner.busy).toBe(false);
+  });
+
+  it("counts the claims to verify for non-X items by their feed key", async () => {
+    const item: FeedItem = {
+      platform: "generic",
+      id: "t3_synth",
+      sourceLabel: "reddit",
+      title: "synthetic title",
+      url: "https://www.reddit.com/r/synthetic/comments/t3_synth/",
+      domain: "reddit.com",
+      promoted: false,
+    };
+    const key = feedItemKey(item);
+    const { stages } = fakeStages({
+      scores: () => [score(key, 0.9, 0.1, "claim")],
+      verify: async (_p, claim) => verification(key, claim, "verified"),
+    });
+    const progress: RunProgress[] = [];
+    const runner = new PipelineRunner(() => stages);
+    const outcome = await runner.run([item], settings({ timelineSize: 10 }), (p) =>
+      progress.push(p),
+    );
+
+    expect(outcome.status).toBe("done");
+    // Announced right after scoring (not only once the first check starts).
+    expect(progress.map((p) => p.stage)).toEqual([
+      "checking",
+      "filtering",
+      "scoring",
+      "verifying",
+      "verifying",
+      "verifying",
+    ]);
+    expect(progress[3]?.counts).toMatchObject({ verifyTotal: 1, verifyDone: 0 });
   });
 
   it("skips the verifier when verification is off", async () => {

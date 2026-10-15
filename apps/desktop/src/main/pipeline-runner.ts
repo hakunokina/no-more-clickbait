@@ -1,13 +1,14 @@
 import {
   createHardFilter,
   createThresholdSelector,
+  feedItemKey,
   pipelineConfigFromSettings,
   runPipeline,
   RunMetricsCollector,
   summarizeRunMetrics,
   type CollectionMetrics,
+  type FeedItem,
   type PipelineRunResult,
-  type Post,
   type RunMetrics,
   type ScoreEntry,
   type Scorer,
@@ -167,7 +168,7 @@ export class PipelineRunner {
   }
 
   async run(
-    posts: readonly Post[],
+    posts: readonly FeedItem[],
     settings: Settings,
     onProgress: (progress: RunProgress) => void,
     collection?: CollectionMetrics,
@@ -229,7 +230,7 @@ export class PipelineRunner {
             const top = selector
               .select(
                 judgeable.flatMap((post) => {
-                  const score = byId.get(post.id);
+                  const score = byId.get(feedItemKey(post));
                   return score ? [{ post, score }] : [];
                 }),
               )

@@ -8,7 +8,8 @@ import { externalLinkTarget, isAllowedReaderUrl } from "./reader-policy.js";
  * - sandbox + context isolation, no Node, a separate in-memory session;
  * - every request is allow-listed: files under our renderer dir or the
  *   sessions root, https images from pbs.twimg.com and video from
- *   video.twimg.com (the renderer's CSP says the same), data: URIs;
+ *   video.twimg.com, Instagram media from *.cdninstagram.com and
+ *   *.fbcdn.net (the renderer's CSP says the same), data: URIs;
  * - no permission is ever granted, no in-window navigation, no popups:
  *   https links open in the user's browser, anything else is dropped.
  */
