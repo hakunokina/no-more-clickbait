@@ -27,6 +27,7 @@ import { PipelineRunner } from "./pipeline-runner.js";
 import { ReadingWindow } from "./reading-window.js";
 import { SessionController } from "./session-controller.js";
 import { loadDesktopSettings } from "./settings-file.js";
+import { liveContents, sendToAll } from "./window-contents.js";
 
 /**
  * Desktop shell: lives in the system tray with a compact "token monitor"
@@ -120,9 +121,7 @@ const STAGE_LABELS: Record<RunStage, string> = {
 };
 
 function broadcast(status: DesktopStatus): void {
-  for (const contents of [monitor?.webContents, reader.webContents]) {
-    if (contents && !contents.isDestroyed()) contents.send("nmc:status", status);
-  }
+  sendToAll([liveContents(monitor), reader.webContents], "nmc:status", status, log);
   tray?.setToolTip(`No More Clickbait — ${STAGE_LABELS[status.run.stage]}`);
   const stage = status.run.stage;
   if (stage === "error" && lastStage !== "error" && !reader.webContents) {
@@ -164,6 +163,9 @@ function createMonitor(): BrowserWindow {
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
 
+  win.on("closed", () => {
+    if (monitor === win) monitor = null;
+  });
   void win.loadFile(join(rendererDir, "index.html"));
   return win;
 }
@@ -207,7 +209,7 @@ function createTray(): void {
 function callerAllowed(channel: string, event: IpcMainInvokeEvent): boolean {
   const sender = event.sender;
   const window =
-    sender === monitor?.webContents
+    sender === liveContents(monitor)
       ? "monitor"
       : sender === reader.webContents
         ? "reader"
