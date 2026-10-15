@@ -20,6 +20,10 @@
     "./verifier": {
       "types": "./dist/verifier/index.d.ts",
       "import": "./dist/verifier/index.js"
+    },
+    "./settings-file": {
+      "types": "./dist/settings-file.d.ts",
+      "import": "./dist/settings-file.js"
     }
   },
   "scripts": {
