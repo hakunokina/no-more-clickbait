@@ -1,4 +1,4 @@
-import { errorTimelineDoc, TimelineDocSchema, type TimelineDoc } from "@nmc/core";
+import { errorTimelineDoc, feedSourceLabel, TimelineDocSchema, type TimelineDoc } from "@nmc/core";
 
 /**
  * The renderer's four states derived from one full (ok) document, for
@@ -15,9 +15,14 @@ export interface StateDocs {
 function withShown(doc: TimelineDoc, shown: number): TimelineDoc {
   if (!doc.funnel) throw new Error("the source doc needs a funnel");
   const dropped = doc.cards.length - shown + doc.funnel.rankedOut;
+  const cards = doc.cards.slice(0, shown);
+  const shownOf = (label: string) => cards.filter((c) => feedSourceLabel(c.post) === label).length;
   return TimelineDocSchema.parse({
     ...doc,
-    cards: doc.cards.slice(0, shown),
+    cards,
+    ...(doc.bySource
+      ? { bySource: doc.bySource.map((count) => ({ ...count, shown: shownOf(count.label) })) }
+      : {}),
     // Fewer passed the read floor; nothing was ranked out of a short timeline.
     funnel: {
       ...doc.funnel,
