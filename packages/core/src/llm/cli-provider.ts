@@ -27,6 +27,12 @@ export interface LlmRequest {
    * needs no tools; verification needs only WebSearch/WebFetch.
    */
   allowedTools?: readonly string[];
+  /**
+   * JSON Schema the reply must satisfy. A provider that supports it has
+   * the CLI enforce it (claude: `--json-schema`, reply in
+   * `structured_output`); the caller still validates the reply itself.
+   */
+  jsonSchema?: Record<string, unknown>;
 }
 
 export interface LlmResult {
@@ -43,6 +49,8 @@ export interface LlmResult {
   model?: string;
   /** Why generation stopped (claude CLI: `stop_reason`). */
   stopReason?: string;
+  /** Web searches the call ran, when the provider reports them. */
+  webSearchRequests?: number;
   /** Call duration; provider-reported when available, else measured. */
   durationMs: number;
 }
@@ -196,7 +204,10 @@ export class CliLlmProvider implements LlmProvider {
 
   async complete(request: LlmRequest): Promise<LlmResult> {
     const startedAt = Date.now();
-    const outcome = await this.#run(this.#spec.buildArgs(request), stdinMessage(this.#spec, request));
+    const outcome = await this.#run(
+      this.#spec.buildArgs(request),
+      stdinMessage(this.#spec, request),
+    );
     const measuredMs = Date.now() - startedAt;
     if (outcome.exitCode !== 0) {
       // Only a failed run can signal an auth problem. On exit 0 the same
@@ -294,7 +305,13 @@ function claudeResultToLlmResult(parsed: unknown): ParsedCliResult {
   }
   if (parsed.is_error === true) throw new Error(`CLI reported an error: ${parsed.result}`);
   const usage = isRecord(parsed.usage) ? parsed.usage : undefined;
-  const result: ParsedCliResult = { text: parsed.result };
+  // With --json-schema the validated reply is `structured_output`.
+  const result: ParsedCliResult = {
+    text:
+      parsed.structured_output !== undefined
+        ? JSON.stringify(parsed.structured_output)
+        : parsed.result,
+  };
   const num = (value: unknown): number | undefined =>
     typeof value === "number" ? value : undefined;
   const assign = <K extends keyof ParsedCliResult>(key: K, value: number | undefined): void => {
@@ -310,8 +327,37 @@ function claudeResultToLlmResult(parsed: unknown): ParsedCliResult {
   assign("cacheCreationTokens", num(usage?.cache_creation_input_tokens));
   assign("costUsd", num(parsed.total_cost_usd));
   assign("durationMs", num(parsed.duration_ms));
-  const models = isRecord(parsed.modelUsage) ? Object.keys(parsed.modelUsage) : [];
+  const modelUsage = isRecord(parsed.modelUsage) ? parsed.modelUsage : {};
+  const models = Object.keys(modelUsage);
   if (models.length > 0) result.model = models.join(",");
+  // A tool call can run on a helper model (claude 2.1.300: WebSearch is
+  // served by a second model). `usage` covers only the main model, so
+  // with several models the per-model totals are summed instead —
+  // otherwise a verification call's search cost would be invisible.
+  const perModel = Object.values(modelUsage).filter(isRecord);
+  if (
+    perModel.length > 1 &&
+    perModel.length === models.length &&
+    perModel.every((m) => num(m.inputTokens) !== undefined && num(m.outputTokens) !== undefined)
+  ) {
+    const total = (key: string): number =>
+      perModel.reduce((sum, m) => sum + (num(m[key]) ?? 0), 0);
+    result.inputTokens = total("inputTokens");
+    result.outputTokens = total("outputTokens");
+    result.thinkingTokens = total("thinkingTokens");
+    result.cacheReadTokens = total("cacheReadInputTokens");
+    result.cacheCreationTokens = total("cacheCreationInputTokens");
+  }
+  const searches = perModel
+    .map((m) => num(m.webSearchRequests))
+    .filter((n): n is number => n !== undefined);
+  const serverToolUse = isRecord(usage?.server_tool_use) ? usage.server_tool_use : undefined;
+  assign(
+    "webSearchRequests",
+    searches.length > 0
+      ? searches.reduce((a, b) => a + b, 0)
+      : num(serverToolUse?.web_search_requests),
+  );
   if (typeof parsed.stop_reason === "string" && parsed.stop_reason !== "") {
     result.stopReason = parsed.stop_reason;
   }
@@ -342,6 +388,9 @@ export function llmResultToCallMetrics(
     ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
     ...(result.model !== undefined ? { model: result.model } : {}),
     ...(result.stopReason !== undefined ? { stopReason: result.stopReason } : {}),
+    ...(result.webSearchRequests !== undefined
+      ? { webSearchRequests: result.webSearchRequests }
+      : {}),
   };
 }
 
@@ -374,6 +423,12 @@ export interface ClaudeCliOptions extends CliLlmProviderOptions {
    * and thinking tokens count as output tokens. Unset = CLI default.
    */
   effort?: ClaudeEffort;
+  /**
+   * Spend cap per completion in USD (`--max-budget-usd`, print mode
+   * only). A call that hits it fails instead of running on — a guard
+   * for tool-using stages whose cost depends on what the model fetches.
+   */
+  maxBudgetUsd?: number;
   /**
    * Load none of the user's/project's setting sources
    * (`--setting-sources ""`): no CLAUDE.md, hooks, output style or
@@ -428,6 +483,8 @@ const RESERVED_FLAGS = [
   "--setting-sources",
   "--settings",
   "--no-session-persistence",
+  "--json-schema",
+  "--max-budget-usd",
 ] as const;
 
 function assertExtraArgsSafe(extraArgs: readonly string[]): void {
@@ -477,6 +534,12 @@ export function createClaudeCliProvider(options: ClaudeCliOptions = {}): CliLlmP
   if (options.model !== undefined && (options.model === "" || options.model.startsWith("-"))) {
     throw new Error("model must be a non-empty model name, not a flag");
   }
+  if (
+    options.maxBudgetUsd !== undefined &&
+    !(Number.isFinite(options.maxBudgetUsd) && options.maxBudgetUsd > 0)
+  ) {
+    throw new Error("maxBudgetUsd must be a positive number");
+  }
   const env =
     options.maxOutputTokens !== undefined
       ? {
@@ -510,6 +573,12 @@ export function createClaudeCliProvider(options: ClaudeCliOptions = {}): CliLlmP
         if (outputFormat === "stream-json") args.push("--verbose");
         if (options.model !== undefined) args.push("--model", options.model);
         if (options.effort !== undefined) args.push("--effort", options.effort);
+        if (options.maxBudgetUsd !== undefined) {
+          args.push("--max-budget-usd", String(options.maxBudgetUsd));
+        }
+        if (request.jsonSchema !== undefined) {
+          args.push("--json-schema", JSON.stringify(request.jsonSchema));
+        }
         if (request.systemPrompt !== undefined) {
           // Checked per request (the prompt arrives with each call, not
           // at construction), so a bad one fails that complete() call.

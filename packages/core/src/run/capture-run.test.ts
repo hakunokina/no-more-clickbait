@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RunMetricsCollector } from "../metrics.js";
 import type { Scorer } from "../pipeline.js";
+import type { Post } from "../schemas.js";
 import {
   loadCapture,
   renderClickbaitTopMarkdown,
@@ -171,6 +172,114 @@ describe("capture run (synthetic capture directory)", () => {
     const top = renderClickbaitTopMarkdown(report, capture.posts);
     expect(top).toContain(`ilk ${report.scores.length - 1} gönderi`);
     expect(top).not.toContain("clickbait 10/10");
+  });
+
+  /** A synthetic capture of `n` text posts (s0..s{n-1}) in feed order. */
+  function syntheticCapture(n: number): LoadedCapture {
+    const posts: Post[] = Array.from({ length: n }, (_, i) => ({
+      id: `s${i}`,
+      source: "synthetic",
+      authorHandle: `user_s${i}`,
+      text: `text of s${i}`,
+      url: `https://example.invalid/posts/s${i}`,
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      media: [],
+      promoted: false,
+    }));
+    return {
+      ...capture,
+      files: [],
+      posts,
+      collection: undefined,
+      warnings: [],
+    } as LoadedCapture;
+  }
+
+  it("clickbait-top breaks clickbait ties by read value ↑, then feed order, and cuts at 40", async () => {
+    const synthetic = syntheticCapture(45);
+    const report = await runCapture(synthetic, {
+      scorer: {
+        // s0 and s1 tie on clickbait: s1 has the LOWER read value, so it
+        // ranks first; s2/s3 tie on both, so feed order decides.
+        score: async (posts) =>
+          posts.map((post, index) => ({
+            postId: post.id,
+            clickbaitScore: index < 4 ? 0.9 : 0.5,
+            readWorthinessScore: index === 0 ? 0.6 : index === 1 ? 0.2 : 0.4,
+            checkWorthyClaim: null,
+          })),
+      },
+      metrics: new RunMetricsCollector(),
+      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0 },
+      timelineSize: 5,
+    });
+    const top = renderClickbaitTopMarkdown(report, synthetic.posts);
+    expect(top).toContain("# En yüksek clickbait: ilk 40 gönderi");
+    const handles = [...top.matchAll(/^## \d+\. @(\S+)/gm)].map((m) => m[1]);
+    expect(handles).toHaveLength(40);
+    expect(handles.slice(0, 4)).toEqual(["user_s1", "user_s2", "user_s3", "user_s0"]);
+    // Below the 0.9 group, feed order: the last five of 45 are cut.
+    expect(handles.at(-1)).toBe("user_s39");
+  });
+
+  it("verifies selected claims and renders badges, summaries and sources", async () => {
+    const synthetic = syntheticCapture(4);
+    const statuses = { s0: "verified", s1: "false_or_disputed", s2: "unverifiable" } as const;
+    const report = await runCapture(synthetic, {
+      scorer: {
+        score: async (posts) =>
+          posts.map((post, index) => ({
+            postId: post.id,
+            clickbaitScore: 0.1,
+            readWorthinessScore: 0.9 - index * 0.1,
+            checkWorthy: index < 3,
+            checkWorthyClaim: index < 3 ? `claim ${post.id}` : null,
+          })),
+      },
+      verifier: {
+        verify: async (post, claim) => {
+          const status = statuses[post.id as keyof typeof statuses];
+          return {
+            postId: post.id,
+            claim,
+            status,
+            confidence: 0.75,
+            summary: `özet ${post.id}`,
+            sources:
+              status === "unverifiable"
+                ? []
+                : [{ url: `https://example.org/${post.id}`, title: `Kaynak [${post.id}]` }],
+          };
+        },
+      },
+      metrics: new RunMetricsCollector(),
+      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0 },
+      timelineSize: 3,
+    });
+    expect(report.selected.map((r) => r.post.id)).toEqual(["s0", "s2", "s3"]);
+    expect(report.verification).toMatchObject({ calls: 3, rejected: 1, backfilled: 1 });
+
+    const markdown = renderSelectedMarkdown(report);
+    expect(markdown).toContain("Doğrulama: 3 iddia · doğrulandı 1 · çelişiyor 1");
+    expect(markdown).toContain("seçimden çıkan 1 · yedekten gelen 1");
+    expect(markdown).toMatch(/## 1\. @user_s0 — .*✓ kaynaklarla doğrulandı/);
+    expect(markdown).toContain("**✓ kaynaklarla doğrulandı** (güven %75) — özet s0");
+    expect(markdown).toContain("  - Kaynak: [Kaynak s0](https://example.org/s0)");
+    expect(markdown).toMatch(/## 2\. @user_s2 — .*\? doğrulanamadı/);
+    // The rejected post is only counted, never shown.
+    expect(markdown).not.toContain("user_s1");
+    expect(markdown).not.toContain("özet s1");
+  });
+
+  it("says verification was off when run without a Verifier", async () => {
+    const report = await runCapture(capture, {
+      scorer: fakeScorer,
+      metrics: new RunMetricsCollector(),
+      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0.5 },
+      timelineSize: 2,
+    });
+    expect(report.verification).toBeUndefined();
+    expect(renderSelectedMarkdown(report)).toContain("Doğrulama: kapalı");
   });
 });
 

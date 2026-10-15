@@ -81,9 +81,16 @@ export const LlmCallMetricsSchema = z.object({
   model: z.string().min(1).optional(),
   /** Why generation stopped, e.g. "end_turn" or "max_tokens" (truncated). */
   stopReason: z.string().min(1).optional(),
+  /** Web searches the call ran, when the provider reports them. */
+  webSearchRequests: z.number().int().nonnegative().optional(),
+  /** Post the call was about (per-claim stages such as the Verifier). */
+  postId: z.string().min(1).optional(),
   /** Posts the call carried (per-post token cost = tokens / postCount). */
   postCount: z.number().int().nonnegative().optional(),
-  /** True when the call failed (no usable result); timing only. */
+  /**
+   * True when the call yielded no usable result: timing only when the
+   * call itself failed, tokens too when it ran but its reply was unusable.
+   */
   failed: z.boolean().optional(),
 });
 export type LlmCallMetrics = z.infer<typeof LlmCallMetricsSchema>;
@@ -112,6 +119,8 @@ export interface RunMetricsTotals {
   thinkingTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
+  /** Web searches the calls reported running. */
+  webSearchRequests: number;
   /** Sum of reported costs; undefined when no call reported a cost. */
   costUsd: number | undefined;
   /** Last minus first capture time; undefined without collection data. */
@@ -132,6 +141,7 @@ export function summarizeRunMetrics(metrics: RunMetrics): RunMetricsTotals {
     thinkingTokens: sum((call) => call.thinkingTokens),
     cacheReadTokens: sum((call) => call.cacheReadTokens),
     cacheCreationTokens: sum((call) => call.cacheCreationTokens),
+    webSearchRequests: sum((call) => call.webSearchRequests),
     costUsd: anyCost ? sum((call) => call.costUsd) : undefined,
     collectionSpanMs: collection
       ? Date.parse(collection.lastCapturedAt) - Date.parse(collection.firstCapturedAt)
