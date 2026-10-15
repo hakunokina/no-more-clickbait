@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import type { ManagedSettings } from "@nmc/core";
 import type { LlmAvailability } from "@nmc/core/llm";
+import type { BrowserChoice, SettingsStatus } from "../shared/settings-status.js";
 import type { DesktopStatus } from "../shared/status.js";
 
 /**
@@ -21,6 +23,14 @@ export interface DesktopApi {
   /** Runs the pending (Mode A) collection the user confirms. */
   buildTimeline(): Promise<void>;
   openReader(): Promise<void>;
+  getSettingsStatus(): Promise<SettingsStatus>;
+  /** Subscribes to settings pushes; returns the unsubscribe function. */
+  onSettingsStatus(listener: (status: SettingsStatus) => void): () => void;
+  /** Saves settings changed in the Settings window (synced to the extension). */
+  updateSettings(settings: ManagedSettings): Promise<void>;
+  /** Picks the browser collections run in ("default" = system default). */
+  setBrowserChoice(choice: BrowserChoice): Promise<void>;
+  openSettings(): Promise<void>;
 }
 
 const api: DesktopApi = {
@@ -36,6 +46,19 @@ const api: DesktopApi = {
   retryRun: () => ipcRenderer.invoke("nmc:retry-run") as Promise<void>,
   buildTimeline: () => ipcRenderer.invoke("nmc:build-timeline") as Promise<void>,
   openReader: () => ipcRenderer.invoke("nmc:open-reader") as Promise<void>,
+  getSettingsStatus: () =>
+    ipcRenderer.invoke("nmc:get-settings-status") as Promise<SettingsStatus>,
+  onSettingsStatus(listener) {
+    const handler = (_event: IpcRendererEvent, status: SettingsStatus): void =>
+      listener(status);
+    ipcRenderer.on("nmc:settings-status", handler);
+    return () => ipcRenderer.off("nmc:settings-status", handler);
+  },
+  updateSettings: (settings) =>
+    ipcRenderer.invoke("nmc:update-settings", settings) as Promise<void>,
+  setBrowserChoice: (choice) =>
+    ipcRenderer.invoke("nmc:set-browser-choice", choice) as Promise<void>,
+  openSettings: () => ipcRenderer.invoke("nmc:open-settings") as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld("nmc", api);

@@ -6,10 +6,17 @@ import { isReaderPage } from "../preload/reader-bridge.js";
  * reader page's calls only while it shows our reader.html (exact URL
  * match, the same rule its preload uses); while it shows a timeline
  * (untrusted feed content) only the page's own two buttons — collect,
- * retry — get through, sent from the preload's isolated world.
+ * retry — get through, sent from the preload's isolated world. The
+ * Settings window (also local, no navigation) gets its own three calls.
  */
 
-export type IpcWindow = "monitor" | "reader";
+export type IpcWindow = "monitor" | "reader" | "settings";
+
+const SETTINGS_CHANNELS: ReadonlySet<string> = new Set([
+  "nmc:get-settings-status",
+  "nmc:update-settings",
+  "nmc:set-browser-choice",
+]);
 
 const READER_PAGE_CHANNELS: ReadonlySet<string> = new Set([
   "nmc:get-status",
@@ -32,6 +39,7 @@ export function ipcAllowed(
   readerPageUrl: string,
 ): boolean {
   if (window === "monitor") return true;
+  if (window === "settings") return SETTINGS_CHANNELS.has(channel);
   if (window !== "reader" || frameUrl === null) return false;
   return (
     isReaderPage(frameUrl, readerPageUrl) ? READER_PAGE_CHANNELS : TIMELINE_PAGE_CHANNELS

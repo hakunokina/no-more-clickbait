@@ -1,11 +1,12 @@
-import type { BridgeReply, CaptureSource } from "@nmc/core";
+import { UNSTAMPED, type BridgeReply, type CaptureSource } from "@nmc/core";
+import { identifyBrowser, type BrowserIdentity } from "./browser-identity.js";
 import { CaptureStore } from "./capture-store.js";
 import { createCollectionRelay } from "./collection-relay.js";
 import { LinkClient } from "./desktop-link.js";
 import { MessageDecoder, encodeMessage } from "./framing.js";
 import { handleBridgeMessage } from "./handler.js";
 import { PostSessionStore } from "./post-session-store.js";
-import { saveSyncedSettings } from "./settings-store.js";
+import { saveSettingsFile } from "./settings-store.js";
 
 /**
  * Native Messaging host entry point. The browser launches this process
@@ -19,7 +20,12 @@ import { saveSyncedSettings } from "./settings-store.js";
  *   this process link up with the desktop app over the user-only pipe
  *   (desktop-link.ts), so one-shot hosts (settings sync) never do. The
  *   link carries the desktop's `start-collection` to the extension and
- *   `link-status` pushes whenever the desktop comes or goes.
+ *   `link-status` pushes whenever the desktop comes or goes. The host
+ *   tells the desktop which browser started it (browser-identity.ts).
+ * - Settings: the host is settings.json's only writer. A save in the
+ *   extension (`settings-sync`) or its answer to a desktop change
+ *   (`settings-push` → `settings-push-result`) is written unless the
+ *   file holds a later save, and relayed to the desktop.
  * - Raw developer captures go through the CaptureStore (capture-store.ts):
  *   outside the repo, per-session folders with a counts/times-only
  *   summary.json (`NMC_INBOX_DIR` moves them). Each source (X, Reddit)
@@ -43,6 +49,13 @@ function captureStore(source: CaptureSource = "x"): CaptureStore {
 const sessionStore = new PostSessionStore();
 let link: LinkClient | null = null;
 let browserGone = false;
+/** Asked once and only by the long-lived port (one-shot hosts spawn nothing). */
+let browserIdentity: Promise<BrowserIdentity> | null = null;
+
+function hostBrowser(): Promise<BrowserIdentity> {
+  browserIdentity ??= identifyBrowser();
+  return browserIdentity;
+}
 
 process.stdout.on("error", () => {
   browserGone = true;
@@ -56,6 +69,7 @@ function pushToExtension(message: BridgeReply): void {
 function startDesktopLink(): void {
   if (link) return;
   link = new LinkClient({
+    browser: hostBrowser(),
     // Desktop commands are extension pushes of the same shape.
     onCommand: pushToExtension,
     onConnectionChanged: (desktopConnected) => {
@@ -70,7 +84,11 @@ function startDesktopLink(): void {
 
 const decoder = new MessageDecoder();
 
-const relay = createCollectionRelay(sessionStore, (message) => link?.send(message));
+const relay = createCollectionRelay(
+  sessionStore,
+  (message) => link?.send(message),
+  () => hostBrowser().then((identity) => identity.family),
+);
 
 /**
  * In-flight message handlers. When stdin closes the process must not
@@ -109,7 +127,28 @@ function dispatch(raw: string): void {
     onOversizedCapture: (capture) => captureStore(capture.source).recordOversized(capture),
     captureStats: (source) => captureStore(source).stats,
     onModeBRun: (run) => captureStore().recordModeBRun(run),
-    onSettingsSync: (settings) => saveSyncedSettings(settings),
+    onSettingsSync: async (settings, stamp) => {
+      const file = await saveSettingsFile(settings, stamp);
+      link?.send({
+        type: "settings-state",
+        origin: "sync",
+        settings,
+        stamp: stamp ?? UNSTAMPED,
+        saved: file.written,
+      });
+    },
+    onSettingsPushResult: async ({ outcome, settings, stamp, modeBPermissionMissing }) => {
+      const file = await saveSettingsFile(settings, stamp);
+      link?.send({
+        type: "settings-state",
+        origin: "push-result",
+        outcome,
+        settings,
+        stamp,
+        saved: file.written,
+        ...(modeBPermissionMissing !== undefined ? { modeBPermissionMissing } : {}),
+      });
+    },
   })
     .then((reply) => {
       pushToExtension(reply);

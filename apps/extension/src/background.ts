@@ -1,8 +1,10 @@
 import {
   bridgeMessageByteLength,
   BridgeReplySchema,
+  ManagedSettingsSchema,
   MAX_BRIDGE_MESSAGE_BYTES,
   parseHomeTimeline,
+  SettingsStampSchema,
   type BridgeMessage,
   type CaptureSource,
   type CaptureStats,
@@ -11,6 +13,7 @@ import {
   type ModeBRunSummary,
   type PostBatch,
   type Settings,
+  type SettingsStamp,
 } from "@nmc/core";
 import { CaptureSession } from "./capture-session.js";
 import {
@@ -31,8 +34,19 @@ import {
   type ModeBStart,
 } from "./mode-b.js";
 import { NativeChannel } from "./native-channel.js";
-import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
-import { NATIVE_HOST_NAME, sendNativeOnce, syncSettings } from "./settings-sync.js";
+import {
+  loadSettings,
+  loadSettingsStamp,
+  saveSettings,
+  SETTINGS_STAMP_KEY,
+  SETTINGS_STORAGE_KEY,
+} from "./settings.js";
+import {
+  applySettingsPush,
+  NATIVE_HOST_NAME,
+  sendNativeOnce,
+  syncSettings,
+} from "./settings-sync.js";
 
 /**
  * Service worker: receives captured timeline responses, converts them
@@ -83,6 +97,12 @@ export { NATIVE_HOST_NAME };
  * the desktop app decides whether to build) and starts a new counting
  * session (= a new host session folder; the old port closes only once
  * its host has answered everything, see native-channel.ts).
+ *
+ * Settings: whenever the desktop link comes up the worker reports its
+ * settings (`settings-sync` with their stamp), so the desktop app shows
+ * them and hands back a later change made there; a change in the
+ * desktop app arrives as `settings-push` and is applied unless the
+ * extension saved later (settings-sync.ts applySettingsPush).
  */
 const LINK_RETRY_FIRST_MS = 5_000;
 const LINK_RETRY_MAX_MS = 60_000;
@@ -99,6 +119,8 @@ let generation = 0;
 const session = new CaptureSession(chrome.storage.session);
 let linkRetryMs = LINK_RETRY_FIRST_MS;
 let linkTimer: ReturnType<typeof setTimeout> | null = null;
+/** The current session's host is linked to the desktop app. */
+let desktopLinked = false;
 
 const channel = new NativeChannel(openNativePort);
 
@@ -178,6 +200,17 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
   if (reply.type === "stop-collection") {
     // Queued behind a start still in flight, so it stops that run too.
     runCommand(() => modeB.stop("cancelled"));
+    return;
+  }
+  if (reply.type === "settings-push") {
+    applyPushedSettings(reply.settings, reply.stamp);
+    return;
+  }
+  if (reply.type === "link-status") {
+    if (replyGeneration !== generation) return;
+    const cameUp = reply.desktopConnected && !desktopLinked;
+    desktopLinked = reply.desktopConnected;
+    if (cameUp) await reportSettingsToDesktop();
     return;
   }
   if (reply.type === "capture-accepted" || reply.type === "capture-rejected") {
@@ -340,6 +373,7 @@ function completeModeA(count: number, settings: Settings, countGeneration: numbe
  */
 async function startNewCountingSession(): Promise<void> {
   generation += 1;
+  desktopLinked = false;
   channel.retire();
   await session.reset();
   await updateBadge(0);
@@ -527,13 +561,67 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   });
 });
 
+// --- Settings shared with the desktop app ----------------------------
+
+// An Options save goes to settings.json through a one-shot host, which
+// has no desktop link: the linked worker reports it, so the desktop
+// shows it before its own next save (which would otherwise carry the
+// older values with a newer stamp and undo it).
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  const stamp = SettingsStampSchema.safeParse(changes[SETTINGS_STAMP_KEY]?.newValue);
+  if (areaName !== "local" || !stamp.success || stamp.data.source !== "extension") return;
+  if (!desktopLinked) return;
+  void reportSettingsToDesktop().catch((error: unknown) => {
+    console.error(`[nmc] settings report to the desktop failed: ${String(error)}`);
+  });
+});
+
+/** Tells the desktop app the settings this extension holds, and when they were saved. */
+async function reportSettingsToDesktop(): Promise<void> {
+  const [settings, stamp] = await Promise.all([loadSettings(), loadSettingsStamp()]);
+  sendToDesktop({
+    type: "settings-sync",
+    settings: ManagedSettingsSchema.parse(settings),
+    stamp,
+  });
+}
+
+/** Pushes are applied one at a time, each against the settings the last one left. */
+let settingsWork: Promise<unknown> = Promise.resolve();
+
+function applyPushedSettings(settings: unknown, stamp: SettingsStamp): void {
+  settingsWork = settingsWork
+    .then(async () => {
+      const result = await applySettingsPush(
+        { settings: ManagedSettingsSchema.parse(settings), stamp },
+        {
+          load: async () => ({
+            settings: await loadSettings(),
+            stamp: await loadSettingsStamp(),
+          }),
+          save: saveSettings,
+          modeBPermitted: () =>
+            chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }),
+        },
+      );
+      sendToDesktop(result);
+    })
+    .catch((error: unknown) => {
+      console.error(`[nmc] settings from the desktop app not applied: ${String(error)}`);
+    });
+}
+
 /**
  * Once per browser start (and on install/update) the desktop gets the
- * current pipeline settings — not on every worker restart, each sync
- * starts a host process.
+ * current settings — not on every worker restart, each sync starts a
+ * host process.
  */
 async function syncSettingsAtStartup(): Promise<void> {
-  const result = await syncSettings(await loadSettings(), sendNativeOnce);
+  const result = await syncSettings(
+    await loadSettings(),
+    sendNativeOnce,
+    await loadSettingsStamp(),
+  );
   if (result.status !== "synced") {
     console.warn(
       `[nmc] settings not synced to the desktop (${result.status}): ${result.detail}`,

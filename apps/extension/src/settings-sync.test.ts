@@ -1,6 +1,16 @@
-import { SettingsSchema, type BridgeMessage } from "@nmc/core";
+import {
+  SettingsSchema,
+  type BridgeMessage,
+  type Settings,
+  type SettingsStamp,
+} from "@nmc/core";
 import { describe, expect, it, vi } from "vitest";
-import { createSettingsSyncer, describeSyncResult, syncSettings } from "./settings-sync.js";
+import {
+  applySettingsPush,
+  createSettingsSyncer,
+  describeSyncResult,
+  syncSettings,
+} from "./settings-sync.js";
 
 const settings = SettingsSchema.parse({
   maxClickbait: 5,
@@ -9,12 +19,17 @@ const settings = SettingsSchema.parse({
 });
 
 describe("syncSettings", () => {
-  it("sends only the synced pipeline settings and reports success", async () => {
+  it("sends the managed settings with their stamp and reports success", async () => {
     const sent: BridgeMessage[] = [];
-    const result = await syncSettings(settings, (message) => {
-      sent.push(message);
-      return Promise.resolve({ type: "settings-synced" });
-    });
+    const stamp: SettingsStamp = { updatedAt: "2026-10-15T10:00:00.000Z", source: "extension" };
+    const result = await syncSettings(
+      { ...settings, modeBTarget: 80 },
+      (message) => {
+        sent.push(message);
+        return Promise.resolve({ type: "settings-synced" });
+      },
+      stamp,
+    );
     expect(result).toEqual({ status: "synced" });
     expect(sent).toEqual([
       {
@@ -27,7 +42,12 @@ describe("syncSettings", () => {
           minReadForVerify: 4,
           maxVerifications: 20,
           verifyEnabled: true,
+          modeBEnabled: true,
+          modeBStrategy: "minimized-window",
+          modeBPacing: "normal",
+          devCaptureEnabled: true,
         },
+        stamp,
       },
     ]);
     expect(describeSyncResult(result)).toBe("");
@@ -106,5 +126,83 @@ describe("createSettingsSyncer", () => {
       status: "rejected",
     });
     await expect(sync(settings)).resolves.toMatchObject({ status: "unreachable" });
+  });
+});
+
+describe("applySettingsPush", () => {
+  const at = (updatedAt: string, source: SettingsStamp["source"]): SettingsStamp => ({
+    updatedAt,
+    source,
+  });
+  const OWN = at("2026-10-15T10:00:00.000Z", "extension");
+
+  function store(initial: Settings, stamp: SettingsStamp, permitted = true) {
+    const state = { settings: initial, stamp, saves: 0 };
+    return {
+      state,
+      deps: {
+        load: () => Promise.resolve({ settings: state.settings, stamp: state.stamp }),
+        save: (next: Settings, nextStamp: SettingsStamp) => {
+          state.settings = next;
+          state.stamp = nextStamp;
+          state.saves += 1;
+          return Promise.resolve();
+        },
+        modeBPermitted: () => Promise.resolve(permitted),
+      },
+    };
+  }
+
+  it("applies a later desktop change and answers with what it now holds", async () => {
+    const { state, deps } = store(SettingsSchema.parse({ modeBTarget: 100 }), OWN);
+    const stamp = at("2026-10-15T10:05:00.000Z", "desktop");
+    const pushed = { ...SettingsSchema.parse({}), maxClickbait: 3, collectTarget: 400 };
+    const result = await applySettingsPush({ settings: pushed, stamp }, deps);
+    expect(result).toMatchObject({
+      type: "settings-push-result",
+      outcome: "applied",
+      stamp,
+      settings: { maxClickbait: 3, collectTarget: 400 },
+    });
+    expect(result.modeBPermissionMissing).toBeUndefined();
+    expect(state.stamp).toEqual(stamp);
+    expect(state.settings).toMatchObject({ maxClickbait: 3, collectTarget: 400 });
+    // The deprecated Mode B target mirrors the collection target, as on Save.
+    expect(state.settings.modeBTarget).toBe(400);
+  });
+
+  it("keeps its own later save and answers with it", async () => {
+    const own = SettingsSchema.parse({ maxClickbait: 6 });
+    const { state, deps } = store(own, OWN);
+    const result = await applySettingsPush(
+      {
+        settings: { ...own, maxClickbait: 2 },
+        stamp: at("2026-10-15T09:00:00.000Z", "desktop"),
+      },
+      deps,
+    );
+    expect(result).toMatchObject({
+      outcome: "kept-newer",
+      stamp: OWN,
+      settings: { maxClickbait: 6 },
+    });
+    expect(state.saves).toBe(0);
+  });
+
+  it("never turns Mode B on without its permission", async () => {
+    const { state, deps } = store(SettingsSchema.parse({}), OWN, false);
+    const result = await applySettingsPush(
+      {
+        settings: { ...SettingsSchema.parse({}), modeBEnabled: true, modeBPacing: "fast" },
+        stamp: at("2026-10-15T10:05:00.000Z", "desktop"),
+      },
+      deps,
+    );
+    expect(result).toMatchObject({
+      outcome: "applied",
+      modeBPermissionMissing: true,
+      settings: { modeBEnabled: false, modeBPacing: "fast" },
+    });
+    expect(state.settings.modeBEnabled).toBe(false);
   });
 });
