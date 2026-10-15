@@ -1,6 +1,6 @@
 import { SettingsSchema, type BridgeMessage } from "@nmc/core";
-import { describe, expect, it } from "vitest";
-import { describeSyncResult, syncSettings } from "./settings-sync.js";
+import { describe, expect, it, vi } from "vitest";
+import { createSettingsSyncer, describeSyncResult, syncSettings } from "./settings-sync.js";
 
 const settings = SettingsSchema.parse({
   maxClickbait: 5,
@@ -70,5 +70,41 @@ describe("syncSettings", () => {
     await expect(
       syncSettings({ ...settings, maxClickbait: 42 }, () => Promise.resolve({})),
     ).rejects.toThrow();
+  });
+});
+
+describe("createSettingsSyncer", () => {
+  it("runs one exchange at a time and sends only the latest of the queued saves", async () => {
+    const sent: number[] = [];
+    const replies: (() => void)[] = [];
+    const sync = createSettingsSyncer((message) => {
+      if (message.type === "settings-sync") sent.push(message.settings.maxClickbait);
+      return new Promise((resolve) => replies.push(() => resolve({ type: "settings-synced" })));
+    });
+    const first = sync({ ...settings, maxClickbait: 1 });
+    const second = sync({ ...settings, maxClickbait: 2 });
+    const third = sync({ ...settings, maxClickbait: 3 });
+    await Promise.resolve();
+    expect(sent).toEqual([1]);
+    replies.shift()?.();
+    await expect(first).resolves.toEqual({ status: "synced" });
+    await vi.waitFor(() => expect(sent).toEqual([1, 3]));
+    replies.shift()?.();
+    await expect(Promise.all([second, third])).resolves.toEqual([
+      { status: "synced" },
+      { status: "synced" },
+    ]);
+    expect(sent).toEqual([1, 3]);
+    // Idle again: the next save goes straight out.
+    void sync({ ...settings, maxClickbait: 4 });
+    await vi.waitFor(() => expect(sent).toEqual([1, 3, 4]));
+  });
+
+  it("keeps working after a sync fails or throws", async () => {
+    const sync = createSettingsSyncer(() => Promise.reject(new Error("no host")));
+    await expect(sync({ ...settings, maxClickbait: 42 })).resolves.toMatchObject({
+      status: "rejected",
+    });
+    await expect(sync(settings)).resolves.toMatchObject({ status: "unreachable" });
   });
 });

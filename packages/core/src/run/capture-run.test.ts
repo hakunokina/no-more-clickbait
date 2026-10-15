@@ -12,6 +12,7 @@ import {
   renderSelectedMarkdown,
   runCapture,
   scoreDistribution,
+  timelineDocJson,
   type LoadedCapture,
 } from "./capture-run.js";
 
@@ -306,6 +307,19 @@ describe("capture run (synthetic capture directory)", () => {
     });
     expect(report.verification).toBeUndefined();
     expect(renderSelectedMarkdown(report)).toContain("Doğrulama: kapalı");
+  });
+
+  it("returns timeline-doc.json, or a warning instead of throwing on a schema violation", async () => {
+    const report = await runCapture(capture, {
+      scorer: fakeScorer,
+      metrics: new RunMetricsCollector(),
+      settings: { maxClickbait: 7, minReadValue: 5, timelineSize: 2 },
+    });
+    const ok = timelineDocJson(report, new Date("2026-01-01T00:01:00.000Z"));
+    expect("json" in ok && JSON.parse(ok.json).cards).toHaveLength(report.selected.length);
+
+    const broken = timelineDocJson({ ...report, funnel: { ...report.funnel, shown: 99 } });
+    expect(broken).toEqual({ warning: expect.stringContaining("schema violation") });
   });
 
   it("skips a supplied Verifier when the settings turn verification off", async () => {

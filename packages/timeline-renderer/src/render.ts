@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
-import type {
-  FunnelCounts,
-  Post,
-  PostMedia,
-  ScoreLevel,
-  TimelineCard,
-  TimelineDoc,
-  VerificationResult,
+import {
+  scoreOutOfTen,
+  type FunnelCounts,
+  type Post,
+  type PostMedia,
+  type ScoreLevel,
+  type TimelineCard,
+  type TimelineDoc,
+  type VerificationResult,
 } from "@nmc/core";
 import { TIMELINE_SCRIPT } from "./client-script.js";
 import { TIMELINE_CSS } from "./styles.js";
@@ -188,9 +189,9 @@ const LEVEL_WORD: Record<ScoreLevel, string> = {
   "very-high": "Çok yüksek",
 };
 
-/** 0.91 → "0,91" (the mockup's "Why is this here?" figure). */
-function decimal(value: number): string {
-  return value.toFixed(2).replace(".", ",");
+/** 0.91 → "9 / 10": the Settings' 0-10 scale, rounded down (scoreOutOfTen). */
+function outOfTen(value: number): string {
+  return `${scoreOutOfTen(value)} / 10`;
 }
 
 function initials(name: string): string {
@@ -277,11 +278,14 @@ function nodims(m: PostMedia): string {
 }
 
 function renderPhotos(pid: string, photos: PostMedia[]): string {
-  const shown = photos.slice(0, 4);
-  const n = shown.length;
-  const cells = shown.map((m, k) => {
+  // Numbered after the host filter: a dropped photo leaves no gap in "(k/n)".
+  const shown = photos.slice(0, 4).flatMap((m) => {
     const src = safeUrl(m.url, IMAGE_HOSTS);
-    if (!src) return "";
+    return src ? [{ m, src }] : [];
+  });
+  const n = shown.length;
+  if (!n) return "";
+  const cells = shown.map(({ m, src }, k) => {
     const alt = m.altText?.trim() ?? "";
     const altId = `${pid}-alt-${k + 1}`;
     const position = n > 1 ? ` (${k + 1}/${n})` : "";
@@ -296,9 +300,7 @@ function renderPhotos(pid: string, photos: PostMedia[]): string {
       `</div>`
     );
   });
-  const kept = cells.filter(Boolean);
-  if (!kept.length) return "";
-  return `<div class="media media--${kept.length}">${kept.join("")}</div>`;
+  return `<div class="media media--${n}">${cells.join("")}</div>`;
 }
 
 function mp4(m: PostMedia): URL | undefined {
@@ -339,13 +341,14 @@ function renderVideo(m: PostMedia, postUrl: URL | undefined): string {
   );
 }
 
-function renderGif(pid: string, m: PostMedia): string {
+/** `gid`: unique per GIF of the post, for the still-frame fallback's ids. */
+function renderGif(gid: string, m: PostMedia): string {
   const poster = safeUrl(m.url, IMAGE_HOSTS);
   const src = mp4(m);
   const alt = m.altText?.trim() ?? "";
   if (!src) {
     // No playable rendition: its still frame, as a photo.
-    return renderPhotos(`${pid}-gif`, [{ ...m, type: "photo" }]);
+    return renderPhotos(gid, [{ ...m, type: "photo" }]);
   }
   return (
     `<div class="media media--1"><div class="media__cell gif${nodims(m)}" data-playing="false">` +
@@ -361,9 +364,10 @@ function renderGif(pid: string, m: PostMedia): string {
 function renderMedia(pid: string, media: PostMedia[], postUrl: URL | undefined): string {
   const photos = media.filter((m) => m.type === "photo");
   let out = renderPhotos(pid, photos);
+  let gifs = 0;
   for (const m of media) {
     if (m.type === "video") out += renderVideo(m, postUrl);
-    if (m.type === "gif") out += renderGif(pid, m);
+    if (m.type === "gif") out += renderGif(`${pid}-gif${++gifs}`, m);
   }
   return out;
 }
@@ -471,8 +475,8 @@ function renderWhy(pid: string, card: TimelineCard, total: number): string {
   return (
     `<div class="why" id="${pid}-why" hidden>` +
     (score.reason?.trim() ? `<p>${esc(score.reason)}</p>` : "") +
-    `<dl><dt>Okuma değeri</dt><dd>${LEVEL_WORD[levels.readValue]} <small>(${decimal(score.readWorthinessScore)})</small></dd>` +
-    `<dt>Clickbait</dt><dd>${LEVEL_WORD[levels.clickbait]} <small>(${decimal(score.clickbaitScore)})</small></dd>` +
+    `<dl><dt>Okuma değeri</dt><dd>${LEVEL_WORD[levels.readValue]} <small>(${outOfTen(score.readWorthinessScore)})</small></dd>` +
+    `<dt>Clickbait</dt><dd>${LEVEL_WORD[levels.clickbait]} <small>(${outOfTen(score.clickbaitScore)})</small></dd>` +
     `<dt>Sıra</dt><dd>${card.rank} / ${total}</dd></dl></div>`
   );
 }

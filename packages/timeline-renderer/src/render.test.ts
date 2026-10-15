@@ -145,6 +145,51 @@ describe("renderTimeline", () => {
     expect(html).toContain('href="https://news.example.invalid/x"');
   });
 
+  it("numbers photos after dropping disallowed ones", () => {
+    const photo = (host: string, n: number) =>
+      ({
+        type: "photo",
+        url: `https://${host}/media/${n}.jpg`,
+        width: 10,
+        height: 10,
+      }) as const;
+    const html = render(
+      withCard({
+        ...firstCard,
+        post: {
+          ...firstCard.post,
+          media: [
+            photo("cdn.evil.example", 1),
+            photo("pbs.twimg.com", 2),
+            photo("pbs.twimg.com", 3),
+          ],
+        },
+      }),
+    );
+    const card = html.match(/<article class="post" id="p1"[\s\S]*?<\/article>/)?.[0] ?? "";
+    expect(card).toContain('class="media media--2"');
+    expect(card).toContain("Görsel — büyüt (1/2)");
+    expect(card).toContain("Görsel — büyüt (2/2)");
+    expect(card).not.toContain("/3)");
+  });
+
+  it("keeps ids unique when several GIFs fall back to their still frames", () => {
+    const gif = (n: number) =>
+      ({
+        type: "gif",
+        url: `https://pbs.twimg.com/tweet_video_thumb/${n}.jpg`,
+        altText: `gif ${n}`,
+        variants: [],
+      }) as const;
+    const html = render(
+      withCard({ ...firstCard, post: { ...firstCard.post, media: [gif(1), gif(2)] } }),
+    );
+    expect(html).toContain('id="p1-gif1-alt-1"');
+    expect(html).toContain('id="p1-gif2-alt-1"');
+    const ids = (html.match(/ id="[^"]+"/g) ?? []).map((a) => a.slice(5, -1));
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("reserves media space and loads it lazily", () => {
     const html = render(fixture);
     for (const img of html.match(/<img [^>]*>/g) ?? []) {
@@ -182,8 +227,20 @@ describe("renderTimeline", () => {
     const whyPanels = html.match(/<div class="why"[^>]*hidden>[\s\S]*?<\/div>/g) ?? [];
     expect(whyPanels).toHaveLength(fixture.cards.length);
     expect(html.replace(/<div class="why"[^>]*hidden>[\s\S]*?<\/div>/g, "")).not.toMatch(
-      /\(0,\d\d\)/,
+      /\d+ \/ 10\)/,
     );
+  });
+
+  it("gives scores on the Settings' 0-10 scale, rounded down", () => {
+    const html = render(
+      withCard({
+        ...firstCard,
+        score: { ...firstCard.score, readWorthinessScore: 0.7, clickbaitScore: 0.68 },
+      }),
+    );
+    const why = html.match(/<div class="why" id="p1-why"[\s\S]*?<\/dl>/)?.[0] ?? "";
+    expect(why).toContain("<small>(7 / 10)</small>");
+    expect(why).toContain("<small>(6 / 10)</small>");
   });
 
   it("keeps a contradicted post out of the feed and counts it in the tally", () => {

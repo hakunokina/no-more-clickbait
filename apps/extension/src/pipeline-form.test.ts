@@ -80,6 +80,32 @@ describe("pipeline settings form", () => {
     expect(result.errors.collectTarget).toBe("Enter a whole number from 1 to 10000.");
   });
 
+  it("keeps the stored source-check values when their fields are invalid while checks are off", () => {
+    const stored = { ...defaultSyncedSettings(), minReadForVerify: 6, maxVerifications: 5 };
+    const invalid = { minReadForVerify: "", maxVerifications: "99" };
+    expect(readPipelineForm(formOf({ ...invalid, verifyEnabled: false }), stored)).toEqual({
+      ok: true,
+      settings: { ...stored, verifyEnabled: false },
+    });
+    // Valid entries still win while checks are off.
+    const valid = readPipelineForm(
+      formOf({ maxVerifications: "3", verifyEnabled: false }),
+      stored,
+    );
+    expect(valid.ok && valid.settings.maxVerifications).toBe(3);
+    // With checks on they are validated like every other field.
+    const on = readPipelineForm(formOf({ ...invalid, verifyEnabled: true }), stored);
+    expect(on.ok ? [] : Object.keys(on.errors).sort()).toEqual([
+      "maxVerifications",
+      "minReadForVerify",
+    ]);
+    // Only the source-check fields are skipped.
+    const other = readPipelineForm(
+      formOf({ ...invalid, maxClickbait: "0", verifyEnabled: false }),
+    );
+    expect(other.ok ? [] : Object.keys(other.errors)).toEqual(["maxClickbait"]);
+  });
+
   it("reads the checkbox as a boolean", () => {
     const result = readPipelineForm(formOf({ verifyEnabled: false }));
     expect(result.ok && result.settings.verifyEnabled).toBe(false);

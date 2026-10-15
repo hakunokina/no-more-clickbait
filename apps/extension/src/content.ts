@@ -27,5 +27,5 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
 /** Mode B: the worker drives scrolling one step at a time (see mode-b-page.ts). */
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
   if (sender.id !== chrome.runtime.id || !isModeBStepMessage(message)) return;
-  sendResponse(scrollStep(document, window));
+  sendResponse(scrollStep(document, window, message.action));
 });

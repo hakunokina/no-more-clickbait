@@ -234,6 +234,13 @@ export const ModeBStrategySchema = z.enum([
 ]);
 export type ModeBStrategy = z.infer<typeof ModeBStrategySchema>;
 
+/**
+ * How a Mode B run paces its scroll steps: `response` waits for X to
+ * answer each jump before the next one; `fixed` jumps on a short timer.
+ */
+export const ModeBPacingSchema = z.enum(["response", "fixed"]);
+export type ModeBPacing = z.infer<typeof ModeBPacingSchema>;
+
 interface IntegerSettingField {
   kind: "integer";
   min: number;
@@ -395,21 +402,22 @@ export const SettingsFieldsSchema = z.object({
    */
   devCaptureEnabled: z.boolean().default(false),
   /**
-   * Developer-capture target: the extension badges/notifies once this
-   * many (roughly counted) posts were captured. Capture does not stop.
+   * @deprecated Use `collectTarget`. The old developer-capture target;
+   * nothing reads it any more. Kept so old settings still parse; it
+   * seeds `collectTarget` when neither that nor `modeBTarget` is set.
    */
   captureTarget: z.number().int().min(1).max(10_000).default(250),
 });
 
 /** User settings shared between the extension options page and desktop. */
 export const SettingsSchema = z.preprocess((raw) => {
-  // Settings saved before `collectTarget` existed: Mode B's target was
-  // the only collection target, so it carries over.
+  // Settings saved before `collectTarget` existed: the old targets carry
+  // over — Mode B's first, else the developer-capture one.
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
   const stored = raw as Record<string, unknown>;
-  return stored["collectTarget"] === undefined && stored["modeBTarget"] !== undefined
-    ? { ...stored, collectTarget: stored["modeBTarget"] }
-    : stored;
+  if (stored["collectTarget"] !== undefined) return stored;
+  const old = stored["modeBTarget"] ?? stored["captureTarget"];
+  return old === undefined ? stored : { ...stored, collectTarget: old };
 }, SettingsFieldsSchema);
 export type Settings = z.infer<typeof SettingsSchema>;
 
@@ -510,6 +518,16 @@ export const ModeBRunSummarySchema = z.object({
   responseCount: z.number().int().nonnegative(),
   uniquePostCount: z.number().int().nonnegative(),
   stopReason: ModeBStopReasonSchema,
+  /** Fields below were added later; summaries stored before lack them. */
+  pacing: ModeBPacingSchema.optional(),
+  /** Scroll steps per minute, from the first step to the end. */
+  scrollsPerMinute: z.number().nonnegative().optional(),
+  /** Steps after which a new response had arrived, the page's first one excluded. */
+  stepsWithNewResponse: z.number().int().nonnegative().optional(),
+  /** Mean time from a jump to the next response (response pacing only). */
+  avgResponseLatencyMs: z.number().int().nonnegative().optional(),
+  /** The browser's error text behind the stop (e.g. why the window did not open). */
+  error: z.string().max(500).optional(),
 });
 export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
 

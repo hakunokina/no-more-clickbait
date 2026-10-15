@@ -45,7 +45,7 @@ describe("SettingsSchema", () => {
       ...old,
       modeBTarget: 100,
       modeBStrategy: "minimized-window",
-      collectTarget: 250,
+      collectTarget: 9,
       maxClickbait: 7,
       minReadValue: 2,
       minReadForVerify: 4,
@@ -90,6 +90,14 @@ describe("SettingsSchema", () => {
       400,
     );
     expect(SettingsSchema.parse({}).collectTarget).toBe(250);
+    // Without either, the deprecated developer-capture target carries over.
+    expect(SettingsSchema.parse({ captureTarget: 300 }).collectTarget).toBe(300);
+    expect(SettingsSchema.parse({ modeBTarget: 100, captureTarget: 300 }).collectTarget).toBe(
+      100,
+    );
+    expect(SettingsSchema.parse({ captureTarget: 300, collectTarget: 40 }).collectTarget).toBe(
+      40,
+    );
     expect(SettingsSchema.safeParse({ collectTarget: 10_001 }).success).toBe(false);
   });
 
@@ -134,6 +142,26 @@ describe("Mode B run bridge message", () => {
     expect(BridgeReplySchema.parse({ type: "mode-b-run-recorded" })).toEqual({
       type: "mode-b-run-recorded",
     });
+  });
+
+  it("carries the pacing, rate and error fields, which older summaries lack", () => {
+    const later = {
+      ...run,
+      stopReason: "failed-to-open",
+      pacing: "response",
+      scrollsPerMinute: 41.5,
+      stepsWithNewResponse: 5,
+      avgResponseLatencyMs: 820,
+      error: "Invalid value for bounds.",
+    };
+    expect(BridgeMessageSchema.parse({ type: "mode-b-run", run: later })).toEqual({
+      type: "mode-b-run",
+      run: later,
+    });
+    expect(
+      BridgeMessageSchema.safeParse({ type: "mode-b-run", run: { ...run, pacing: "warp" } })
+        .success,
+    ).toBe(false);
   });
 
   it("rejects unknown stop reasons and strips fields beyond the counts", () => {
