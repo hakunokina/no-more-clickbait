@@ -2,6 +2,8 @@ import type { DesktopApi } from "../preload/preload.js";
 import {
   describeLink,
   describeRun,
+  describeStopReason,
+  describeUnfinished,
   formatCost,
   formatCount,
   formatDuration,
@@ -33,14 +35,19 @@ function render(status: DesktopStatus): void {
   text("stage", describeRun(status));
   text("link-status", describeLink(status));
   text("collection-note", status.collection.message ?? "");
+  text("unfinished-note", describeUnfinished(status));
 
-  el("pending").hidden = status.pending === null || active;
+  const pending = status.pending;
+  el("pending").hidden = pending === null || active;
   text(
     "pending-note",
-    status.pending
-      ? `${status.pending.uniquePostCount} posts collected while you browsed. Build the timeline? (Uses your claude CLI.)`
-      : "",
+    pending === null
+      ? ""
+      : pending.mode === "A"
+        ? `${pending.uniquePostCount} posts collected while you browsed. Build the timeline? (Uses your claude CLI.)`
+        : `The collection stopped early (${describeStopReason(pending.reason)}) with ${pending.uniquePostCount} posts. Build the timeline anyway? (Uses your claude CLI.)`,
   );
+  text("build", pending?.mode === "B" ? "Build timeline anyway" : "Build timeline");
 
   const error = el("run-error");
   error.hidden = run.error === null;
@@ -53,7 +60,14 @@ function render(status: DesktopStatus): void {
     active || run.sessionId === null || !(run.stage === "error" || run.stage === "cancelled");
 
   const counts = run.counts;
-  text("posts-collected", formatCount(counts.afterHardFilter ?? counts.postsIn));
+  const { collection } = status;
+  const collecting = !active && collection.state === "collecting" && collection.count !== null;
+  text(
+    "posts-collected",
+    collecting
+      ? `${formatCount(collection.count)} / ${formatCount(collection.target)}`
+      : formatCount(counts.afterHardFilter ?? counts.postsIn),
+  );
   text("posts-filtered", formatCount(counts.filteredOut));
   text(
     "posts-verified",

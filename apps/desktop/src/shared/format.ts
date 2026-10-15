@@ -42,6 +42,9 @@ export function describeRun(status: DesktopStatus): string {
     case "idle":
       if (collection.state === "requested") return "Asking the extension to collect…";
       if (collection.state === "collecting") {
+        if (collection.count !== null && collection.target) {
+          return `Collecting in the browser… ${formatCount(collection.count)} / ${formatCount(collection.target)} posts`;
+        }
         return collection.target
           ? `Collecting ${collection.target} posts in the browser…`
           : "Collecting posts in the browser…";
@@ -59,4 +62,34 @@ export function describeLink(status: DesktopStatus): string {
   return link.hosts === 1
     ? "Browser extension connected."
     : `${link.hosts} browsers connected.`;
+}
+
+const STOP_REASONS: Record<string, string> = {
+  "target-reached": "target reached",
+  timeout: "time limit reached",
+  stalled: "no new posts for about 20 s of scrolling",
+  "not-logged-in": "not logged in to X in this browser",
+  "error-page": "X showed an error page",
+  "navigated-away": "the tab left x.com/home",
+  "rate-limited": "X rate-limited the timeline",
+  "page-unresponsive": "the page stopped answering scroll steps",
+  "tab-closed": "the collection tab was closed",
+  cancelled: "stopped by you",
+  "settings-changed": "the extension's settings changed during the run",
+  "failed-to-open": "the collection tab or window could not be opened",
+};
+
+/** Why a collection ended, in words (unknown reasons as they came). */
+export function describeStopReason(reason: string): string {
+  return STOP_REASONS[reason] ?? reason;
+}
+
+/** Monitor note on sessions whose collection never completed; empty when none. */
+export function describeUnfinished(status: DesktopStatus): string {
+  const { count, newestAt } = status.unfinished;
+  if (count === 0) return "";
+  const when = newestAt ? ` (latest started ${new Date(newestAt).toLocaleString()})` : "";
+  return count === 1
+    ? `1 earlier collection never finished${when}. Its posts stay on disk; it is not built.`
+    : `${count} earlier collections never finished${when}. Their posts stay on disk; they are not built.`;
 }

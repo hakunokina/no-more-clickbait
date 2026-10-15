@@ -254,7 +254,7 @@ describe("background worker", () => {
     expect(fake.badge.color).toBe("#5f6368");
   });
 
-  it("resets the session and closes the port when capture is toggled", async () => {
+  it("resets the session and closes the port once its host has answered", async () => {
     captureTimeline();
     await settle();
     expect(fake.badge.text).toBe("4");
@@ -262,14 +262,17 @@ describe("background worker", () => {
 
     await setCapture(true);
     await settle();
-    expect(oldPort?.disconnect).toHaveBeenCalledTimes(1);
+    // Ping and batch are still unanswered: closing now could lose the batch.
+    expect(oldPort?.disconnect).not.toHaveBeenCalled();
     expect(fake.badge.text).toBe("");
     expect(fake.sessionArea.size).toBe(0);
 
-    // A late reply from the closed port must not repaint the fresh badge.
+    oldPort?.onMessage.emit({ type: "pong" });
+    // A late reply from the old port must not repaint the fresh badge.
     oldPort?.onMessage.emit({ type: "capture-accepted", sequence: 9, stats: stats(99) });
     await settle();
     expect(fake.badge.text).toBe("");
+    expect(oldPort?.disconnect).toHaveBeenCalledTimes(1);
 
     // The new session's port (and desktop link) opens right away.
     expect(fake.ports).toHaveLength(2);
@@ -391,10 +394,37 @@ describe("desktop link in the background worker", () => {
       reason: "target-reached",
       uniquePostCount: 4,
       responseCount: 1,
+      target: 4,
     });
-    expect(postedTypes(runPort)).toEqual(["ping", "post-batch", "collection-complete"]);
+    expect(runPort.posted).toContainEqual({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 4,
+      target: 4,
+    });
+    expect(postedTypes(runPort)).toEqual([
+      "ping",
+      "post-batch",
+      "collection-progress",
+      "collection-complete",
+    ]);
     expect(currentPort()).not.toBe(runPort);
     expect(fake.badge.text).toBe("4");
+
+    // The run's port closes only once its host answered all four messages.
+    for (const reply of ["pong", "batch-accepted", "collection-recorded"]) {
+      runPort.onMessage.emit({ type: reply, postCount: 4 });
+    }
+    runPort.onMessage.emit({
+      type: "link-status",
+      desktopConnected: true,
+      extensionConnected: true,
+    });
+    await settle();
+    expect(runPort.disconnect).not.toHaveBeenCalled();
+    runPort.onMessage.emit({ type: "collection-recorded" });
+    await settle();
+    expect(runPort.disconnect).toHaveBeenCalledTimes(1);
   });
 
   it("says busy while a run is going", async () => {
@@ -407,7 +437,7 @@ describe("desktop link in the background worker", () => {
     expect(currentPort().posted.at(-1)).toMatchObject({ outcome: "busy" });
   });
 
-  it("does not complete a collection the user cancelled", async () => {
+  it("ends a cancelled run's collection with its reason (the desktop builds nothing)", async () => {
     await setSettings({ ...modeBOn, collectTarget: 100 });
     await settle();
     modeBCommand("start");
@@ -415,8 +445,8 @@ describe("desktop link in the background worker", () => {
     modeBCommand("stop");
     await settle();
     expect(lastRun()).toMatchObject({ stopReason: "cancelled" });
-    expect(fake.ports.flatMap((port) => postedTypes(port))).not.toContain(
-      "collection-complete",
+    expect(fake.ports.flatMap((port) => port.posted)).toContainEqual(
+      expect.objectContaining({ type: "collection-complete", mode: "B", reason: "cancelled" }),
     );
   });
 
@@ -432,6 +462,7 @@ describe("desktop link in the background worker", () => {
       reason: "target-reached",
       uniquePostCount: 4,
       responseCount: 0,
+      target: 4,
     });
     // The batch that reached the target went first, into the same session.
     expect(postedTypes(port)).toEqual(["ping", "post-batch", "collection-complete"]);
@@ -544,6 +575,7 @@ describe("Mode B in the background worker", () => {
       "ping",
       "raw-capture",
       "post-batch",
+      "collection-progress",
       "mode-b-run",
       "collection-complete",
     ]);

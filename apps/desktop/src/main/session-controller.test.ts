@@ -7,7 +7,12 @@ import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native
 import { renderTimeline, TIMELINE_CSP } from "@nmc/timeline-renderer";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
-import { SessionController, TIMELINE_DOC_FILE, TIMELINE_FILE } from "./session-controller.js";
+import {
+  SessionController,
+  TIMELINE_DOC_FILE,
+  TIMELINE_FILE,
+  type SessionControllerDeps,
+} from "./session-controller.js";
 
 // Fully synthetic posts — no real feed data.
 function post(id: string): Post {
@@ -89,7 +94,10 @@ describe("SessionController", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  function controller(settingsReady: Promise<unknown> = Promise.resolve()): SessionController {
+  function controller(
+    settingsReady: Promise<unknown> = Promise.resolve(),
+    extra: Partial<SessionControllerDeps> = {},
+  ): SessionController {
     return new SessionController({
       sessionsRoot: root,
       runner: new PipelineRunner(() => runStages),
@@ -107,7 +115,33 @@ describe("SessionController", () => {
       onReady: (info) => ready.push(info),
       onAwaitingConfirmation: (pending) => asked.push(pending),
       now: () => "2026-01-01T12:00:00.000Z",
+      ...extra,
     });
+  }
+
+  /** A finished Mode B collection on disk, ended for `reason`. */
+  async function stoppedSession(reason: string, uniquePostCount: number): Promise<string> {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addBatch(batch(["1", "2", "3"]));
+    return (await store.complete({
+      mode: "B",
+      reason,
+      uniquePostCount,
+      responseCount: 3,
+      target: 100,
+    })) as string;
+  }
+
+  function completeEvent(sessionId: string, reason: string, uniquePostCount: number) {
+    return {
+      type: "collection-complete" as const,
+      sessionId,
+      mode: "B" as const,
+      reason,
+      uniquePostCount,
+      responseCount: 3,
+      target: 100,
+    };
   }
 
   it("asks the newest host to collect, with the settings' target", async () => {
@@ -217,7 +251,15 @@ describe("SessionController", () => {
       uniquePostCount: 2,
       responseCount: 1,
     });
-    await expect.poll(() => c.status.pending).toEqual({ sessionId: id, uniquePostCount: 2 });
+    await expect
+      .poll(() => c.status.pending)
+      .toEqual({
+        sessionId: id,
+        uniquePostCount: 2,
+        mode: "A",
+        reason: "target-reached",
+        target: null,
+      });
     expect(asked).toEqual([{ sessionId: id, uniquePostCount: 2 }]);
     expect(c.status.run.stage).toBe("idle");
     expect((await listSessions(root))[0]?.processed).toBeNull();
@@ -232,7 +274,7 @@ describe("SessionController", () => {
     const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"], "A");
     const c = controller();
     await c.processPending();
-    expect(c.status.pending).toEqual({ sessionId: id, uniquePostCount: 1 });
+    expect(c.status.pending).toMatchObject({ sessionId: id, uniquePostCount: 1, mode: "A" });
     expect(c.status.run.stage).toBe("idle");
     expect(asked).toEqual([]);
     await c.processPending();
@@ -383,6 +425,109 @@ describe("SessionController", () => {
     expect(c.status.run.stage).toBe("cancelled");
     expect((await listSessions(root))[0]?.processed?.status).toBe("cancelled");
     expect(ready).toEqual([]);
+  });
+
+  it("shows a Mode B run's count as it goes", async () => {
+    const c = controller();
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 5,
+      target: 100,
+    });
+    expect(c.status.collection.state).toBe("idle");
+
+    await c.startCollection();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 100 });
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 40,
+      target: 100,
+    });
+    expect(c.status.collection).toMatchObject({ state: "collecting", count: 40, target: 100 });
+  });
+
+  it("builds a Mode B collection that stopped short of the target, and says so", async () => {
+    const id = await stoppedSession("stalled", 84);
+    const c = controller();
+    c.handleHostEvent(completeEvent(id, "stalled", 84));
+    await expect.poll(() => c.status.run.stage).toBe("ready");
+    expect(c.status.collection.message).toBe(
+      "Target not reached — the timeline uses 84 of 100 posts (no new posts for about 20 s of scrolling).",
+    );
+    expect(ready.map((r) => r.sessionId)).toEqual([id]);
+  });
+
+  it("asks before building a Mode B collection that stopped for another reason", async () => {
+    const id = await stoppedSession("not-logged-in", 3);
+    const c = controller();
+    c.handleHostEvent(completeEvent(id, "not-logged-in", 3));
+    await expect
+      .poll(() => c.status.pending)
+      .toEqual({
+        sessionId: id,
+        uniquePostCount: 3,
+        mode: "B",
+        reason: "not-logged-in",
+        target: 100,
+      });
+    expect(asked).toEqual([{ sessionId: id, uniquePostCount: 3 }]);
+    expect(c.status.run.stage).toBe("idle");
+    expect((await listSessions(root))[0]?.processed).toBeNull();
+    await c.buildPending();
+    expect(c.status.run.stage).toBe("ready");
+  });
+
+  it("never builds a collection the user cancelled", async () => {
+    const id = await stoppedSession("cancelled", 3);
+    const c = controller();
+    c.handleHostEvent(completeEvent(id, "cancelled", 3));
+    await expect
+      .poll(async () => (await listSessions(root))[0]?.processed?.status)
+      .toBe("cancelled");
+    expect(c.status.pending).toBeNull();
+    expect(c.status.collection.message).toMatch(/stopped \(stopped by you\); no timeline/);
+    await c.processPending();
+    expect(ready).toEqual([]);
+  });
+
+  it("gives up on an unanswered request and on a silent collection, and revives it", async () => {
+    const c = controller(undefined, { collectionTimeoutsMs: { answerMs: 20, silenceMs: 40 } });
+    await c.startCollection();
+    await expect.poll(() => c.status.collection.state).toBe("refused");
+    expect(c.status.collection.message).toMatch(/did not answer/);
+
+    await c.startCollection();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 120 });
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 40,
+      target: 120,
+    });
+    await expect.poll(() => c.status.collection.state).toBe("refused");
+    expect(c.status.collection.message).toMatch(/No word .* \(40 of 120 posts so far\)/);
+
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 60,
+      target: 120,
+    });
+    expect(c.status.collection).toMatchObject({ state: "collecting", count: 60 });
+  });
+
+  it("counts sessions whose collection never completed, without touching them", async () => {
+    const unfinished = new PostSessionStore(root, () => "2026-01-01T09:00:00.000Z");
+    await unfinished.addBatch(batch(["1"]));
+    await completeSession(root, "2026-01-01T10:00:00.000Z", ["2"], "A");
+    const c = controller();
+    await c.processPending();
+    expect(c.status.unfinished).toEqual({ count: 1, newestAt: "2026-01-01T09:00:00.000Z" });
+    const sessions = await listSessions(root);
+    expect(sessions.map((s) => s.batchCount)).toEqual([1, 1]);
+    expect(sessions[0]?.processed).toBeNull();
   });
 
   it("reports an unreadable session instead of crashing", async () => {

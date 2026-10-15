@@ -570,8 +570,19 @@ export const CollectionCompleteSchema = z.object({
   mode: z.enum(["A", "B"]),
   /** Why collection ended, e.g. "target-reached" or a ModeBStopReason. */
   reason: z.string().min(1).max(64),
+  /** Distinct posts the collection was working towards. */
+  target: z.number().int().min(1).max(10_000).optional(),
 });
 export type CollectionComplete = z.infer<typeof CollectionCompleteSchema>;
+
+/** A Mode B run's count so far, so the desktop app can show "x / N". */
+export const CollectionProgressSchema = z.object({
+  type: z.literal("collection-progress"),
+  mode: z.literal("B"),
+  uniquePostCount: z.number().int().nonnegative(),
+  target: z.number().int().min(1).max(10_000),
+});
+export type CollectionProgress = z.infer<typeof CollectionProgressSchema>;
 
 /** The extension's answer to the desktop's `start-collection` push. */
 export const CollectionStartResultSchema = z.object({
@@ -601,6 +612,7 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("mode-b-run"), run: ModeBRunSummarySchema }),
   CollectionCompleteSchema,
   CollectionStartResultSchema,
+  CollectionProgressSchema,
   /** The user's synced settings, saved by the host for the desktop pipeline. */
   z.object({ type: z.literal("settings-sync"), settings: SyncedSettingsSchema }),
 ]);
@@ -625,7 +637,7 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
     stats: CaptureStatsSchema,
   }),
   z.object({ type: z.literal("mode-b-run-recorded") }),
-  /** Ack of `collection-complete` and `collection-start-result`. */
+  /** Ack of `collection-complete`, `collection-start-result` and `collection-progress`. */
   z.object({ type: z.literal("collection-recorded") }),
   /** Ack of `settings-sync`: the host saved them. */
   z.object({ type: z.literal("settings-synced") }),
