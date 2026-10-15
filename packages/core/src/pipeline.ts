@@ -1,9 +1,10 @@
-import { feedItemKey, isMediaOnly } from "./feed-item.js";
+import { feedItemKey, feedSourceLabel, isMediaOnly } from "./feed-item.js";
 import {
   RunMetricsCollector,
   type CollectionMetrics,
   type FunnelCounts,
   type RunMetrics,
+  type SourceCount,
 } from "./metrics.js";
 import {
   PIPELINE_SETTING_FIELDS,
@@ -238,6 +239,22 @@ export interface PipelineRunResult {
   metrics: RunMetrics;
 }
 
+/** Scanned/shown per source, in order of first appearance in `posts`. */
+function countBySource(posts: readonly FeedItem[], shown: readonly RankedPost[]): SourceCount[] {
+  const counts = new Map<string, SourceCount>();
+  for (const post of posts) {
+    const label = feedSourceLabel(post);
+    const count = counts.get(label) ?? { label, in: 0, shown: 0 };
+    count.in += 1;
+    counts.set(label, count);
+  }
+  for (const { post } of shown) {
+    const count = counts.get(feedSourceLabel(post));
+    if (count) count.shown += 1;
+  }
+  return [...counts.values()];
+}
+
 function isCheckWorthy(score: ScoreEntry): boolean {
   return score.checkWorthy !== false && score.checkWorthyClaim !== null;
 }
@@ -282,6 +299,7 @@ export async function runPipeline(
     funnel.rankedOut = candidateCount - funnel.shown - funnel.contradicted;
     metrics.postsSelected = accepted.length;
     metrics.funnel = funnel;
+    metrics.bySource = countBySource(posts, accepted);
     return {
       posts: accepted,
       unjudged,

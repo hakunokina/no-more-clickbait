@@ -195,8 +195,36 @@ export const InstagramPostSchema = z.object({
     .optional(),
   /** True when Instagram labelled the post "Sponsored" (an ad). */
   promoted: z.boolean().default(false),
+  /** Detected language of the caption, as `Post.lang` ("und" when undetermined). */
+  lang: z.string().optional(),
+  /** Co-authors of a collab post (the main author is `authorHandle`), in order. */
+  coauthors: z
+    .array(z.object({ handle: z.string().min(1), name: z.string().optional() }))
+    .optional(),
+  /** Tagged location's display name. */
+  location: z.string().min(1).optional(),
+  /**
+   * Present when the post carries the "Paid partnership" label. Not an
+   * ad (`promoted`): shown, with its label. `partner` is the brand when
+   * delivered.
+   */
+  paidPartnership: z.object({ partner: z.string().min(1).optional() }).optional(),
 });
 export type InstagramPost = z.infer<typeof InstagramPostSchema>;
+
+/**
+ * What a generic item's content is, as its source states it (never
+ * guessed from image proportions): `link` points elsewhere (an article,
+ * a Reddit link post), `text` is a text post (Reddit self post), `image`
+ * and `video` are posts whose media is the content itself.
+ */
+export const GenericItemKindSchema = z.enum(["link", "text", "image", "video"]);
+export type GenericItemKind = z.infer<typeof GenericItemKindSchema>;
+
+const HttpUrlSchema = z
+  .string()
+  .url()
+  .refine((url) => /^https?:\/\//i.test(url), "url must be http(s)");
 
 /**
  * Anything that is neither X nor Instagram: a Reddit post, a page a
@@ -215,19 +243,32 @@ export const GenericItemSchema = z.object({
   title: z.string().optional(),
   text: z.string().optional(),
   /** The item itself (the Reddit thread, the article). */
-  url: z
-    .string()
-    .url()
-    .refine((url) => /^https?:\/\//i.test(url), "url must be http(s)"),
+  url: HttpUrlSchema,
+  /**
+   * The external target when `url` is the item's own page on a
+   * discussion site (a Reddit link post's article). Absent when `url`
+   * already is the content (an article from a site rule or feed).
+   */
+  linkUrl: HttpUrlSchema.optional(),
   /** Display domain, e.g. "news.example" or "reddit.com". */
   domain: z.string().min(1),
+  kind: GenericItemKindSchema.optional(),
+  /** Detected/declared language, as `Post.lang` ("und" when undetermined). */
+  lang: z.string().optional(),
+  /** Label the source attached to the item (a Reddit flair). */
+  flair: z.string().min(1).optional(),
+  /** Icon of the site or community (favicon, subreddit icon). */
+  siteIconUrl: HttpUrlSchema.optional(),
   author: z.string().optional(),
   /** The community it was posted in, e.g. "r/science". */
   community: z.string().optional(),
   /** ISO 8601 timestamp of when it was published, when known. */
   publishedAt: z.string().datetime().optional(),
-  /** Preview/thumbnail image, when delivered. */
-  image: SizedImageSchema.optional(),
+  /**
+   * Preview/thumbnail image, when delivered. `altText` only as the
+   * source gives it; the title is no substitute.
+   */
+  image: SizedImageSchema.extend({ altText: z.string().optional() }).optional(),
   engagement: z
     .object({
       /** Net votes/points (Reddit scores can go below zero). */
