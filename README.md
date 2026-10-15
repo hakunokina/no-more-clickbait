@@ -88,6 +88,26 @@ How a run behaves:
   any). With developer capture on, the same counts are added to that
   capture's `summary.json`.
 
+### Custom sites
+
+Options › **Sites** adds news sites, blogs or forums next to X. For each
+site you pick once, on the real page, which repeating box is an item and
+where its title, text and link are (or use the site's RSS/Atom feed when
+it has one — no picking needed). A rule only holds page selectors; it can
+be exported and shared, and importing one runs no code.
+
+- **Permissions.** Each site asks for access to that site only, when you
+  add it; there is no "all sites" permission. Revoking it in the browser
+  pauses the site ("Permission needed").
+- **Your session.** Pages are fetched with your own browser session on
+  that site, so a page you are signed in to answers as it does for you.
+- **When.** Sites are collected only while a collection runs (Mode B, or
+  Mode A reaching its target), in parallel with X and outside X's counts.
+  The order is the feed, then the page's HTML fetched without a tab, then
+  the page's own "more" responses captured while you browsed the site. A
+  hidden window opens only for a site where you chose that and confirmed
+  it once; otherwise the site shows "Visible tab needed".
+
 ## Layout
 
 | Path                   | What it is                                                              |

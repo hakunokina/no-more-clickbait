@@ -2,7 +2,15 @@ import { randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { PostBatchSchema, type CollectionMetrics, type Post, type PostBatch } from "@nmc/core";
+import {
+  FeedBatchSchema,
+  PostBatchSchema,
+  type CollectionMetrics,
+  type FeedBatch,
+  type FeedItem,
+  type Post,
+  type PostBatch,
+} from "@nmc/core";
 import { BrowserFamilySchema, type BrowserFamily } from "./browser-identity.js";
 import { desktopDataDir, SessionIdSchema } from "./desktop-link.js";
 
@@ -86,12 +94,18 @@ async function readJson(path: string): Promise<unknown> {
 }
 
 const BATCH_FILE = /^\d{4,}\.json$/;
+/** Non-X (`feed-batch`) batches: the same folder, never mixed into the X counts. */
+const FEED_BATCH_FILE = /^f\d{4,}\.json$/;
 
-async function countBatches(dir: string): Promise<number> {
+async function countBatches(dir: string): Promise<{ x: number; feed: number }> {
   try {
-    return (await readdir(join(dir, "batches"))).filter((name) => BATCH_FILE.test(name)).length;
+    const names = await readdir(join(dir, "batches"));
+    return {
+      x: names.filter((name) => BATCH_FILE.test(name)).length,
+      feed: names.filter((name) => FEED_BATCH_FILE.test(name)).length,
+    };
   } catch {
-    return 0;
+    return { x: 0, feed: 0 };
   }
 }
 
@@ -128,7 +142,9 @@ export async function pruneSessions(
     if (kept.has(session.id)) continue;
     const status = session.processed?.status;
     const discarded =
-      status === "superseded" || status === "cancelled" || session.batchCount === 0;
+      status === "superseded" ||
+      status === "cancelled" ||
+      (session.batchCount === 0 && session.feedBatchCount === 0);
     (discarded ? discardable : rest).push(session);
   }
   for (const session of [...discardable, ...rest].slice(0, excess)) {
@@ -178,6 +194,30 @@ export class PostSessionStore {
       const name = `${String(this.#batchCount).padStart(4, "0")}.json`;
       await writeJsonAtomic(join(this.#root, this.#sessionId, "batches", name), batch);
       return true;
+    });
+  }
+
+  /**
+   * Stores non-X items (custom sites) next to the X batches
+   * (`fNNNN.json`). Never part of the X counts; refused after
+   * `complete` like X batches. Returns the stored item count.
+   */
+  async addFeedBatch(batch: FeedBatch): Promise<number> {
+    return this.#enqueue(async () => {
+      if (this.#completed) return 0;
+      if (!this.#sessionId) {
+        this.#sessionId = newSessionId(this.#now());
+        await mkdir(join(this.#root, this.#sessionId, "batches"), { recursive: true });
+        await pruneSessions(this.#root, this.#keep, this.#sessionId);
+      }
+      await this.#writeInfo();
+      this.#batchCount += 1;
+      const name = `f${String(this.#batchCount).padStart(4, "0")}.json`;
+      await writeJsonAtomic(
+        join(this.#root, this.#sessionId, "batches", name),
+        FeedBatchSchema.parse(batch),
+      );
+      return batch.items.length;
     });
   }
 
@@ -250,8 +290,10 @@ export interface SessionListing {
   processed: SessionProcessed | null;
   /** session.json, when the host recorded the mode (Mode B runs). */
   info: SessionInfo | null;
-  /** Stored post batches. */
+  /** Stored post batches (X). */
   batchCount: number;
+  /** Stored custom-site batches; a session of only these is not empty. */
+  feedBatchCount: number;
 }
 
 /** When a session's first batch was stored (its id is that time). */
@@ -279,6 +321,7 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
         await readJson(join(dir, "processed.json")),
       );
       const info = SessionInfoSchema.safeParse(await readJson(join(dir, "session.json")));
+      const batches = await countBatches(dir);
       return {
         id,
         dir,
@@ -286,7 +329,8 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
         completion: complete.success ? complete.data : null,
         processed: processed.success ? processed.data : null,
         info: info.success ? info.data : null,
-        batchCount: await countBatches(dir),
+        batchCount: batches.x,
+        feedBatchCount: batches.feed,
       };
     }),
   );
@@ -310,6 +354,10 @@ export interface LoadedSession {
   batchCount: number;
   /** Batches that failed validation and were skipped. */
   invalidBatchCount: number;
+  /** Non-X items in capture order (`feed-batch`, outside the X counts). */
+  feedItems: FeedItem[];
+  /** Stored `feed-batch` batches. */
+  feedBatchCount: number;
   completion: SessionCompletion | null;
   collection?: CollectionMetrics;
 }
@@ -320,20 +368,36 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
   const dir = join(root, sessionId);
   const batchDir = join(dir, "batches");
   const names = (await readdir(batchDir)).filter((name) => BATCH_FILE.test(name)).sort();
+  const feedNames = (await readdir(batchDir))
+    .filter((name) => FEED_BATCH_FILE.test(name))
+    .sort();
   const posts: Post[] = [];
   let invalidBatchCount = 0;
+  let xInvalid = 0;
   let first: string | undefined;
   let last: string | undefined;
   for (const name of names) {
     const batch = PostBatchSchema.safeParse(await readJson(join(batchDir, name)));
     if (!batch.success) {
       invalidBatchCount += 1;
+      xInvalid += 1;
       continue;
     }
     posts.push(...batch.data.posts);
     const at = batch.data.capturedAt;
     if (!first || at < first) first = at;
     if (!last || at > last) last = at;
+  }
+  const feedItems: FeedItem[] = [];
+  let feedBatchCount = 0;
+  for (const name of feedNames) {
+    const batch = FeedBatchSchema.safeParse(await readJson(join(batchDir, name)));
+    if (!batch.success) {
+      invalidBatchCount += 1;
+      continue;
+    }
+    feedBatchCount += 1;
+    feedItems.push(...batch.data.items);
   }
   const completion = SessionCompletionSchema.safeParse(
     await readJson(join(dir, "complete.json")),
@@ -342,8 +406,10 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
     id: sessionId,
     dir,
     posts,
-    batchCount: names.length - invalidBatchCount,
+    batchCount: names.length - xInvalid,
     invalidBatchCount,
+    feedItems,
+    feedBatchCount,
     completion: completion.success ? completion.data : null,
     ...(first && last
       ? {

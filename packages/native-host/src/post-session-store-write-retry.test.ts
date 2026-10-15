@@ -58,9 +58,7 @@ describe("PostSessionStore session.json retry", () => {
   it("retries session.json after a failed write instead of losing the Mode B tag", async () => {
     const store = new PostSessionStore(root, () => clock);
     await store.markMode("B");
-    await expect(store.addBatch(batch(clock, ["1"]))).rejects.toThrow(
-      "synthetic disk failure",
-    );
+    await expect(store.addBatch(batch(clock, ["1"]))).rejects.toThrow("synthetic disk failure");
     await store.addBatch(batch(clock, ["2"]));
     const [session] = await listSessions(root);
     expect(session?.info).toMatchObject({ mode: "B" });

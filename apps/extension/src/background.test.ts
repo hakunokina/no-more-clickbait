@@ -86,7 +86,16 @@ function fakeChrome() {
     },
     storage: {
       local: {
-        get: (key: string) => Promise.resolve(local.has(key) ? { [key]: local.get(key) } : {}),
+        get: (keys: string | string[] | null) =>
+          Promise.resolve(
+            Object.fromEntries(
+              keys === null
+                ? [...local]
+                : [keys]
+                    .flat()
+                    .flatMap((key) => (local.has(key) ? [[key, local.get(key)]] : [])),
+            ),
+          ),
         set: (items: Record<string, unknown>) => {
           for (const [key, newValue] of Object.entries(items)) {
             const oldValue = local.get(key);
@@ -95,10 +104,20 @@ function fakeChrome() {
           }
           return Promise.resolve();
         },
+        remove: (keys: string | string[]) => {
+          for (const key of [keys].flat()) local.delete(key);
+          return Promise.resolve();
+        },
       },
       session: {
-        get: (key: string) =>
-          Promise.resolve(sessionArea.has(key) ? { [key]: sessionArea.get(key) } : {}),
+        get: (keys: string | string[]) =>
+          Promise.resolve(
+            Object.fromEntries(
+              [keys]
+                .flat()
+                .flatMap((key) => (sessionArea.has(key) ? [[key, sessionArea.get(key)]] : [])),
+            ),
+          ),
         set: (items: Record<string, unknown>) => {
           for (const [key, value] of Object.entries(items)) sessionArea.set(key, value);
           return Promise.resolve();
@@ -127,8 +146,15 @@ function fakeChrome() {
       unregisterContentScripts: vi.fn(() => Promise.resolve()),
     },
     permissions: {
-      contains: ({ permissions }: { permissions: string[] }) =>
-        Promise.resolve(permissions.every((name) => granted.has(name))),
+      contains: ({
+        permissions = [],
+        origins = [],
+      }: {
+        permissions?: string[];
+        origins?: string[];
+      }) => Promise.resolve([...permissions, ...origins].every((name) => granted.has(name))),
+      onAdded: event(),
+      onRemoved: event(),
     },
     alarms: {
       create: vi.fn(() => Promise.resolve()),
@@ -866,5 +892,198 @@ describe("Mode B in the background worker", () => {
     await settle();
     expect(lastRun()).toMatchObject({ stopReason: "tab-closed" });
     expect(fake.chrome.windows.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe("custom sites in the background worker's collections", () => {
+  const FEED = "https://news.example.invalid/world/feed.xml";
+  const FEED_XML = `<?xml version="1.0"?><rss version="2.0"><channel><title>World</title>
+    <item><title>Feed one</title><link>https://news.example.invalid/world/f1</link></item>
+    <item><title>Feed two</title><link>https://news.example.invalid/world/f2</link></item>
+    <item><title>Feed three</title><link>https://news.example.invalid/world/f3</link></item>
+  </channel></rss>`;
+
+  async function storeFeedSite(): Promise<void> {
+    fake.granted.add("https://news.example.invalid/*");
+    await fake.chrome.storage.local.set({
+      "nmc.siteRules": {
+        "news.example.invalid/world": {
+          nmcRule: 1,
+          id: "news.example.invalid/world",
+          name: "World",
+          url: "https://news.example.invalid/world",
+          match: ["news.example.invalid/world/*"],
+          collect: { method: "rss", rssUrl: FEED },
+          origin: "manual",
+          createdAt: "2026-10-15T10:00:00.000Z",
+          updatedAt: "2026-10-15T10:00:00.000Z",
+        },
+      },
+      "nmc.siteState.news.example.invalid/world": { enabled: true, permissionGranted: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url === FEED
+            ? new Response(FEED_XML, {
+                status: 200,
+                headers: { "content-type": "application/rss+xml" },
+              })
+            : new Response("", { status: 404 }),
+        ),
+      ),
+    );
+  }
+
+  it("collects enabled sites when Mode A reaches its target; completion waits and reports them", async () => {
+    await storeFeedSite();
+    await setSettings({ collectTarget: 4 });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    await settle();
+    await settle();
+    // X's batch first, then the site's items (never counted for X), then the completion.
+    expect(postedTypes(port)).toEqual([
+      "ping",
+      "post-batch",
+      "feed-batch",
+      "collection-complete",
+    ]);
+    const batch = port.posted[2] as unknown as { batch: { siteId: string; items: unknown[] } };
+    expect(batch.batch.siteId).toBe("news.example.invalid/world");
+    expect(batch.batch.items).toHaveLength(3);
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+      sites: [
+        { siteId: "news.example.invalid/world", method: "rss", status: "ok", itemCount: 3 },
+      ],
+    });
+    expect(fake.badge.text).toBe("4");
+    const state = fake.local.get("nmc.siteState.news.example.invalid/world") as {
+      lastItemCount?: number;
+    };
+    expect(state.lastItemCount).toBe(3);
+  });
+
+  it("still reports the sites when the worker restarted during a Mode B run", async () => {
+    await storeFeedSite();
+    await setSettings({
+      modeBEnabled: true,
+      collectTarget: 100,
+      modeBStrategy: "minimized-window",
+    });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    // The service worker is stopped and started again mid-run: memory is
+    // gone, storage stays.
+    const before = fake;
+    fake = fakeChrome();
+    for (const [key, value] of before.local) fake.local.set(key, value);
+    for (const [key, value] of before.sessionArea) fake.sessionArea.set(key, value);
+    for (const name of before.granted) fake.granted.add(name);
+    vi.stubGlobal("chrome", fake.chrome);
+    vi.resetModules();
+    await import("./background.js");
+    await settle();
+    modeBCommand("stop");
+    await settle();
+    expect(fake.ports.flatMap((port) => port.posted)).toContainEqual(
+      expect.objectContaining({
+        type: "collection-complete",
+        reason: "cancelled",
+        sites: [
+          expect.objectContaining({ siteId: "news.example.invalid/world", itemCount: 3 }),
+        ],
+      }),
+    );
+  });
+
+  it("leaves completion as before when no site is set up", async () => {
+    await setSettings({ collectTarget: 4 });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    await settle();
+    expect(port.posted.at(-1)).not.toHaveProperty("sites");
+  });
+
+  it("refuses a picker save from a tab it never opened", async () => {
+    const sendResponse = vi.fn();
+    fake.chrome.runtime.onMessage.listeners.forEach((listener) =>
+      listener(
+        { kind: "site-picker-save", rule: {}, foundCount: 1 },
+        { id: "test", tab: { id: 99 } },
+        sendResponse,
+      ),
+    );
+    await settle();
+    expect(sendResponse).toHaveBeenCalledWith({ ok: false, message: "not allowed" });
+    expect(fake.local.get("nmc.siteRules")).toBeUndefined();
+  });
+
+  function ask(message: unknown, sender: Record<string, unknown>): ReturnType<typeof vi.fn> {
+    const sendResponse = vi.fn();
+    fake.chrome.runtime.onMessage.listeners.forEach((listener) =>
+      listener(message, sender, sendResponse),
+    );
+    return sendResponse;
+  }
+
+  it("answers Options, which always runs in a tab (options_page)", async () => {
+    // What Chrome reports for an options_page: a tab, and the extension's own URL.
+    const options = {
+      id: "test",
+      url: "chrome-extension://test/options.html#sites",
+      tab: { id: 12, url: "chrome-extension://test/options.html#sites" },
+    };
+    const probe = ask({ kind: "site-probe", rule: {} }, options);
+    const visible = ask(
+      { kind: "site-collect-visible", id: "missing.example.invalid" },
+      options,
+    );
+    await settle();
+    expect(probe).toHaveBeenCalledWith({ ok: false, count: 0, message: "invalid rule" });
+    expect(visible).toHaveBeenCalledWith({ ok: false, count: 0, message: "rule not found" });
+  });
+
+  it("refuses the extension-page commands from a web page's content script", async () => {
+    const page = {
+      id: "test",
+      url: "https://news.example.invalid/world",
+      tab: { id: 12, url: "https://news.example.invalid/world" },
+    };
+    const open = ask(
+      { kind: "site-picker-open", target: { url: "https://a.example.invalid/", pattern: "a" } },
+      page,
+    );
+    const probe = ask({ kind: "site-probe", rule: {} }, page);
+    await settle();
+    expect(open).toHaveBeenCalledWith({ ok: false, message: "not allowed" });
+    expect(probe).toHaveBeenCalledWith({ ok: false, message: "not allowed" });
+    expect(fake.chrome.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it("moves states from the old shared map to one key per site", async () => {
+    // A worker starting over storage written before per-site keys.
+    fake = fakeChrome();
+    vi.stubGlobal("chrome", fake.chrome);
+    fake.local.set("nmc.siteStates", {
+      "news.example.invalid/world": { enabled: false, permissionGranted: true },
+    });
+    vi.resetModules();
+    await import("./background.js");
+    await settle();
+    expect(fake.local.has("nmc.siteStates")).toBe(false);
+    expect(fake.local.get("nmc.siteState.news.example.invalid/world")).toMatchObject({
+      enabled: false,
+    });
   });
 });

@@ -51,6 +51,49 @@ describe("handleBridgeMessage", () => {
     expect(seen).toEqual(["synthetic"]);
   });
 
+  it("accepts a feed batch and reports its site and size", async () => {
+    const seen: string[] = [];
+    const batch = {
+      siteId: "news.example/world",
+      capturedAt: "2026-01-01T00:00:00.000Z",
+      items: [
+        {
+          platform: "generic",
+          id: "a",
+          sourceLabel: "custom:news",
+          url: "https://news.example/world/a",
+          domain: "news.example",
+          title: "synthetic",
+        },
+      ],
+    };
+    const reply = await handleBridgeMessage(JSON.stringify({ type: "feed-batch", batch }), {
+      onPostBatch: () => {},
+      onFeedBatch: (got) => {
+        seen.push(got.siteId ?? "");
+        return got.items.length;
+      },
+    });
+    expect(reply).toEqual({
+      type: "feed-accepted",
+      siteId: "news.example/world",
+      itemCount: 1,
+    });
+    // Refused after collection-complete: the reply says nothing was stored.
+    await expect(
+      handleBridgeMessage(JSON.stringify({ type: "feed-batch", batch }), {
+        onPostBatch: () => {},
+        onFeedBatch: () => 0,
+      }),
+    ).resolves.toMatchObject({ type: "feed-accepted", itemCount: 0 });
+    expect(seen).toEqual(["news.example/world"]);
+    await expect(
+      handleBridgeMessage(JSON.stringify({ type: "feed-batch", batch }), {
+        onPostBatch: () => {},
+      }),
+    ).resolves.toMatchObject({ type: "error" });
+  });
+
   it("turns garbage into an error reply instead of throwing", async () => {
     await expect(
       handleBridgeMessage("not json", { onPostBatch: () => {} }),

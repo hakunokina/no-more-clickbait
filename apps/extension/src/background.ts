@@ -10,9 +10,11 @@ import {
   type CaptureStats,
   type CollectionComplete,
   type CollectionStartResult,
+  type FeedBatch,
   type ModeBRunSummary,
   type PostBatch,
   type Settings,
+  type SiteCollectOutcome,
   type SettingsStamp,
 } from "@nmc/core";
 import { CaptureSession } from "./capture-session.js";
@@ -49,6 +51,7 @@ import {
   sendNativeOnce,
   syncSettings,
 } from "./settings-sync.js";
+import { collectSitesForCollection, installSiteWorker } from "./sites/site-worker.js";
 
 /**
  * Service worker: receives captured timeline responses, converts them
@@ -342,12 +345,64 @@ async function handleCapture(
   }
 }
 
+// --- Custom sites (Options › Sites) ------------------------------------
+// Collected in parallel with X when a collection runs (leader decision
+// #777): from the start of a Mode B run, or when Mode A reaches its
+// target. Their items join the open host session as `feed-batch` (never
+// the X counters); `collection-complete` waits for them (each site has
+// its own time limit) and carries one outcome per site.
+
+function sendFeedBatch(batch: FeedBatch): boolean {
+  return sendToDesktop({ type: "feed-batch", batch });
+}
+
+let siteRun: Promise<SiteCollectOutcome[]> | null = null;
+/**
+ * session: the outcomes of the collection's finished site run. A Mode B
+ * run outlives the service worker (watchdog), and the in-memory run with
+ * it; completion then reports what was kept here.
+ */
+const SITE_RUN_OUTCOMES_KEY = "nmc.siteRunOutcomes";
+
+function startSiteRun(): void {
+  if (siteRun) return;
+  siteRun = chrome.storage.session
+    .remove(SITE_RUN_OUTCOMES_KEY)
+    .catch(() => undefined)
+    .then(() => collectSitesForCollection(sendFeedBatch))
+    .then(async (outcomes) => {
+      await chrome.storage.session
+        .set({ [SITE_RUN_OUTCOMES_KEY]: outcomes })
+        .catch(() => undefined);
+      return outcomes;
+    });
+}
+
+async function finishSiteRun(): Promise<SiteCollectOutcome[]> {
+  const run = siteRun;
+  siteRun = null;
+  const stored = await chrome.storage.session
+    .get(SITE_RUN_OUTCOMES_KEY)
+    .then((items) => items[SITE_RUN_OUTCOMES_KEY] as SiteCollectOutcome[] | undefined)
+    .catch(() => undefined);
+  const outcomes = run ? await run : (stored ?? []);
+  await chrome.storage.session.remove(SITE_RUN_OUTCOMES_KEY).catch(() => undefined);
+  return outcomes;
+}
+
+installSiteWorker({ sendBatch: sendFeedBatch });
+
 /**
  * Ends the current collection: the host closes its session folder and
  * tells the desktop app; the next posts start a new session.
  */
 async function completeCollection(complete: Omit<CollectionComplete, "type">): Promise<void> {
-  sendToDesktop({ type: "collection-complete", ...complete });
+  const sites = await finishSiteRun();
+  sendToDesktop({
+    type: "collection-complete",
+    ...complete,
+    ...(sites.length > 0 ? { sites } : {}),
+  });
   await startNewCountingSession();
   // The finished count stays on the badge until the next post is counted.
   await updateBadge(complete.uniquePostCount);
@@ -359,6 +414,8 @@ function completeModeA(count: number, settings: Settings, countGeneration: numbe
   runCommand(async () => {
     // Another message may have completed this session already.
     if (countGeneration !== generation || (await modeB.current())) return;
+    // The custom sites join here; completion waits for them.
+    startSiteRun();
     // Batches that arrived while this waited in the queue went to this
     // session too: report the count as it stands now.
     await completeCollection({
@@ -483,7 +540,14 @@ async function startModeB(target?: number): Promise<void> {
   listenToWatchdog();
   await alarms()?.create(MODE_B_WATCHDOG_ALARM, { periodInMinutes: 0.5 });
   await chrome.action.setBadgeBackgroundColor({ color: RUNNING_BADGE_COLOR });
-  await modeB.start(start);
+  // Custom sites are collected alongside the run, into its session.
+  startSiteRun();
+  await modeB.start(start).catch((error: unknown) => {
+    // Thrown before a run existed: nothing will complete this collection,
+    // so the next one must not inherit its site run.
+    siteRun = null;
+    throw error;
+  });
 }
 
 /** The desktop app asked for a new timeline ("Collect new timeline"). */
