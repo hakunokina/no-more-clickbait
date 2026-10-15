@@ -2,14 +2,23 @@ import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CollectionMetricsSchema } from "@nmc/core";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CollectionMetricsSchema, parseInstagramTimelineWithStats } from "@nmc/core";
 import {
   CaptureStore,
   countShredditPosts,
   defaultCaptureRoot,
   type CaptureSummary,
 } from "./capture-store.js";
+
+// Pass-through, so a test can make the Instagram parser throw once.
+vi.mock("@nmc/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@nmc/core")>();
+  return {
+    ...actual,
+    parseInstagramTimelineWithStats: vi.fn(actual.parseInstagramTimelineWithStats),
+  };
+});
 
 const SESSION_NOW = "2026-01-01T10:00:00.000Z";
 
@@ -364,5 +373,33 @@ describe("CaptureStore for Instagram", () => {
     // Counts only: no handle, caption or media id reaches the summary.
     const text = JSON.stringify(summary);
     expect(text).not.toMatch(/example_|Synthetic|3100000000|SYNTH/);
+  });
+
+  it("keeps the raw dump and the summary when the parser throws", async () => {
+    vi.mocked(parseInstagramTimelineWithStats).mockImplementationOnce(() => {
+      throw new RangeError("Invalid time value");
+    });
+    const capture = (bodyText: string, second: number) =>
+      store.store({
+        type: "raw-capture",
+        source: "instagram",
+        operation: "graphql-query",
+        capturedAt: `2026-01-01T10:00:0${second}.000Z`,
+        bodyText,
+      });
+    await expect(capture(instagramFixture("graphql-page-2.txt"), 1)).resolves.toBe(1);
+    await expect(capture(instagramFixture("ssr-block.json"), 2)).resolves.toBe(2);
+
+    const sessionDir = store.sessionDir ?? "";
+    expect(await readdir(sessionDir)).toHaveLength(3);
+    const summary = JSON.parse(
+      await readFile(join(sessionDir, "summary.json"), "utf8"),
+    ) as CaptureSummary;
+    expect(summary.responseCount).toBe(2);
+    expect(summary.paths).toEqual({
+      "graphql-query": { responses: 2, json: 2, html: 0, other: 0 },
+    });
+    // Only the second body was counted.
+    expect(summary.instagram?.kept).toBe(5);
   });
 });

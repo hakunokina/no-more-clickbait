@@ -121,6 +121,11 @@ function fakeChrome() {
       },
     },
     notifications: { create: vi.fn(() => Promise.resolve("")) },
+    scripting: {
+      getRegisteredContentScripts: vi.fn(() => Promise.resolve([])),
+      registerContentScripts: vi.fn(() => Promise.resolve()),
+      unregisterContentScripts: vi.fn(() => Promise.resolve()),
+    },
     permissions: {
       contains: ({ permissions }: { permissions: string[] }) =>
         Promise.resolve(permissions.every((name) => granted.has(name))),

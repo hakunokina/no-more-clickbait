@@ -5,7 +5,7 @@
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqcmR2D8okABQiSqTrpFFHEnlwXeMgnoTdNn4GJ4qzli9S4XLZ+ifMOYQwqwG8qGTEYXTHd82RbHJ/Bw16eKj4jwWESFabtx6HW1yOGpEXkhK5ipyJ+Tww1z6PZLKmU/Wv9QbkxsnVcsqQmgfCJInV37aXjpAXLla8+6//QbELMFGpR1dyChHmCQ5wdnJLMA8fRB8ln+yooS4H1M4KHEiTtgQKSicwsror8NEnQLwO2fSukLjrVYETUVoI0bJ9oiDhWudK3LnedPbld34mWSaVnp/sRzDLPXibaTCLwgMhFVUKha8hS82So1ecMt9i/sQoA1xVe/c4zbw0GTwGkJ/2wIDAQAB",
   "description": "Reads your own X home timeline from your own browser session and hands it to the No More Clickbait desktop app for clickbait filtering. Your cookies never leave this device.",
   "icons": { "128": "icon-128.png" },
-  "permissions": ["storage", "nativeMessaging", "notifications"],
+  "permissions": ["storage", "nativeMessaging", "notifications", "scripting"],
   "optional_permissions": ["alarms"],
   "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
   "background": {
@@ -33,20 +33,8 @@
     },
     {
       "matches": ["https://www.reddit.com/*"],
-      "js": ["reddit-injected.js"],
-      "world": "MAIN",
-      "run_at": "document_start"
-    },
-    {
-      "matches": ["https://www.reddit.com/*"],
       "js": ["reddit-content.js"],
       "world": "ISOLATED",
-      "run_at": "document_start"
-    },
-    {
-      "matches": ["https://www.instagram.com/*"],
-      "js": ["instagram-injected.js"],
-      "world": "MAIN",
       "run_at": "document_start"
     },
     {

@@ -316,7 +316,11 @@ export class CaptureStore {
     counts[kind] += 1;
     this.#paths.set(label, counts);
     if (this.#source === "instagram") {
-      this.#countInstagram(bodyText);
+      try {
+        this.#countInstagram(bodyText);
+      } catch {
+        // Unparseable: the raw dump is kept; it contributes no post count.
+      }
       return;
     }
     if (this.#source !== "reddit") return;

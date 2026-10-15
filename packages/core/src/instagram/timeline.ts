@@ -86,6 +86,13 @@ function count(value: unknown): number | undefined {
   return typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
+/** Unix seconds → ISO time; undefined for 0 or past Date's range (toISOString would throw). */
+function isoTime(seconds: number | undefined): string | undefined {
+  if (!seconds) return undefined;
+  const date = new Date(seconds * 1000);
+  return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
 /** A positive integer (pixel size), or undefined. */
 function dimension(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
@@ -254,8 +261,8 @@ function toPost(media: Json, context: MediaContext): InstagramPost | undefined {
   const code = str(media["code"]);
   const user = obj(media["user"]) ?? obj(media["owner"]);
   const authorHandle = str(user?.["username"]);
-  const takenAt = count(media["taken_at"]);
-  if (!id || !code || !/^[A-Za-z0-9_-]+$/.test(code) || !authorHandle || !takenAt) {
+  const publishedAt = isoTime(count(media["taken_at"]));
+  if (!id || !code || !/^[A-Za-z0-9_-]+$/.test(code) || !authorHandle || !publishedAt) {
     return undefined;
   }
   const kind = kindOf(media);
@@ -282,7 +289,7 @@ function toPost(media: Json, context: MediaContext): InstagramPost | undefined {
     caption: str(obj(media["caption"])?.["text"]) ?? "",
     kind,
     media: mediaList,
-    publishedAt: new Date(takenAt * 1000).toISOString(),
+    publishedAt,
     ...(metrics ? { metrics } : {}),
     promoted: context.promoted || isAdMedia(media),
     ...(context.suggested ? { suggested: true } : {}),

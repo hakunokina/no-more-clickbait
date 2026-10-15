@@ -16,6 +16,7 @@ import {
   type SettingsStamp,
 } from "@nmc/core";
 import { CaptureSession } from "./capture-session.js";
+import { installDevCaptureScripts } from "./dev-capture-scripts.js";
 import {
   isModeBCommandMessage,
   isWorkerCaptureMessage,
@@ -643,6 +644,8 @@ for (const startup of [chrome.runtime.onStartup, chrome.runtime.onInstalled]) {
     });
   });
 }
+
+installDevCaptureScripts(chrome.scripting, chrome.storage);
 
 // A restarted service worker picks up a run that was in progress.
 listenToWatchdog();
