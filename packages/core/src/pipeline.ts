@@ -6,8 +6,13 @@ import type { Post, RankedPost, ScoreEntry, VerificationResult } from "./schemas
  * judgements (Scorer, Verifier) and never decides ordering or cut-offs.
  *
  *   HardFilter (code) -> Scorer (one LLM call for all posts)
- *   -> Selector (code: thresholds, ranking) -> Verifier (one parallel
+ *   -> Selector (code: ranking + floors) -> Verifier (one parallel
  *   LLM call per claim, bounded concurrency)
+ *
+ * Media-only posts (no text to judge) never reach the Scorer: they
+ * bypass scoring and ranking and come back as a separate `unjudged`
+ * list, outside the `timelineSize` count (owner's decision; how they
+ * are presented is the renderer's call).
  *
  * The pipeline's output is the verified selection itself (JSON);
  * presentation is a separate, later concern.
@@ -29,7 +34,11 @@ export interface Scorer {
 export interface SelectorOptions {
   /** Posts at or above this clickbait score are dropped. */
   maxClickbaitScore: number;
-  /** Posts below this read-worthiness score are dropped. */
+  /**
+   * Floor, not a quality bar: posts below it are dropped. The ranking
+   * does the real selection (top `timelineSize`); when the floor leaves
+   * fewer candidates, the timeline simply ends shorter (no padding).
+   */
   minReadWorthinessScore: number;
 }
 
@@ -39,7 +48,7 @@ export interface ScoredPost {
 }
 
 /**
- * Applies thresholds and returns candidates best-first: highest
+ * Applies the floors and returns candidates best-first: highest
  * read-worthiness first, lower clickbait breaking ties. Pure code.
  */
 export interface Selector {
@@ -118,6 +127,11 @@ export interface Pipeline {
 export interface PipelineRunResult {
   /** The verified final selection — this JSON is the pipeline's output. */
   posts: RankedPost[];
+  /**
+   * Media-only posts that passed the hard filter, in feed order: not
+   * scored, not ranked, not counted against `timelineSize`.
+   */
+  unjudged: Post[];
   metrics: RunMetrics;
 }
 
@@ -143,11 +157,13 @@ export async function runPipeline(
     posts.filter((post) => pipeline.hardFilter.keep(post)),
   );
   metrics.postsAfterHardFilter = kept.length;
-  if (kept.length === 0) return { posts: [], metrics: metrics.toRunMetrics() };
+  const unjudged = kept.filter((post) => post.mediaOnly);
+  const judgeable = kept.filter((post) => !post.mediaOnly);
+  if (judgeable.length === 0) return { posts: [], unjudged, metrics: metrics.toRunMetrics() };
 
-  const scores = await timed("scorer", () => pipeline.scorer.score(kept));
+  const scores = await timed("scorer", () => pipeline.scorer.score(judgeable));
   const byId = new Map(scores.map((score) => [score.postId, score]));
-  const scored: ScoredPost[] = kept.flatMap((post) => {
+  const scored: ScoredPost[] = judgeable.flatMap((post) => {
     const score = byId.get(post.id);
     return score ? [{ post, score }] : [];
   });
@@ -159,7 +175,7 @@ export async function runPipeline(
       .slice(0, options.timelineSize)
       .map((candidate) => ({ ...candidate, verification: null }));
     metrics.postsSelected = accepted.length;
-    return { posts: accepted, metrics: metrics.toRunMetrics() };
+    return { posts: accepted, unjudged, metrics: metrics.toRunMetrics() };
   }
   const accepted: RankedPost[] = [];
 
@@ -188,5 +204,5 @@ export async function runPipeline(
   }
 
   metrics.postsSelected = accepted.length;
-  return { posts: accepted, metrics: metrics.toRunMetrics() };
+  return { posts: accepted, unjudged, metrics: metrics.toRunMetrics() };
 }

@@ -84,13 +84,16 @@ function engagement(post: Post): string {
 
 const MEDIA_LABELS = { photo: "foto", video: "video", gif: "gif" } as const;
 
-/** Attached media kinds; prefixed "yalniz-medya:" when the post has no text. */
+/**
+ * Attached media kinds. Media-only posts never get here: the pipeline
+ * passes them through as unjudged instead of scoring them blind.
+ */
 function mediaField(post: Post): string {
   const kinds = new Set<string>();
   for (const media of post.media)
     if (media.type !== "link") kinds.add(MEDIA_LABELS[media.type]);
   if (kinds.size === 0) return "-";
-  return `${post.mediaOnly ? "yalniz-medya:" : ""}${[...kinds].join(",")}`;
+  return [...kinds].join(",");
 }
 
 function postLine(post: Post, index: number): string {
@@ -128,7 +131,6 @@ GÜVENLİK — TALİMAT/VERİ AYRIMI:
 VERİ BİÇİMİ: Her satır bir gönderidir; alanlar TAB ile ayrılır:
 sıra <TAB> @yazar <TAB> bağlantı alan adları <TAB> etkileşim (L beğeni, R yeniden paylaşım, C yanıt, V görüntüleme; "-" = bilgi yok) <TAB> medya (foto/video/gif; "-" = yok) <TAB> gönderi metni (tek satıra indirilmiş, gerekirse "…" ile kısaltılmış)
 - Gönderi başka bir gönderiyi alıntılıyorsa metnin sonunda "↳@alıntılanan: alıntı metni" gelir. Alıntı bağlamdır, puanlanan yazarın kendi gönderisidir; ama "bu 👇" gibi kısa metinleri alıntıyla birlikte değerlendir.
-- Medya alanı "yalniz-medya:" ile başlıyorsa gönderide metin yoktur, yalnızca görsel/video vardır ve içeriği göremezsin: clickbait 0, readValue en çok 3, checkWorthy 0 ver.
 Gönderiler Türkçe, İngilizce veya başka bir dilde olabilir; ölçütler her dilde aynıdır. Etkileşim sayıları popülerlik göstergesidir, kalite kanıtı DEĞİLDİR: çok beğenilmiş bir clickbait yine clickbaittir.
 
 clickbait (0-10 arası tam sayı) — gönderinin tıklatma/merak tuzakçılığı düzeyi:
@@ -148,7 +150,7 @@ checkWorthy (1/0) ve claim:
 - Gönderide, yanlışsa okuyucuyu yanıltacak, doğrulanabilir somut bir olgu iddiası varsa 1 ver; claim alanına en önemli TEK iddiayı, gönderinin kendi dilinde, kısa ve tek cümle olarak yaz.
 - Görüş, tahmin, şaka veya genel sözler için 0 ver ve claim alanını boş bırak.
 
-reason: YALNIZ checkWorthy 1 ise ya da clickbait ≥ 7 ise yaz: Türkçe, en çok 6 kelime. Diğerlerinde boş bırak.
+reason: YALNIZ checkWorthy 1 ise ya da clickbait ≥ 4 ise yaz: Türkçe, en çok 6 kelime. Diğerlerinde boş bırak.
 
 ÇIKTI: Her gönderi için tam bir satır, başka hiçbir metin yok (açıklama, başlık, kod bloğu ekleme). Biçim:
 sıra|clickbait|readValue|checkWorthy|claim|reason

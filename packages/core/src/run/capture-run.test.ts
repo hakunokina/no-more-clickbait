@@ -7,6 +7,7 @@ import { RunMetricsCollector } from "../metrics.js";
 import type { Scorer } from "../pipeline.js";
 import {
   loadCapture,
+  renderClickbaitTopMarkdown,
   renderSelectedMarkdown,
   runCapture,
   scoreDistribution,
@@ -24,6 +25,7 @@ const fakeScorer: Scorer = {
       readWorthinessScore: index === posts.length - 1 ? 0 : 0.9 - index * 0.1,
       checkWorthy: index === 1,
       checkWorthyClaim: index === 1 ? "a claim" : null,
+      reason: index === 0 ? "merak tuzağı" : null,
       scoringFailed: false,
     })),
 };
@@ -90,7 +92,10 @@ describe("capture run (synthetic capture directory)", () => {
         [1, "a-HomeTimeline.json"],
         [2, "b-HomeTimeline.json"],
       ] as const) {
-        await copyFile(join(fixtures, "x-home-timeline", `response-${n}.json`), join(odd, name));
+        await copyFile(
+          join(fixtures, "x-home-timeline", `response-${n}.json`),
+          join(odd, name),
+        );
       }
       const limited = await loadCapture(odd, { maxResponses: 1 });
       expect(limited.collection).toBeUndefined();
@@ -110,14 +115,19 @@ describe("capture run (synthetic capture directory)", () => {
       timelineSize: 2,
     });
     const kept = report.hardFilter.kept;
+    const mediaOnly = report.hardFilter.flagged.mediaOnly;
+    expect(mediaOnly).toBeGreaterThan(0);
     expect(report.hardFilter.seen).toBe(capture.posts.length);
-    expect(report.scores).toHaveLength(kept);
+    // Media-only posts skip the scorer and come back as unjudged.
+    expect(report.scores).toHaveLength(kept - mediaOnly);
+    expect(report.unjudged).toHaveLength(mediaOnly);
+    expect(report.unjudged.every((p) => p.mediaOnly)).toBe(true);
     expect(report.metrics.postsIn).toBe(capture.posts.length);
     expect(report.metrics.postsAfterHardFilter).toBe(kept);
     expect(report.metrics.stageDurationsMs).toHaveProperty("parse");
     expect(report.metrics.collection?.postCount).toBe(9);
     // index 0 is clickbait, the last has no read value: both drop out.
-    expect(report.selector.candidates).toBe(Math.min(kept - 2, 4));
+    expect(report.selector.candidates).toBe(Math.min(kept - mediaOnly - 2, 4));
     expect(report.selected.map((r) => r.score.postId)).toEqual(
       report.scores.slice(1, 3).map((s) => s.postId),
     );
@@ -128,6 +138,39 @@ describe("capture run (synthetic capture directory)", () => {
     expect(markdown).toContain("# Seçilen 2 gönderi");
     expect(markdown).toContain(report.selected[0]?.post.url);
     expect(markdown).toContain("İddia: a claim");
+    expect(markdown).toContain(`# Yargılanamaz: ${mediaOnly} gönderi`);
+    expect(markdown).toContain(report.unjudged[0]?.url);
+    // Reasons ride along in result.json, null when none was given.
+    expect(JSON.parse(JSON.stringify(report)).scores[1]).toHaveProperty("reason", null);
+
+    const top = renderClickbaitTopMarkdown(report, capture.posts, 2);
+    expect(top).toContain("# En yüksek clickbait: ilk 2 gönderi");
+    const [first, second] = top.split("\n## ").slice(1);
+    expect(first).toMatch(/^1\. @\S+ — clickbait 9\/10/);
+    expect(first).toContain("Gerekçe: merak tuzağı");
+    expect(second).toContain("Gerekçe: _gerekçe yok_");
+    expect(top).not.toContain(report.unjudged[0]?.url);
+  });
+
+  it("clickbait-top leaves unscored placeholders out", async () => {
+    const report = await runCapture(capture, {
+      scorer: {
+        score: async (posts) =>
+          posts.map((post, index) => ({
+            postId: post.id,
+            clickbaitScore: index === 0 ? 1 : 0.2,
+            readWorthinessScore: 0.5,
+            checkWorthyClaim: null,
+            scoringFailed: index === 0,
+          })),
+      },
+      metrics: new RunMetricsCollector(),
+      selector: { maxClickbaitScore: 0.7, minReadWorthinessScore: 0.2 },
+      timelineSize: 50,
+    });
+    const top = renderClickbaitTopMarkdown(report, capture.posts);
+    expect(top).toContain(`ilk ${report.scores.length - 1} gönderi`);
+    expect(top).not.toContain("clickbait 10/10");
   });
 });
 
