@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   countTimelineEntries,
+  createHardFilter,
+  parseHomeTimeline,
   type CaptureStats,
   type CollectionMetrics,
   type OversizedCapture,
@@ -16,6 +18,12 @@ import {
  * `NMC_INBOX_DIR` when the user overrides it. One host process == one
  * capture session; `summary.json` next to the dumps holds only counts
  * and times (a CollectionMetrics), never content.
+ *
+ * Two post counts are kept: `postCount` is the rough per-response
+ * `tweet-` entry tally (repeats across overlapping responses included),
+ * `uniquePostCount` runs every parsed Post through one session-long
+ * hard filter — distinct organic posts, the number the capture target
+ * is measured against.
  */
 
 export interface CaptureSummary extends CollectionMetrics {
@@ -51,6 +59,7 @@ export class CaptureStore {
   #postCount = 0;
   #promotedCount = 0;
   #oversizedCount = 0;
+  readonly #uniqueFilter = createHardFilter();
   /** Serialises file writes; handler calls may arrive concurrently. */
   #queue: Promise<unknown> = Promise.resolve();
 
@@ -66,6 +75,7 @@ export class CaptureStore {
     return {
       responseCount: this.#responseCount,
       postCount: this.#postCount,
+      uniquePostCount: this.#uniqueFilter.stats.kept,
       promotedCount: this.#promotedCount,
       oversizedCount: this.#oversizedCount,
     };
@@ -81,6 +91,7 @@ export class CaptureStore {
       firstCapturedAt: this.#firstCapturedAt,
       lastCapturedAt: this.#lastCapturedAt,
       postCount: this.#postCount,
+      uniquePostCount: this.#uniqueFilter.stats.kept,
       responseCount: this.#responseCount,
       promotedCount: this.#promotedCount,
       oversizedCount: this.#oversizedCount,
@@ -100,9 +111,11 @@ export class CaptureStore {
       this.#markTime(capture.capturedAt);
       this.#responseCount += 1;
       try {
-        const counts = countTimelineEntries(JSON.parse(capture.bodyText) as unknown);
+        const payload = JSON.parse(capture.bodyText) as unknown;
+        const counts = countTimelineEntries(payload);
         this.#postCount += counts.postCount;
         this.#promotedCount += counts.promotedCount;
+        for (const post of parseHomeTimeline(payload)) this.#uniqueFilter.keep(post);
       } catch {
         // Not JSON: the raw dump is kept; it contributes no post count.
       }

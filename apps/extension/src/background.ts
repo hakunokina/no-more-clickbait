@@ -1,15 +1,16 @@
 import {
   bridgeMessageByteLength,
   MAX_BRIDGE_MESSAGE_BYTES,
+  parseHomeTimeline,
   type BridgeMessage,
   type BridgeReply,
   type CaptureStats,
   type PostBatch,
   type Settings,
 } from "@nmc/core";
+import { CaptureSession } from "./capture-session.js";
 import { isWorkerCaptureMessage, type WorkerCaptureMessage } from "./messages.js";
-import { parseHomeTimeline } from "./parse-home-timeline.js";
-import { loadSettings } from "./settings.js";
+import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
 
 /**
  * Service worker: receives captured timeline responses, converts them
@@ -18,9 +19,14 @@ import { loadSettings } from "./settings.js";
  *
  * Developer capture (opt-in, OFF by default): raw response bodies are
  * forwarded verbatim to the host, which stores them outside the repo
- * with a counts/times-only summary. The host replies with cumulative
- * rough counts; the badge shows them and a notification fires once
- * the configured target is reached (capture keeps going).
+ * with a counts/times-only summary.
+ *
+ * Badge = distinct organic posts (no ads, no repeats across responses).
+ * With developer capture ON the host's `uniquePostCount` is the single
+ * source — it owns the dumps, so it is what was really captured — and
+ * it alone drives the one-shot target notification (capture keeps
+ * going). With capture OFF the worker's own session counter is shown.
+ * Toggling developer capture starts a new counting session.
  *
  * Mode B (auto-scroll a hidden tab until enough posts are gathered) is
  * intentionally only a guarded switch in this skeleton: it stays OFF
@@ -33,8 +39,7 @@ export const NATIVE_HOST_NAME = "io.github.hakunokina.no_more_clickbait";
 const CAPTURE_NOTIFICATION_ID = "nmc-capture-target";
 
 let port: chrome.runtime.Port | null = null;
-let capturedPostCount = 0;
-let targetNotified = false;
+const session = new CaptureSession(chrome.storage.session);
 
 function nativePort(): chrome.runtime.Port {
   if (port) return port;
@@ -74,13 +79,10 @@ async function handleReply(reply: BridgeReply): Promise<void> {
 }
 
 async function reflectCaptureStats(stats: CaptureStats): Promise<void> {
-  capturedPostCount = stats.postCount;
-  await updateBadge(capturedPostCount);
-  if (targetNotified) return;
   const settings = await loadSettings().catch(() => null);
   if (!settings?.devCaptureEnabled) return;
-  if (stats.postCount < settings.captureTarget) return;
-  targetNotified = true;
+  await updateBadge(stats.uniquePostCount);
+  if (!(await session.reachedTarget(stats.uniquePostCount, settings.captureTarget))) return;
   await chrome.action.setBadgeBackgroundColor({ color: "#137333" });
   try {
     await chrome.notifications.create(CAPTURE_NOTIFICATION_ID, {
@@ -88,7 +90,7 @@ async function reflectCaptureStats(stats: CaptureStats): Promise<void> {
       iconUrl: chrome.runtime.getURL("icon-128.png"),
       title: "No More Clickbait — capture target reached",
       message:
-        `${stats.postCount} posts captured in ${stats.responseCount} timeline responses ` +
+        `${stats.uniquePostCount} distinct posts captured in ${stats.responseCount} timeline responses ` +
         `(target ${settings.captureTarget}). Capture continues; turn it off in Options to stop.`,
     });
   } catch {
@@ -143,11 +145,9 @@ async function handleCapture(message: WorkerCaptureMessage): Promise<void> {
   }
 
   const posts = parseHomeTimeline(payload);
-  if (posts.length > 0 && !settings?.devCaptureEnabled) {
-    capturedPostCount += posts.length;
-    await updateBadge(capturedPostCount);
-  }
   if (posts.length === 0) return;
+  const uniqueCount = await session.countPosts(posts);
+  if (!settings?.devCaptureEnabled) await updateBadge(uniqueCount);
 
   const batch: PostBatch = {
     source: "x-home-timeline",
@@ -166,6 +166,26 @@ chrome.runtime.onMessage.addListener((message: unknown) => {
   };
   void handleCapture(workerMessage).catch((error: unknown) => {
     console.error(`[nmc] capture handling failed: ${String(error)}`);
+  });
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  const change = changes[SETTINGS_STORAGE_KEY];
+  if (areaName !== "local" || !change) return;
+  const before = (change.oldValue as { devCaptureEnabled?: unknown } | undefined)
+    ?.devCaptureEnabled;
+  const after = (change.newValue as { devCaptureEnabled?: unknown } | undefined)
+    ?.devCaptureEnabled;
+  if (Boolean(before) === Boolean(after)) return;
+  // One host process == one capture folder: closing the port ends it,
+  // so the next capture starts a fresh host session too.
+  port?.disconnect();
+  port = null;
+  void (async () => {
+    await session.reset();
+    await updateBadge(0);
+  })().catch((error: unknown) => {
+    console.error(`[nmc] capture session reset failed: ${String(error)}`);
   });
 });
 

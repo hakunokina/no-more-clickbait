@@ -82,6 +82,7 @@ describe("handleBridgeMessage", () => {
         captureStats: () => ({
           responseCount: 1,
           postCount: 3,
+          uniquePostCount: 2,
           promotedCount: 1,
           oversizedCount: 0,
         }),
@@ -90,7 +91,13 @@ describe("handleBridgeMessage", () => {
     expect(reply).toEqual({
       type: "capture-accepted",
       sequence: 7,
-      stats: { responseCount: 1, postCount: 3, promotedCount: 1, oversizedCount: 0 },
+      stats: {
+        responseCount: 1,
+        postCount: 3,
+        uniquePostCount: 2,
+        promotedCount: 1,
+        oversizedCount: 0,
+      },
     });
     expect(seen).toEqual(["HomeTimeline"]);
   });
@@ -110,6 +117,7 @@ describe("handleBridgeMessage", () => {
         captureStats: () => ({
           responseCount: 0,
           postCount: 0,
+          uniquePostCount: 0,
           promotedCount: 0,
           oversizedCount: 1,
         }),

@@ -70,7 +70,9 @@ $Manifest = [ordered]@{
   type            = 'stdio'
   allowed_origins = @("chrome-extension://$ExtensionId/")
 }
-$Manifest | ConvertTo-Json | Set-Content -Path $ManifestPath -Encoding utf8
+# BOM-less UTF-8: Windows PowerShell 5.1's `-Encoding utf8` writes a BOM,
+# which the browser's manifest JSON parser rejects.
+[IO.File]::WriteAllText($ManifestPath, ($Manifest | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
 
 Write-Host "Native host registered for Chrome and Brave:"
 Write-Host "  manifest : $ManifestPath"

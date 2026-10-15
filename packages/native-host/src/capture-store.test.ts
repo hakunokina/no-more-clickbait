@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,13 @@ import { CollectionMetricsSchema } from "@nmc/core";
 import { CaptureStore, defaultCaptureRoot, type CaptureSummary } from "./capture-store.js";
 
 const SESSION_NOW = "2026-01-01T10:00:00.000Z";
+
+// Fully synthetic HomeTimeline-shaped responses shared with core's tests.
+const fixtureBody = (name: string): string =>
+  readFileSync(
+    join(import.meta.dirname, "..", "..", "core", "fixtures", "x-home-timeline", name),
+    "utf8",
+  );
 
 // Synthetic body only — modelled on the entryId convention, no real data.
 const syntheticBody = (ids: string[]): string =>
@@ -73,6 +81,8 @@ describe("CaptureStore", () => {
       firstCapturedAt: "2026-01-01T10:00:05.000Z",
       lastCapturedAt: "2026-01-01T10:02:35.000Z",
       postCount: 3,
+      // entryId-only bodies carry no parseable tweets.
+      uniquePostCount: 0,
       responseCount: 2,
       promotedCount: 1,
       oversizedCount: 0,
@@ -81,9 +91,29 @@ describe("CaptureStore", () => {
     expect(store.stats).toEqual({
       responseCount: 2,
       postCount: 3,
+      uniquePostCount: 0,
       promotedCount: 1,
       oversizedCount: 0,
     });
+  });
+
+  it("counts distinct organic posts across overlapping responses", async () => {
+    for (const [index, name] of ["response-1.json", "response-2.json"].entries()) {
+      await store.store({
+        type: "raw-capture",
+        operation: "HomeTimeline",
+        capturedAt: `2026-01-01T10:0${index}:00.000Z`,
+        bodyText: fixtureBody(name),
+      });
+    }
+    // Response 2 repeats post 1 and re-delivers original 7 via reposts;
+    // the ad is dropped. The rough tally counts every tweet- entry.
+    expect(store.stats.uniquePostCount).toBe(5);
+    expect(store.stats.postCount).toBe(10);
+    const summary = JSON.parse(
+      await readFile(join(store.sessionDir ?? "", "summary.json"), "utf8"),
+    ) as CaptureSummary;
+    expect(summary.uniquePostCount).toBe(5);
   });
 
   it("keeps non-JSON bodies but counts no posts from them", async () => {

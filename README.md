@@ -131,16 +131,21 @@ the payload shape and measure collection time:
 2. Browse X as usual (Mode A). The extension forwards each
    HomeTimeline/HomeLatestTimeline response body **verbatim** to the
    native host.
-3. The badge shows the running rough post count (timeline entries whose
-   `entryId` starts with `tweet-`; promoted entries counted separately);
-   when the target is reached you get a badge + notification and capture
-   keeps going until you untick it.
+3. The badge shows the running count of **distinct organic posts**
+   (parsed posts, ads dropped, posts repeated across overlapping
+   responses counted once — the host's `uniquePostCount`); when it
+   reaches the target you get a badge + notification and capture keeps
+   going until you untick it. Toggling the tick starts a new count and
+   a new session folder.
 4. The host writes each response to a per-session folder **outside the
    repo** — `%LOCALAPPDATA%\nmc\captures\<session time>\` by default
    (set `NMC_INBOX_DIR` in the host's environment to move it) — numbered
    `0001-<time>-HomeTimeline.json` etc., plus a `summary.json` holding
-   only counts and times (first/last capture, response/post/promoted
-   counts, oversized refusals, collection span). Responses over the
+   only counts and times (first/last capture, response/promoted counts,
+   oversized refusals, collection span) and two post counts:
+   `uniquePostCount` (distinct organic posts, what the target measures)
+   and `postCount` (rough: `tweet-` entries summed per response, so
+   repeats across responses are included — typically ~30% higher). Responses over the
    32 MB bridge-frame ceiling are never chunked: they are refused,
    logged, and counted in the summary.
 
