@@ -298,7 +298,7 @@ export interface SiteWorkerHooks {
  * tab. A content script (the picker) reports the web page's URL instead.
  */
 export function fromExtensionPage(
-  sender: Pick<chrome.runtime.MessageSender, "id" | "url">,
+  sender: Pick<chrome.runtime.MessageSender, "url">,
   extensionRoot: string,
 ): boolean {
   return sender.url?.startsWith(extensionRoot) === true;
