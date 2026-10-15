@@ -174,23 +174,20 @@ describe("handleBridgeMessage", () => {
     });
   });
 
-  it("answers the not-yet-handled collection/settings messages with an error", async () => {
-    for (const message of [
-      {
-        type: "collection-complete",
-        uniquePostCount: 1,
-        responseCount: 1,
-        mode: "A",
-        reason: "x",
-      },
-      { type: "settings-sync", settings: {} },
-    ]) {
-      await expect(
-        handleBridgeMessage(JSON.stringify(message), { onPostBatch: () => {} }),
-      ).resolves.toEqual({
-        type: "error",
-        message: `${message.type} is not supported by this host yet`,
-      });
-    }
+  // settings-sync: see settings-store.test.ts.
+  it("answers the not-yet-handled collection message with an error", async () => {
+    const message = {
+      type: "collection-complete",
+      uniquePostCount: 1,
+      responseCount: 1,
+      mode: "A",
+      reason: "x",
+    };
+    await expect(
+      handleBridgeMessage(JSON.stringify(message), { onPostBatch: () => {} }),
+    ).resolves.toEqual({
+      type: "error",
+      message: "collection-complete is not supported by this host yet",
+    });
   });
 });

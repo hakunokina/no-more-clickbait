@@ -602,7 +602,7 @@ describe("pipelineConfigFromSettings", () => {
     });
     expect(pipelineConfigFromSettings(settings)).toEqual({
       selector: { maxClickbaitScore: 0.6, minReadWorthinessScore: 0.3 },
-      timelineSize: 20,
+      timelineSize: 50,
       verify: false,
       maxVerifications: 20,
       minReadForVerify: 0.4,

@@ -264,7 +264,7 @@ export const PIPELINE_SETTING_FIELDS = {
     kind: "integer",
     min: 1,
     max: 100,
-    default: 20,
+    default: 50,
     label: "Posts per finished timeline",
     description:
       "How many posts a finished timeline shows. If fewer posts pass the filters, " +
@@ -275,7 +275,7 @@ export const PIPELINE_SETTING_FIELDS = {
     min: 1,
     max: 10,
     default: 7,
-    label: "Clickbait limit (0–10)",
+    label: "Clickbait limit (1–10)",
     description:
       "Posts whose clickbait score is below this pass. Lower it for a stricter " +
       "filter; raise it to let more sensational posts through.",
