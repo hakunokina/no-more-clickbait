@@ -55,7 +55,9 @@ export function desktopPipePath(
 }
 
 /** Host session ids double as folder names: validate before any path use. */
-export const SessionIdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{4}$/);
+export const SessionIdSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{4}$/);
 
 const NonceSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const ProofSchema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -266,7 +268,10 @@ export class LinkServer {
         }
         if (state === "auth") {
           const auth = AuthSchema.safeParse(message);
-          if (!auth.success || !proofMatches(linkProof(token, "host", ownNonce), auth.data.proof)) {
+          if (
+            !auth.success ||
+            !proofMatches(linkProof(token, "host", ownNonce), auth.data.proof)
+          ) {
             return connection.close();
           }
           state = "ready";
@@ -379,7 +384,10 @@ export class LinkClient {
             this.#options.log?.("desktop link: peer failed the handshake; disconnecting");
             return connection.close();
           }
-          connection.send({ type: "auth", proof: linkProof(token, "host", welcome.data.nonce) });
+          connection.send({
+            type: "auth",
+            proof: linkProof(token, "host", welcome.data.nonce),
+          });
           state = "ready";
           return;
         }

@@ -174,7 +174,9 @@ describe("desktop link", () => {
     await new Promise((resolve) => socket.once("connect", resolve));
     socket.write(encodeMessage({ type: "hello", protocol: 1, nonce: newNonce() }));
     await waitFor(() => received.length === 1);
-    socket.write(encodeMessage({ type: "auth", proof: linkProof("f".repeat(64), "host", "0") }));
+    socket.write(
+      encodeMessage({ type: "auth", proof: linkProof("f".repeat(64), "host", "0") }),
+    );
     await new Promise((resolve) => socket.once("close", resolve));
     expect(received).toHaveLength(1);
     expect(received[0]).toMatchObject({ type: "welcome" });

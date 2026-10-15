@@ -99,7 +99,12 @@ describe("PostSessionStore", () => {
   it("lists sessions with their complete/processed state", async () => {
     const a = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
     await a.addBatch(batch(clock, ["1"]));
-    await a.complete({ mode: "A", reason: "target-reached", uniquePostCount: 1, responseCount: 1 });
+    await a.complete({
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 1,
+      responseCount: 1,
+    });
     const b = new PostSessionStore(root, () => "2026-01-01T11:00:00.000Z");
     await b.addBatch(batch(clock, ["2"]));
     await markSessionProcessed(join(root, a.sessionId as string), "done", () => clock);

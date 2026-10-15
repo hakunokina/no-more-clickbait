@@ -18,11 +18,7 @@ export type RunStage =
   | "cancelled";
 
 export type RunErrorKind =
-  | "cli-not-found"
-  | "cli-not-authenticated"
-  | "cli-error"
-  | "session-unreadable"
-  | "internal";
+  "cli-not-found" | "cli-not-authenticated" | "cli-error" | "session-unreadable" | "internal";
 
 export interface RunError {
   kind: RunErrorKind;
@@ -77,6 +73,11 @@ export interface DesktopStatus {
     message: string | null;
     target: number | null;
   };
+  /**
+   * A finished Mode A collection waiting for the user's "Build timeline"
+   * (no run starts without it).
+   */
+  pending: { sessionId: string; uniquePostCount: number } | null;
   run: {
     stage: RunStage;
     sessionId: string | null;
@@ -118,6 +119,7 @@ export function initialStatus(): DesktopStatus {
   return {
     link: { listening: false, hosts: 0, error: null },
     collection: { state: "idle", message: null, target: null },
+    pending: null,
     run: {
       stage: "idle",
       sessionId: null,

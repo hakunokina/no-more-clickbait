@@ -100,7 +100,8 @@ function availabilityError(availability: Exclude<LlmAvailability, { ok: true }>)
     case "not-authenticated":
       return {
         kind: "cli-not-authenticated",
-        message: "The claude CLI is installed but not logged in. Log in with it, then try again.",
+        message:
+          "The claude CLI is installed but not logged in. Log in with it, then try again.",
         detail: availability.detail,
       };
     default:
@@ -203,7 +204,11 @@ export class PipelineRunner {
       active.stages = stages;
       const availability = await Promise.race([stages.checkAvailable(), aborted]);
       if (!availability.ok) {
-        return { status: "error", error: availabilityError(availability), metrics: metrics.toRunMetrics() };
+        return {
+          status: "error",
+          error: availabilityError(availability),
+          metrics: metrics.toRunMetrics(),
+        };
       }
 
       const config = pipelineConfigFromSettings(settings);

@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { SettingsSchema, type Post, type ScoreEntry, type Settings, type VerificationResult } from "@nmc/core";
+import {
+  SettingsSchema,
+  type Post,
+  type ScoreEntry,
+  type Settings,
+  type VerificationResult,
+} from "@nmc/core";
 import { CliNotAuthenticatedError, CliRunError, type LlmAvailability } from "@nmc/core/llm";
-import { PipelineRunner, RunBusyError, type RunProgress, type RunStages } from "./pipeline-runner.js";
+import {
+  PipelineRunner,
+  RunBusyError,
+  type RunProgress,
+  type RunStages,
+} from "./pipeline-runner.js";
 
 // Fully synthetic posts — no real feed data.
 function post(id: string, extra: Partial<Post> = {}): Post {
@@ -18,7 +29,12 @@ function post(id: string, extra: Partial<Post> = {}): Post {
   };
 }
 
-function score(postId: string, read: number, clickbait = 0.1, claim: string | null = null): ScoreEntry {
+function score(
+  postId: string,
+  read: number,
+  clickbait = 0.1,
+  claim: string | null = null,
+): ScoreEntry {
   return {
     postId,
     clickbaitScore: clickbait,
@@ -29,14 +45,19 @@ function score(postId: string, read: number, clickbait = 0.1, claim: string | nu
   };
 }
 
-function verification(postId: string, claim: string, status: VerificationResult["status"]): VerificationResult {
+function verification(
+  postId: string,
+  claim: string,
+  status: VerificationResult["status"],
+): VerificationResult {
   return {
     postId,
     claim,
     status,
     confidence: 0.8,
     summary: "synthetic",
-    sources: status === "unverifiable" ? [] : [{ url: "https://example.invalid/a", title: "A" }],
+    sources:
+      status === "unverifiable" ? [] : [{ url: "https://example.invalid/a", title: "A" }],
   };
 }
 
@@ -94,7 +115,9 @@ describe("PipelineRunner", () => {
     });
     const progress: RunProgress[] = [];
     const runner = new PipelineRunner(() => stages);
-    const outcome = await runner.run(posts, settings({ timelineSize: 10 }), (p) => progress.push(p));
+    const outcome = await runner.run(posts, settings({ timelineSize: 10 }), (p) =>
+      progress.push(p),
+    );
 
     expect(outcome.status).toBe("done");
     if (outcome.status !== "done") return;
@@ -142,7 +165,9 @@ describe("PipelineRunner", () => {
     const { stages } = fakeStages({ hangScorer: true });
     const runner = new PipelineRunner(() => stages);
     const first = runner.run([post("1")], settings(), () => {});
-    await expect(runner.run([post("2")], settings(), () => {})).rejects.toBeInstanceOf(RunBusyError);
+    await expect(runner.run([post("2")], settings(), () => {})).rejects.toBeInstanceOf(
+      RunBusyError,
+    );
     expect(runner.cancel()).toBe(true);
     await expect(first).resolves.toMatchObject({ status: "cancelled" });
   });
@@ -163,13 +188,16 @@ describe("PipelineRunner", () => {
 
   it("stops in-flight verification on cancel", async () => {
     let started = 0;
-    const runner = new PipelineRunner(() => fakeStages({
-      scores: (posts) => posts.map((p) => score(p.id, 0.9, 0.1, `claim ${p.id}`)),
-      verify: () => {
-        started += 1;
-        return new Promise<VerificationResult>(() => {});
-      },
-    }).stages);
+    const runner = new PipelineRunner(
+      () =>
+        fakeStages({
+          scores: (posts) => posts.map((p) => score(p.id, 0.9, 0.1, `claim ${p.id}`)),
+          verify: () => {
+            started += 1;
+            return new Promise<VerificationResult>(() => {});
+          },
+        }).stages,
+    );
     const running = runner.run([post("1"), post("2"), post("3")], settings(), () => {});
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(started).toBeGreaterThan(0);
@@ -186,7 +214,11 @@ describe("PipelineRunner", () => {
         return [];
       },
     });
-    const outcome = await new PipelineRunner(() => notFound.stages).run([post("1")], settings(), () => {});
+    const outcome = await new PipelineRunner(() => notFound.stages).run(
+      [post("1")],
+      settings(),
+      () => {},
+    );
     expect(outcome).toMatchObject({ status: "error", error: { kind: "cli-not-found" } });
     expect(scored).toBe(false);
 

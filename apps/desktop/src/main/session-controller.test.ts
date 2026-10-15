@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { SettingsSchema, type Post, type PostBatch } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
+import { renderTimeline, TIMELINE_CSP } from "@nmc/timeline-renderer";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import { SessionController, TIMELINE_DOC_FILE, TIMELINE_FILE } from "./session-controller.js";
@@ -23,7 +24,11 @@ function post(id: string): Post {
 }
 
 function batch(ids: string[]): PostBatch {
-  return { source: "x-home-timeline", capturedAt: "2026-01-01T10:00:01.000Z", posts: ids.map(post) };
+  return {
+    source: "x-home-timeline",
+    capturedAt: "2026-01-01T10:00:01.000Z",
+    posts: ids.map(post),
+  };
 }
 
 function stages(overrides: Partial<RunStages> = {}): RunStages {
@@ -45,11 +50,16 @@ function stages(overrides: Partial<RunStages> = {}): RunStages {
   };
 }
 
-async function completeSession(root: string, at: string, ids: string[]): Promise<string> {
+async function completeSession(
+  root: string,
+  at: string,
+  ids: string[],
+  mode: "A" | "B" = "B",
+): Promise<string> {
   const store = new PostSessionStore(root, () => at);
   await store.addBatch(batch(ids));
   return (await store.complete({
-    mode: "B",
+    mode,
     reason: "target-reached",
     uniquePostCount: ids.length,
     responseCount: 1,
@@ -60,6 +70,7 @@ describe("SessionController", () => {
   let root: string;
   let statuses: DesktopStatus[];
   let ready: { sessionId: string; timelinePath: string; selected: number }[];
+  let asked: { sessionId: string; uniquePostCount: number }[];
   let sent: DesktopCommand[];
   let hostOnline: boolean;
   let runStages: RunStages;
@@ -68,6 +79,7 @@ describe("SessionController", () => {
     root = await mkdtemp(join(tmpdir(), "nmc-controller-test-"));
     statuses = [];
     ready = [];
+    asked = [];
     sent = [];
     hostOnline = true;
     runStages = stages();
@@ -90,6 +102,7 @@ describe("SessionController", () => {
       },
       onStatus: (status) => statuses.push(status),
       onReady: (info) => ready.push(info),
+      onAwaitingConfirmation: (pending) => asked.push(pending),
       now: () => "2026-01-01T12:00:00.000Z",
     });
   }
@@ -126,8 +139,12 @@ describe("SessionController", () => {
 
     expect(c.status.run).toMatchObject({ stage: "ready", sessionId: id, hasTimeline: true });
     expect(c.status.run.counts).toMatchObject({ postsIn: 3, afterHardFilter: 2, selected: 2 });
-    expect(ready).toEqual([{ sessionId: id, timelinePath: join(root, id, TIMELINE_FILE), selected: 2 }]);
-    await expect(readFile(join(root, id, TIMELINE_FILE), "utf8")).resolves.toBe("<p>2 posts</p>");
+    expect(ready).toEqual([
+      { sessionId: id, timelinePath: join(root, id, TIMELINE_FILE), selected: 2 },
+    ]);
+    await expect(readFile(join(root, id, TIMELINE_FILE), "utf8")).resolves.toBe(
+      "<p>2 posts</p>",
+    );
     const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
       funnel: { scanned: number; duplicates: number; shown: number };
     };
@@ -140,13 +157,31 @@ describe("SessionController", () => {
     expect(stages.at(-1)).toBe("ready");
   });
 
-  it("starts the run from a host's collection-complete event", async () => {
+  it("writes the real renderer's page, with the desktop's action buttons", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1", "2"]);
+    const c = new SessionController({
+      sessionsRoot: root,
+      runner: new PipelineRunner(() => runStages),
+      loadSettings: async () => SettingsSchema.parse({ timelineSize: 2 }),
+      renderTimeline: (doc) => renderTimeline(doc, { actions: true }),
+      sendToHost: () => false,
+      onStatus: () => {},
+      onReady: () => {},
+    });
+    await c.runSession(id);
+    const html = await readFile(join(root, id, TIMELINE_FILE), "utf8");
+    expect(html).toContain(TIMELINE_CSP);
+    expect(html).toContain('data-action="collect"');
+    expect(html).toContain("synthetic post 1");
+  });
+
+  it("starts the run from a host's Mode B collection-complete event", async () => {
     const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
     const c = controller();
     c.handleHostEvent({
       type: "collection-complete",
       sessionId: id,
-      mode: "A",
+      mode: "B",
       reason: "target-reached",
       uniquePostCount: 1,
       responseCount: 1,
@@ -160,10 +195,66 @@ describe("SessionController", () => {
     const c = controller();
     await c.processPending();
     expect(ready.map((r) => r.sessionId)).toEqual([newer]);
-    const byId = Object.fromEntries((await listSessions(root)).map((s) => [s.id, s.processed?.status]));
+    const byId = Object.fromEntries(
+      (await listSessions(root)).map((s) => [s.id, s.processed?.status]),
+    );
     expect(byId).toEqual({ [older]: "superseded", [newer]: "done" });
     await c.processPending();
     expect(ready).toHaveLength(1);
+  });
+
+  it("never runs a Mode A collection without the user's go", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1", "2"], "A");
+    const c = controller();
+    c.handleHostEvent({
+      type: "collection-complete",
+      sessionId: id,
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 2,
+      responseCount: 1,
+    });
+    await expect.poll(() => c.status.pending).toEqual({ sessionId: id, uniquePostCount: 2 });
+    expect(asked).toEqual([{ sessionId: id, uniquePostCount: 2 }]);
+    expect(c.status.run.stage).toBe("idle");
+    expect((await listSessions(root))[0]?.processed).toBeNull();
+
+    await c.buildPending();
+    expect(c.status.pending).toBeNull();
+    expect(c.status.run.stage).toBe("ready");
+    expect(ready.map((r) => r.sessionId)).toEqual([id]);
+  });
+
+  it("keeps a Mode A session pending across restarts, without asking again", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"], "A");
+    const c = controller();
+    await c.processPending();
+    expect(c.status.pending).toEqual({ sessionId: id, uniquePostCount: 1 });
+    expect(c.status.run.stage).toBe("idle");
+    expect(asked).toEqual([]);
+    await c.processPending();
+    expect(ready).toEqual([]);
+  });
+
+  it("lets a newer collection supersede a pending one", async () => {
+    const older = await completeSession(root, "2026-01-01T09:00:00.000Z", ["1"], "A");
+    const newer = await completeSession(root, "2026-01-01T10:00:00.000Z", ["2"], "A");
+    const c = controller();
+    for (const sessionId of [older, newer]) {
+      c.handleHostEvent({
+        type: "collection-complete",
+        sessionId,
+        mode: "A",
+        reason: "target-reached",
+        uniquePostCount: 1,
+        responseCount: 1,
+      });
+      await expect.poll(() => c.status.pending?.sessionId).toBe(sessionId);
+    }
+    const byId = Object.fromEntries(
+      (await listSessions(root)).map((s) => [s.id, s.processed?.status ?? null]),
+    );
+    expect(byId).toEqual({ [older]: "superseded", [newer]: null });
   });
 
   it("shows a CLI error, keeps the session pending and retries on request", async () => {

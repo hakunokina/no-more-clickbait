@@ -34,6 +34,14 @@ function render(status: DesktopStatus): void {
   text("link-status", describeLink(status));
   text("collection-note", status.collection.message ?? "");
 
+  el("pending").hidden = status.pending === null || active;
+  text(
+    "pending-note",
+    status.pending
+      ? `${status.pending.uniquePostCount} posts collected while you browsed. Build the timeline? (Uses your claude CLI.)`
+      : "",
+  );
+
   const error = el("run-error");
   error.hidden = run.error === null;
   text("run-error-message", run.error?.message ?? "");
@@ -99,6 +107,7 @@ function guarded(button: HTMLButtonElement, action: () => Promise<unknown>): voi
   });
 }
 
+guarded(el<HTMLButtonElement>("build"), () => window.nmc.buildTimeline());
 guarded(el<HTMLButtonElement>("collect"), () => window.nmc.startCollection());
 guarded(el<HTMLButtonElement>("cancel"), () => window.nmc.cancelRun());
 guarded(el<HTMLButtonElement>("retry"), () => window.nmc.retryRun());

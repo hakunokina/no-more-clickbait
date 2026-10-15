@@ -191,7 +191,8 @@ describe("collection and settings bridge messages", () => {
     const message = { type: "collection-start-result", outcome: "mode-b-off", target: 250 };
     expect(BridgeMessageSchema.parse(message)).toEqual(message);
     expect(
-      BridgeMessageSchema.safeParse({ type: "collection-start-result", outcome: "started" }).success,
+      BridgeMessageSchema.safeParse({ type: "collection-start-result", outcome: "started" })
+        .success,
     ).toBe(true);
     expect(BridgeMessageSchema.safeParse({ ...message, outcome: "maybe" }).success).toBe(false);
     expect(BridgeMessageSchema.safeParse({ ...message, target: 0 }).success).toBe(false);

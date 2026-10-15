@@ -81,20 +81,33 @@ function preparing(status: DesktopStatus): HTMLElement[] {
       judged !== null ? `${judged} gönderi değerlendirilecek` : undefined,
     ),
     step(stateOf(stage, "scoring"), "Claude okuyor ve puanlıyor", "Tek çağrı · birkaç dakika"),
-    step(stateOf(stage, "verifying"), "Doğrulamaya değer iddialar kontrol ediliyor", verifyDetail),
+    step(
+      stateOf(stage, "verifying"),
+      "Doğrulamaya değer iddialar kontrol ediliyor",
+      verifyDetail,
+    ),
     step(stateOf(stage, "rendering"), "Akış yazılıyor"),
   );
   const skeleton = h("div", { "aria-hidden": "true" });
   for (let i = 0; i < 3; i += 1) {
     skeleton.append(
-      h("div", { class: "skeleton" }, h("i"), h("div", {}, h("i", { style: "width:40%" }), h("i"), h("i", { style: "width:85%" }))),
+      h(
+        "div",
+        { class: "skeleton" },
+        h("i"),
+        h("div", {}, h("i", { style: "width:40%" }), h("i"), h("i", { style: "width:85%" })),
+      ),
     );
   }
   return [
     h("h1", {}, "Akış hazırlanıyor"),
     h("p", {}, "Bu pencereyi kapatabilirsin; hazır olunca tepsiden haber verilir."),
     steps,
-    h("div", { class: "btn-row" }, button("İptal", () => window.nmc.cancelRun())),
+    h(
+      "div",
+      { class: "btn-row" },
+      button("İptal", () => window.nmc.cancelRun()),
+    ),
     skeleton,
   ];
 }
@@ -115,32 +128,75 @@ function render(status: DesktopStatus): void {
           : "Eklenti X akışından gönderi topluyor. Bitince akış kendiliğinden hazırlanır.",
       ),
     ];
+  } else if (status.pending) {
+    content = [
+      h("h1", {}, `${status.pending.uniquePostCount} gönderi toplandı`),
+      h(
+        "p",
+        {},
+        "X'te gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.",
+      ),
+      h(
+        "div",
+        { class: "btn-row" },
+        button("Akışı oluştur", () => window.nmc.buildTimeline(), true),
+        collectButton(false),
+      ),
+    ];
   } else if (run.stage === "error" && run.error) {
-    const detail = h("details", {}, h("summary", {}, "Teknik ayrıntı"), h("pre", {}, run.error.detail ?? run.error.kind));
+    const detail = h(
+      "details",
+      {},
+      h("summary", {}, "Teknik ayrıntı"),
+      h("pre", {}, run.error.detail ?? run.error.kind),
+    );
     content = [
       h("div", { class: "icon", "aria-hidden": "true" }, "⚠"),
       h("h1", {}, "Akış hazırlanamadı"),
       h("p", {}, run.error.message),
-      h("p", { class: "muted" }, "Toplanan gönderiler duruyor; yeniden denemek için yeniden toplamak gerekmez."),
+      h(
+        "p",
+        { class: "muted" },
+        "Toplanan gönderiler duruyor; yeniden denemek için yeniden toplamak gerekmez.",
+      ),
       detail,
-      h("div", { class: "btn-row" }, button("Tekrar dene", () => window.nmc.retryRun(), true), collectButton(false)),
+      h(
+        "div",
+        { class: "btn-row" },
+        button("Tekrar dene", () => window.nmc.retryRun(), true),
+        collectButton(false),
+      ),
     ];
   } else if (run.stage === "cancelled") {
     content = [
       h("h1", {}, "İptal edildi"),
       h("p", {}, "Toplanan gönderiler duruyor."),
-      h("div", { class: "btn-row" }, button("Tekrar dene", () => window.nmc.retryRun(), true), collectButton(false)),
+      h(
+        "div",
+        { class: "btn-row" },
+        button("Tekrar dene", () => window.nmc.retryRun(), true),
+        collectButton(false),
+      ),
     ];
   } else if (run.stage === "ready" && run.hasTimeline) {
     content = [
       h("h1", {}, "Akış hazır"),
       h("p", {}, `${run.counts.selected ?? 0} gönderi.`),
-      h("div", { class: "btn-row" }, button("Akışı aç", () => window.nmc.openReader(), true), collectButton(false)),
+      h(
+        "div",
+        { class: "btn-row" },
+        button("Akışı aç", () => window.nmc.openReader(), true),
+        collectButton(false),
+      ),
     ];
   } else {
     content = [
       h("h1", {}, "Henüz akış yok"),
-      h("p", {}, "Yeni bir akış için eklenti X akışından gönderi toplar; sonra Claude puanlar ve doğrular."),
+      h(
+        "p",
+        {},
+        "Yeni bir akış için eklenti X akışından gönderi toplar; sonra Claude puanlar ve doğrular.",
+      ),
     ];
     if (collection.state === "refused" && collection.message) {
       content.push(h("p", { class: "muted", role: "alert" }, collection.message));

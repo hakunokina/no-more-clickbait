@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@nmc/core": "workspace:*",
-    "@nmc/native-host": "workspace:*"
+    "@nmc/native-host": "workspace:*",
+    "@nmc/timeline-renderer": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

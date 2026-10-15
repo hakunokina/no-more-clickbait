@@ -110,7 +110,10 @@ export async function handleBridgeMessage(
     }
     case "collection-complete": {
       if (!handlers.onCollectionComplete) {
-        return { type: "error", message: "collection sessions are not configured on this host" };
+        return {
+          type: "error",
+          message: "collection sessions are not configured on this host",
+        };
       }
       await handlers.onCollectionComplete(parsed.data);
       return { type: "collection-recorded" };

@@ -17,6 +17,8 @@ export interface DesktopApi {
   cancelRun(): Promise<boolean>;
   /** Re-runs the last session's pipeline without collecting again. */
   retryRun(): Promise<void>;
+  /** Runs the pending (Mode A) collection the user confirms. */
+  buildTimeline(): Promise<void>;
   openReader(): Promise<void>;
 }
 
@@ -31,7 +33,21 @@ const api: DesktopApi = {
   startCollection: () => ipcRenderer.invoke("nmc:start-collection") as Promise<void>,
   cancelRun: () => ipcRenderer.invoke("nmc:cancel-run") as Promise<boolean>,
   retryRun: () => ipcRenderer.invoke("nmc:retry-run") as Promise<void>,
+  buildTimeline: () => ipcRenderer.invoke("nmc:build-timeline") as Promise<void>,
   openReader: () => ipcRenderer.invoke("nmc:open-reader") as Promise<void>,
 };
 
 contextBridge.exposeInMainWorld("nmc", api);
+
+/**
+ * The rendered timeline page (packages/timeline-renderer, `actions: true`)
+ * carries "Yeni akış topla" / "Tekrar dene" buttons as
+ * `data-action="collect" | "retry"`; its hash-pinned script does not
+ * handle them, the host does — from this isolated world.
+ */
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
+  const action = target?.getAttribute("data-action");
+  if (action === "collect") void api.startCollection();
+  else if (action === "retry") void api.retryRun();
+});

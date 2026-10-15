@@ -21,9 +21,14 @@ import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
 /**
  * The desktop app's orchestration, Electron-free so it is testable:
  * - "Collect new timeline" → `start-collection` to the newest host;
- * - `collection-complete` from a host → run the pipeline on that session;
- * - at start-up (and whenever a host connects) → run the newest complete,
- *   unprocessed session; older ones are marked superseded;
+ * - `collection-complete` from a host: a Mode B collection (the user
+ *   asked for it) runs the pipeline at once; a Mode A one (the user's
+ *   own scrolling reached the target) only becomes the *pending* session
+ *   — the user is asked and "Build timeline" runs it (owner's decision:
+ *   no LLM spend the user did not ask for);
+ * - at start-up (and whenever a host connects) the newest complete,
+ *   unprocessed session is handled the same way; older ones are marked
+ *   superseded;
  * - writes `result.json`, `timeline.json` (the renderer's TimelineDoc)
  *   and `timeline.html` into the session folder, then
  *   `processed.json` (done / cancelled). A failed run stays unprocessed
@@ -46,6 +51,8 @@ export interface SessionControllerDeps {
   /** Sends a command to the newest connected host; false when none. */
   sendToHost(command: DesktopCommand): boolean;
   onStatus(status: DesktopStatus): void;
+  /** A Mode A collection waits for the user's go (tray notification). */
+  onAwaitingConfirmation?(pending: { sessionId: string; uniquePostCount: number }): void;
   /** A timeline is ready (tray notification, reading window). */
   onReady(ready: { sessionId: string; timelinePath: string; selected: number }): void;
   log?(line: string): void;
@@ -144,7 +151,7 @@ export class SessionController {
           case "mode-b-off":
             status.collection = {
               state: "refused",
-              message: `Automatic collection (Mode B) is off. Browse x.com/home in your browser; the timeline is prepared once ${target ?? "enough"} posts are collected.`,
+              message: `Automatic collection (Mode B) is off. Browse x.com/home in your browser; once ${target ?? "enough"} posts are collected you can build the timeline.`,
               target,
             };
             break;
@@ -179,7 +186,38 @@ export class SessionController {
         target: null,
       };
     });
-    if (event.sessionId !== null) void this.runSession(event.sessionId);
+    if (event.sessionId === null) return;
+    if (event.mode === "B") {
+      void this.runSession(event.sessionId);
+      return;
+    }
+    void this.#awaitConfirmation(event.sessionId, event.uniquePostCount, true);
+  }
+
+  /** Runs the pending (Mode A) session the user confirmed. */
+  async buildPending(): Promise<void> {
+    const pending = this.#status.pending;
+    if (pending) await this.runSession(pending.sessionId);
+  }
+
+  /** One pending session at a time: a newer one supersedes it. */
+  async #awaitConfirmation(
+    sessionId: string,
+    uniquePostCount: number,
+    notify: boolean,
+  ): Promise<void> {
+    const previous = this.#status.pending;
+    if (previous && previous.sessionId !== sessionId) {
+      await markSessionProcessed(
+        join(this.#deps.sessionsRoot, previous.sessionId),
+        "superseded",
+        () => this.#now(),
+      ).catch(() => undefined);
+    }
+    this.#update((status) => {
+      status.pending = { sessionId, uniquePostCount };
+    });
+    if (notify) this.#deps.onAwaitingConfirmation?.({ sessionId, uniquePostCount });
   }
 
   cancel(): boolean {
@@ -198,17 +236,24 @@ export class SessionController {
     await this.runSession(id);
   }
 
-  /** Runs the newest complete, unprocessed session; supersedes older ones. */
+  /**
+   * Handles the newest complete, unprocessed session (Mode B: run,
+   * Mode A: pending for the user's go); supersedes older ones.
+   */
   async processPending(): Promise<void> {
     if (this.#busy) return;
     const pending = (await listSessions(this.#deps.sessionsRoot)).filter(
-      (session) => session.complete && session.processed === null,
+      (session) => session.completion !== null && session.processed === null,
     );
     const newest = pending.pop();
     for (const old of pending) {
       await markSessionProcessed(old.dir, "superseded", () => this.#now());
     }
-    if (newest && !this.#failed.has(newest.id)) await this.runSession(newest.id);
+    if (!newest?.completion || this.#failed.has(newest.id)) return;
+    if (newest.completion.mode === "B") await this.runSession(newest.id);
+    else if (this.#status.pending?.sessionId !== newest.id) {
+      await this.#awaitConfirmation(newest.id, newest.completion.uniquePostCount, false);
+    }
   }
 
   async runSession(sessionId: string): Promise<void> {
@@ -219,6 +264,7 @@ export class SessionController {
     this.#busy = true;
     const startedAt = this.#now();
     this.#update((status) => {
+      if (status.pending?.sessionId === sessionId) status.pending = null;
       status.run = {
         stage: "checking",
         sessionId,
@@ -271,7 +317,9 @@ export class SessionController {
     );
 
     if (outcome.status === "cancelled") {
-      await markSessionProcessed(session.dir, "cancelled", () => this.#now()).catch(() => undefined);
+      await markSessionProcessed(session.dir, "cancelled", () => this.#now()).catch(
+        () => undefined,
+      );
       this.#finish((status) => {
         status.run.stage = "cancelled";
         status.run.usage = usageOf(outcome.metrics);

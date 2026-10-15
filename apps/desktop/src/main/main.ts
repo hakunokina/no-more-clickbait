@@ -18,10 +18,10 @@ import {
   sessionsRoot,
   writeLinkToken,
 } from "@nmc/native-host";
+import { renderTimeline } from "@nmc/timeline-renderer";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
 import { createClaudeStages } from "./claude-stages.js";
 import { PipelineRunner } from "./pipeline-runner.js";
-import { renderPlaceholderTimeline } from "./placeholder-timeline.js";
 import { ReadingWindow } from "./reading-window.js";
 import { SessionController } from "./session-controller.js";
 import { loadDesktopSettings } from "./settings-file.js";
@@ -73,13 +73,23 @@ const controller = new SessionController({
   sessionsRoot: root,
   runner: new PipelineRunner(createClaudeStages),
   loadSettings: () => loadDesktopSettings(undefined, log),
-  renderTimeline: renderPlaceholderTimeline,
+  // Buttons in the page ("Yeni akış topla") are handled by the preload.
+  renderTimeline: (doc) => renderTimeline(doc, { actions: true }),
   sendToHost: (command) => link?.send(command) ?? false,
   onStatus: broadcast,
+  onAwaitingConfirmation: ({ uniquePostCount }) => {
+    notify(
+      `${uniquePostCount} posts collected`,
+      "Build the timeline now? Click to open, then choose “Build timeline”.",
+      openReader,
+    );
+  },
   onReady: ({ timelinePath, selected }) => {
     if (reader.timelineReady(timelinePath)) return;
-    notify("Your timeline is ready", `${selected} posts, finite by design. Click to read.`, () =>
-      reader.open(timelinePath),
+    notify(
+      "Your timeline is ready",
+      `${selected} posts, finite by design. Click to read.`,
+      () => reader.open(timelinePath),
     );
   },
   log,
@@ -196,13 +206,19 @@ function handle<T>(channel: string, fn: () => T | Promise<T>): void {
   });
 }
 
-handle("nmc:llm-status", (): Promise<LlmAvailability> => createClaudeCliProvider().checkAvailable());
+handle("nmc:llm-status", (): Promise<LlmAvailability> =>
+  createClaudeCliProvider().checkAvailable(),
+);
 handle("nmc:get-status", () => controller.status);
 handle("nmc:start-collection", startCollection);
 handle("nmc:cancel-run", () => controller.cancel());
 handle("nmc:retry-run", () => {
   reader.expectTimeline();
   return controller.retry();
+});
+handle("nmc:build-timeline", () => {
+  reader.expectTimeline();
+  return controller.buildPending();
 });
 handle("nmc:open-reader", openReader);
 
@@ -236,7 +252,9 @@ void app.whenReady().then(async () => {
   await pruneSessions(root).catch(() => undefined);
   await startLink();
   // A collection may have finished while the app was closed.
-  await controller.processPending().catch((error: unknown) => log(`pending sessions: ${String(error)}`));
+  await controller
+    .processPending()
+    .catch((error: unknown) => log(`pending sessions: ${String(error)}`));
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) showMonitor();

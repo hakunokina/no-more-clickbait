@@ -54,6 +54,9 @@ export function describeLink(status: DesktopStatus): string {
   const { link } = status;
   if (link.error) return link.error;
   if (!link.listening) return "Opening the browser link…";
-  if (link.hosts === 0) return "Browser extension not connected (open Brave/Chrome with the extension).";
-  return link.hosts === 1 ? "Browser extension connected." : `${link.hosts} browsers connected.`;
+  if (link.hosts === 0)
+    return "Browser extension not connected (open Brave/Chrome with the extension).";
+  return link.hosts === 1
+    ? "Browser extension connected."
+    : `${link.hosts} browsers connected.`;
 }

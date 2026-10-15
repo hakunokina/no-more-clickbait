@@ -145,6 +145,8 @@ export interface SessionListing {
   id: string;
   dir: string;
   complete: boolean;
+  /** How the collection ended (mode, counts), when complete. */
+  completion: SessionCompletion | null;
   processed: SessionProcessed | null;
 }
 
@@ -160,7 +162,9 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
   return Promise.all(
     ids.map(async (id) => {
       const dir = join(root, id);
-      const complete = SessionCompletionSchema.safeParse(await readJson(join(dir, "complete.json")));
+      const complete = SessionCompletionSchema.safeParse(
+        await readJson(join(dir, "complete.json")),
+      );
       const processed = SessionProcessedSchema.safeParse(
         await readJson(join(dir, "processed.json")),
       );
@@ -168,6 +172,7 @@ export async function listSessions(root: string = sessionsRoot()): Promise<Sessi
         id,
         dir,
         complete: complete.success,
+        completion: complete.success ? complete.data : null,
         processed: processed.success ? processed.data : null,
       };
     }),
@@ -215,7 +220,9 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
     if (!first || at < first) first = at;
     if (!last || at > last) last = at;
   }
-  const completion = SessionCompletionSchema.safeParse(await readJson(join(dir, "complete.json")));
+  const completion = SessionCompletionSchema.safeParse(
+    await readJson(join(dir, "complete.json")),
+  );
   return {
     id: sessionId,
     dir,

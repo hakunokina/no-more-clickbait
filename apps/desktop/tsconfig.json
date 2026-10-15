@@ -6,5 +6,9 @@
     "noEmit": true
   },
   "include": ["src"],
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/native-host" }]
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/native-host" },
+    { "path": "../../packages/timeline-renderer" }
+  ]
 }

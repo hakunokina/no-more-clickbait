@@ -35,6 +35,9 @@ importers:
       '@nmc/native-host':
         specifier: workspace:*
         version: link:../../packages/native-host
+      '@nmc/timeline-renderer':
+        specifier: workspace:*
+        version: link:../../packages/timeline-renderer
     devDependencies:
       '@types/node':
         specifier: ^22.0.0
