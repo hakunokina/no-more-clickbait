@@ -277,3 +277,92 @@ describe("CaptureStore for Reddit", () => {
     });
   });
 });
+
+// Fully synthetic Instagram feed bodies shared with core's tests.
+const instagramFixture = (name: string): string =>
+  readFileSync(
+    join(import.meta.dirname, "..", "..", "core", "fixtures", "instagram-feed", name),
+    "utf8",
+  );
+
+describe("CaptureStore for Instagram", () => {
+  let root: string;
+  let store: CaptureStore;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "nmc-capture-test-"));
+    store = new CaptureStore(root, () => SESSION_NOW, "instagram");
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("parses the feed, counts distinct organic posts and the caption-less share", async () => {
+    const capture = (operation: string, bodyText: string, second: number) =>
+      store.store({
+        type: "raw-capture",
+        source: "instagram",
+        operation,
+        capturedAt: `2026-01-01T10:00:0${second}.000Z`,
+        bodyText,
+      });
+    await capture("ssr", instagramFixture("ssr-block.json"), 1);
+    // The next page repeats one post; a wrong-endpoint answer has a null root.
+    await capture("graphql-query", instagramFixture("graphql-page-2.txt"), 2);
+    await capture("graphql-query", instagramFixture("graphql-null-root.json"), 3);
+
+    const sessionDir = store.sessionDir ?? "";
+    expect(sessionDir).toBe(join(root, "2026-01-01T10-00-00-000Z-instagram"));
+    expect((await readdir(sessionDir)).sort()).toEqual([
+      "0001-2026-01-01T10-00-01-000Z-ssr.json",
+      "0002-2026-01-01T10-00-02-000Z-graphql-query.json",
+      "0003-2026-01-01T10-00-03-000Z-graphql-query.json",
+      "summary.json",
+    ]);
+    expect(store.stats).toEqual({
+      responseCount: 3,
+      postCount: 9,
+      uniquePostCount: 7,
+      promotedCount: 1,
+      oversizedCount: 0,
+    });
+    const summary = JSON.parse(
+      await readFile(join(sessionDir, "summary.json"), "utf8"),
+    ) as CaptureSummary;
+    expect(CollectionMetricsSchema.parse(summary)).toMatchObject({ uniquePostCount: 7 });
+    expect(summary.source).toBe("instagram");
+    expect(summary.paths).toEqual({
+      ssr: { responses: 1, json: 1, html: 0, other: 0 },
+      "graphql-query": { responses: 2, json: 2, html: 0, other: 0 },
+    });
+    expect(summary.instagram).toEqual({
+      responsesWithFeed: 2,
+      edges: 16,
+      slots: {
+        media: 8,
+        explore_story: 2,
+        ad: 1,
+        end_of_feed_demarcator: 1,
+        stories_netego: 1,
+        suggested_users: 1,
+        bloks_netego: 0,
+        abra_icebreakers_in_feed_unit: 0,
+        ad4ad_in_webfeed: 0,
+        unknown: 1,
+        empty: 1,
+      },
+      skipped: { "invalid-media": 1, repeated: 1 },
+      kept: 7,
+      kinds: { post: 5, reel: 1, carousel: 1 },
+      suggested: 2,
+      captionless: 2,
+      shortCaption: 1,
+      captionlessRatio: 0.286,
+      captionlessOrShortRatio: 0.429,
+    });
+    // Counts only: no handle, caption or media id reaches the summary.
+    const text = JSON.stringify(summary);
+    expect(text).not.toMatch(/example_|Synthetic|3100000000|SYNTH/);
+  });
+});
