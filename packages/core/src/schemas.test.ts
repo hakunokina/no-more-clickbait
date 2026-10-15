@@ -45,6 +45,7 @@ describe("SettingsSchema", () => {
       ...old,
       modeBTarget: 100,
       modeBStrategy: "minimized-window",
+      modeBPacing: "normal",
       collectTarget: 9,
       maxClickbait: 7,
       minReadValue: 2,
@@ -53,6 +54,21 @@ describe("SettingsSchema", () => {
       verifyEnabled: true,
     });
     expect(SettingsSchema.safeParse({ modeBStrategy: "headless" }).success).toBe(false);
+  });
+
+  it("moves the retired background tab to the minimized window", () => {
+    expect(SettingsSchema.parse({ modeBStrategy: "background-tab" }).modeBStrategy).toBe(
+      "minimized-window",
+    );
+    expect(SettingsSchema.parse({ modeBStrategy: "offscreen-window" }).modeBStrategy).toBe(
+      "offscreen-window",
+    );
+  });
+
+  it("paces Mode B at normal speed unless fast is chosen", () => {
+    expect(SettingsSchema.parse({}).modeBPacing).toBe("normal");
+    expect(SettingsSchema.parse({ modeBPacing: "fast" }).modeBPacing).toBe("fast");
+    expect(SettingsSchema.safeParse({ modeBPacing: "warp" }).success).toBe(false);
   });
 
   it("defaults the pipeline settings (owner: verify from read value 4)", () => {
@@ -148,7 +164,7 @@ describe("Mode B run bridge message", () => {
     const later = {
       ...run,
       stopReason: "failed-to-open",
-      pacing: "response",
+      pacing: "fast",
       scrollsPerMinute: 41.5,
       stepsWithNewResponse: 5,
       avgResponseLatencyMs: 820,
@@ -162,6 +178,17 @@ describe("Mode B run bridge message", () => {
       BridgeMessageSchema.safeParse({ type: "mode-b-run", run: { ...run, pacing: "warp" } })
         .success,
     ).toBe(false);
+  });
+
+  it("reads summaries from the pacing trial and the retired background tab", () => {
+    const parse = (extra: object) =>
+      BridgeMessageSchema.parse({ type: "mode-b-run", run: { ...run, ...extra } });
+    expect(parse({ pacing: "fixed" })).toMatchObject({ run: { pacing: "normal" } });
+    const response = parse({ pacing: "response" });
+    expect(response.type === "mode-b-run" && response.run.pacing).toBeUndefined();
+    expect(parse({ strategy: "background-tab" })).toMatchObject({
+      run: { strategy: "background-tab" },
+    });
   });
 
   it("rejects unknown stop reasons and strips fields beyond the counts", () => {

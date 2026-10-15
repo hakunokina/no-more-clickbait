@@ -68,23 +68,25 @@ extension options. Read this before you do:
 
 How a run behaves:
 
-- It waits between scrolls at a reading pace (about 2–3.5 s) and ends at
-  the first of: N distinct organic posts, 10 minutes, 8 scrolls in a row
-  without a new post, a login/error/rate-limit page, or the tab being
-  closed. The hidden tab or window then closes and a notification says why.
+- Each scroll jumps to the bottom of the timeline. The scroll pace is
+  **Normal** by default (a short random pause of about 0.36–0.7 s) or
+  **Fast** (half of that); Fast may be more likely to be noticed by X. A
+  run ends at the first of: N distinct organic posts, 10 minutes, about
+  20 s without a new post, a login/error/rate-limit page, or its window
+  being closed. The window then closes and a notification says why.
 - Switching Mode B on asks for the `alarms` permission (no install
   warning). It only lets a run resume if the browser stops the extension's
   background worker mid-run.
 - Browsers stop rendering pages nobody can see and slow their timers, and
-  X may then load no further posts. The options page therefore offers
-  three surfaces — a minimized window, a background tab, and a small
-  window in the screen corner (browsers keep at least half of a window on
-  screen, so this one stays partly visible) — and two scroll paces (wait
-  for X to answer each scroll, or a fixed fast timer). It shows the numbers
-  of the last run (posts, scrolls per minute, responses, how often the page
-  was hidden, why it stopped and the browser's error, if any). With
-  developer capture on, the same counts are added to that capture's
-  `summary.json`.
+  X may then load no further posts. A run uses a **minimized window** by
+  default; a small window in the screen corner is the fallback (browsers
+  keep at least half of a window on screen, so this one stays partly
+  visible). There is no background-tab option: in trials X stopped
+  loading posts there after the first few dozen. The options page shows
+  the numbers of the last run (posts, scrolls per minute, responses, how
+  often the page was hidden, why it stopped and the browser's error, if
+  any). With developer capture on, the same counts are added to that
+  capture's `summary.json`.
 
 ## Layout
 

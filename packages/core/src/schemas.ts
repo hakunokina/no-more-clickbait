@@ -221,11 +221,13 @@ export type RankedPost = z.infer<typeof RankedPostSchema>;
 /**
  * How Mode B keeps its X tab out of the user's sight. Chromium stops
  * rendering hidden pages and throttles their timers, so which surface
- * still lets X load more posts is measured, not assumed:
- * - `minimized-window`: a new window created minimized;
- * - `background-tab`: an inactive tab in the user's current window;
- * - `offscreen-window`: a small unfocused window pushed past the corner
- *   of the user's window (the OS may keep a sliver of it on screen).
+ * still lets X load more posts was measured, not assumed:
+ * - `minimized-window`: a new window created minimized (the default);
+ * - `offscreen-window`: a small unfocused window at the corner of the
+ *   user's window (browsers keep at least half of it on screen);
+ * - `background-tab`: an inactive tab in the user's current window.
+ *   Retired — X stopped loading there in every trial; kept only so run
+ *   summaries recorded with it still parse. Settings use `ModeBSurfaceSchema`.
  */
 export const ModeBStrategySchema = z.enum([
   "minimized-window",
@@ -234,12 +236,22 @@ export const ModeBStrategySchema = z.enum([
 ]);
 export type ModeBStrategy = z.infer<typeof ModeBStrategySchema>;
 
+/** The surfaces a Mode B run can still use. */
+export const ModeBSurfaceSchema = ModeBStrategySchema.exclude(["background-tab"]);
+export type ModeBSurface = z.infer<typeof ModeBSurfaceSchema>;
+
 /**
- * How a Mode B run paces its scroll steps: `response` waits for X to
- * answer each jump before the next one; `fixed` jumps on a short timer.
+ * How fast a Mode B run jumps between scroll steps: `normal` (the
+ * default) or `fast`, twice as fast.
  */
-export const ModeBPacingSchema = z.enum(["response", "fixed"]);
+export const ModeBPacingSchema = z.enum(["normal", "fast"]);
 export type ModeBPacing = z.infer<typeof ModeBPacingSchema>;
+
+/** Paces of the pacing trial, read from older run summaries: `fixed` became `normal`. */
+const LEGACY_MODE_B_PACING: Record<string, ModeBPacing | undefined> = {
+  fixed: "normal",
+  response: undefined,
+};
 
 interface IntegerSettingField {
   kind: "integer";
@@ -377,8 +389,10 @@ export const SettingsFieldsSchema = z.object({
   modeBTarget: z.number().int().min(1).max(1000).default(100),
   /** Distinct organic posts to collect (Mode A and Mode B) before a run. */
   collectTarget: integerSetting(SYNCED_SETTING_FIELDS.collectTarget),
-  /** Developer choice of the hidden surface Mode B scrolls in. */
-  modeBStrategy: ModeBStrategySchema.default("minimized-window"),
+  /** The hidden surface Mode B scrolls in. */
+  modeBStrategy: ModeBSurfaceSchema.default("minimized-window"),
+  /** Mode B scroll pace; `fast` may be likelier to draw X's attention. */
+  modeBPacing: ModeBPacingSchema.default("normal"),
   /** How many posts a finished timeline shows before it ends (N). */
   timelineSize: integerSetting(PIPELINE_SETTING_FIELDS.timelineSize),
   /** Clickbait score (0-10) a post must stay BELOW to pass. */
@@ -411,10 +425,14 @@ export const SettingsFieldsSchema = z.object({
 
 /** User settings shared between the extension options page and desktop. */
 export const SettingsSchema = z.preprocess((raw) => {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  let stored = raw as Record<string, unknown>;
+  // The retired background tab falls back to the default surface.
+  if (stored["modeBStrategy"] === "background-tab") {
+    stored = { ...stored, modeBStrategy: "minimized-window" };
+  }
   // Settings saved before `collectTarget` existed: the old targets carry
   // over — Mode B's first, else the developer-capture one.
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
-  const stored = raw as Record<string, unknown>;
   if (stored["collectTarget"] !== undefined) return stored;
   const old = stored["modeBTarget"] ?? stored["captureTarget"];
   return old === undefined ? stored : { ...stored, collectTarget: old };
@@ -519,12 +537,18 @@ export const ModeBRunSummarySchema = z.object({
   uniquePostCount: z.number().int().nonnegative(),
   stopReason: ModeBStopReasonSchema,
   /** Fields below were added later; summaries stored before lack them. */
-  pacing: ModeBPacingSchema.optional(),
+  pacing: z.preprocess(
+    (value) =>
+      typeof value === "string" && Object.hasOwn(LEGACY_MODE_B_PACING, value)
+        ? LEGACY_MODE_B_PACING[value]
+        : value,
+    ModeBPacingSchema.optional(),
+  ),
   /** Scroll steps per minute, from the first step to the end. */
   scrollsPerMinute: z.number().nonnegative().optional(),
   /** Steps after which a new response had arrived, the page's first one excluded. */
   stepsWithNewResponse: z.number().int().nonnegative().optional(),
-  /** Mean time from a jump to the next response (response pacing only). */
+  /** Mean time from a jump to the next response (the retired `response` pacing only). */
   avgResponseLatencyMs: z.number().int().nonnegative().optional(),
   /** The browser's error text behind the stop (e.g. why the window did not open). */
   error: z.string().max(500).optional(),

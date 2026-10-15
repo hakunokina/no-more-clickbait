@@ -1,5 +1,4 @@
 import {
-  ModeBPacingSchema,
   ModeBRunSummarySchema,
   type ModeBPacing,
   type ModeBRunSummary,
@@ -8,9 +7,7 @@ import {
 import type { ModeBCommandMessage } from "./messages.js";
 import {
   describeStopReason,
-  loadModeBPacing,
   MODE_B_LAST_RUN_KEY,
-  MODE_B_PACING_KEY,
   MODE_B_PERMISSIONS,
   MODE_B_RUN_KEY,
 } from "./mode-b.js";
@@ -25,13 +22,13 @@ import { loadSettings } from "./settings.js";
 
 export const STRATEGY_LABEL: Record<ModeBStrategy, string> = {
   "minimized-window": "minimized window",
-  "background-tab": "background tab",
+  "background-tab": "background tab (retired)",
   "offscreen-window": "small window in the screen corner (visible)",
 };
 
 export const PACING_LABEL: Record<ModeBPacing, string> = {
-  response: "wait for X's answer (for comparison)",
-  fixed: "fixed fast pace, 5× faster (default)",
+  normal: "normal (default)",
+  fast: "fast",
 };
 
 export interface ModeBControls {
@@ -95,10 +92,6 @@ export function lastRunRows(run: ModeBRunSummary): [string, string][] {
       "Steps that brought a new response (after the first)",
       run.stepsWithNewResponse === undefined ? "—" : String(run.stepsWithNewResponse),
     ],
-    [
-      "Mean wait for X's response",
-      run.avgResponseLatencyMs === undefined ? "—" : `${run.avgResponseLatencyMs} ms`,
-    ],
     ["Ended", new Date(run.endedAt).toLocaleString()],
   );
   return rows;
@@ -116,25 +109,8 @@ function renderRows(target: HTMLElement, rows: [string, string][]): void {
   );
 }
 
-function bindPacing(select: HTMLSelectElement): void {
-  void loadModeBPacing().then((pacing) => {
-    select.value = pacing;
-  });
-  select.addEventListener("change", () => {
-    const pacing = ModeBPacingSchema.safeParse(select.value);
-    if (pacing.success) {
-      void chrome.storage.local
-        .set({ [MODE_B_PACING_KEY]: pacing.data })
-        .catch(() => undefined);
-    }
-  });
-}
-
 export function bindModeBControls({ button, status, lastRun }: ModeBControls): void {
   let running = false;
-  // Options page only: the pacing choice (saved on change, no Save needed).
-  const pacing = document.querySelector<HTMLSelectElement>("#mode-b-pacing");
-  if (pacing) bindPacing(pacing);
 
   const render = async (): Promise<void> => {
     const settings = await loadSettings();
