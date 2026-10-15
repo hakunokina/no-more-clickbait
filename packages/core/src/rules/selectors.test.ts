@@ -199,8 +199,7 @@ describe("generated selectors always fit the rule schema", () => {
     // The full `:scope >` path is ~300 chars; a shorter descendant
     // suffix still first-matches `el` ("önce" is a direct child of the
     // card, never of a div, so no earlier element matches).
-    document.body.innerHTML =
-      `<section><span>önce</span>${"<div>".repeat(12)}<span>hedef</span>${"</div>".repeat(12)}</section>`;
+    document.body.innerHTML = `<section><span>önce</span>${"<div>".repeat(12)}<span>hedef</span>${"</div>".repeat(12)}</section>`;
     const card = one(document, "section");
     const el = one(card, "div span");
     const result = fieldSelectorForResult(el, card);

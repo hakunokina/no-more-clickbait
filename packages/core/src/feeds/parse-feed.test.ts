@@ -124,7 +124,7 @@ describe("parseFeed — Atom and RSS 1.0", () => {
     ).toEqual(["https://f.example.invalid/a"]);
     expect(
       parseFeed(
-        `<rss version="2.0"><channel>${item('<guid>https://f.example.invalid/b</guid>')}</channel></rss>`,
+        `<rss version="2.0"><channel>${item("<guid>https://f.example.invalid/b</guid>")}</channel></rss>`,
         options,
       ).map((entry) => entry.url),
     ).toEqual(["https://f.example.invalid/b"]);

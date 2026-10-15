@@ -30,16 +30,17 @@ Sonsuz kaydırma yok: akışın sonu bir sayfa sonu değil, bir **Bitti** ekran�
    bağlantıları (alan adıyla). Renk tek başına anlam taşımıyor; her durumun
    ikonu ve metni farklı.
 
-   | Durum (`verdict`) | Etiket | Görünüm | Sabit açıklama |
-   | --- | --- | --- | --- |
-   | `supported` | Doğrulandı | yeşil bant, ✓ | Bulunan kaynaklar bu iddiayı destekliyor. |
-   | `contradicted` | Kaynaklarla çelişiyor | amber bant, ⚠ | …çelişiyor. Bu kesin bir hüküm değil; kaynaklara bakıp kendin değerlendir. |
-   | `unverifiable` | Doğrulanamadı | gri bant, ? | …kaynak bulunamadı. Bu, iddianın yanlış olduğu anlamına gelmez. |
-   | (yeni) | Doğrulanmadı · kontrole değmez | bantsız, soluk satır, – | yalnız gerekçe |
+   | Durum (`verdict`) | Etiket                         | Görünüm                 | Sabit açıklama                                                             |
+   | ----------------- | ------------------------------ | ----------------------- | -------------------------------------------------------------------------- |
+   | `supported`       | Doğrulandı                     | yeşil bant, ✓           | Bulunan kaynaklar bu iddiayı destekliyor.                                  |
+   | `contradicted`    | Kaynaklarla çelişiyor          | amber bant, ⚠           | …çelişiyor. Bu kesin bir hüküm değil; kaynaklara bakıp kendin değerlendir. |
+   | `unverifiable`    | Doğrulanamadı                  | gri bant, ?             | …kaynak bulunamadı. Bu, iddianın yanlış olduğu anlamına gelmez.            |
+   | (yeni)            | Doğrulanmadı · kontrole değmez | bantsız, soluk satır, – | yalnız gerekçe                                                             |
 
    "Yanlış" sözcüğü bilinçli olarak yok: LLM doğrulaması yanılabilir ve
    ürün aşırı iddia etmemeli (`VerdictSchema` yorumuyla aynı ilke). Kırmızı
    değil amber: alarm değil, dikkat.
+
 3. **Medya tam boy.** Tek görsel kırpılmaz: kendi en-boy oranında, sütun
    genişliğinde; çok uzun dikey görsel `min(80vh, 720px)` ile sınırlanır ve
    kenarları zeminle doldurulur (kırpma yok). 2/3/4'lü ızgara X gibi 16:9
@@ -73,17 +74,17 @@ Mevcut masaüstü penceresinin dilinden: `system-ui`, odak rengi `#0b57d0`, yeş
 `#1c7c3c` ailesi. Tümü `:root` değişkeni; koyu tema
 `prefers-color-scheme` + `data-theme` ile.
 
-| Token | Açık | Koyu | Not |
-| --- | --- | --- | --- |
-| `--bg` | `#ffffff` | `#0e1116` | |
-| `--surface` / `--surface-2` | `#f5f7f8` / `#eceff1` | `#161b22` / `#1e252e` | panel, iskelet |
-| `--text` | `#0f1419` | `#e7e9ea` | |
-| `--muted` | `#536471` | `#9aa5b1` | bg üzerinde 6,1:1 / 7,6:1 (surface üzerinde 5,7 / 6,9) |
-| `--border` | `#d5dde2` | `#2f3640` | dekoratif |
-| `--accent` / `--focus` | `#0b57d0` | `#8ab4f8` | bağlantı + odak; 6,4:1 / 9,0:1 |
-| `--ok` on `--ok-bg` | `#176934` / `#e7f4eb` | `#72d39c` / `#12261b` | 6,0:1 / 8,7:1 |
-| `--warn` on `--warn-bg` | `#8a4b00` / `#fdf1e0` | `#f2b45a` / `#2b1f0d` | 6,1:1 / 8,8:1 |
-| `--info` on `--info-bg` | `#3f4f5e` / `#edf1f4` | `#b8c3ce` / `#1e252e` | 7,4:1 / 8,6:1 |
+| Token                       | Açık                  | Koyu                  | Not                                                    |
+| --------------------------- | --------------------- | --------------------- | ------------------------------------------------------ |
+| `--bg`                      | `#ffffff`             | `#0e1116`             |                                                        |
+| `--surface` / `--surface-2` | `#f5f7f8` / `#eceff1` | `#161b22` / `#1e252e` | panel, iskelet                                         |
+| `--text`                    | `#0f1419`             | `#e7e9ea`             |                                                        |
+| `--muted`                   | `#536471`             | `#9aa5b1`             | bg üzerinde 6,1:1 / 7,6:1 (surface üzerinde 5,7 / 6,9) |
+| `--border`                  | `#d5dde2`             | `#2f3640`             | dekoratif                                              |
+| `--accent` / `--focus`      | `#0b57d0`             | `#8ab4f8`             | bağlantı + odak; 6,4:1 / 9,0:1                         |
+| `--ok` on `--ok-bg`         | `#176934` / `#e7f4eb` | `#72d39c` / `#12261b` | 6,0:1 / 8,7:1                                          |
+| `--warn` on `--warn-bg`     | `#8a4b00` / `#fdf1e0` | `#f2b45a` / `#2b1f0d` | 6,1:1 / 8,8:1                                          |
+| `--info` on `--info-bg`     | `#3f4f5e` / `#edf1f4` | `#b8c3ce` / `#1e252e` | 7,4:1 / 8,6:1                                          |
 
 Boşluk `--s1..--s7` = 4/8/12/16/24/32/48 px. Köşe: medya ve kart içi kutular 16px
 (dar sütunda 12px), bant/panel 12px, düğme hap. Yazı: gövde 15px/1.45, meta
@@ -119,34 +120,34 @@ yan panelde aynı davranır.
 
 ## Durumlar
 
-| Durum | Ne görünür |
-| --- | --- |
-| Akış | üst bilgi + giriş satırı + N kart + Bitti |
-| Kısa akış | + üstte bilgi şeridi, dökümde eksik kısım "Eşik altı"nda |
-| Hazırlanıyor | adım listesi (Toplandı ✓ → Ayrıldı ✓ → Claude puanlıyor ◌ → Doğrulama –), 3 iskelet kart, "pencereyi kapatabilirsin" |
-| Boş | doğrudan Bitti ekranı, Gösterilen 0 |
-| Hata | ⚠, düz dilde neden, "toplanan gönderiler duruyor", Tekrar dene + Yeni akış topla, katlanır teknik ayrıntı |
-| Görsel yüklenemedi (maket dışı) | hücre `--media-bg` zemininde kalır, alt metin görünür; kart düzeni kaymaz (genişlik/yükseklik önceden bilinmeli) |
+| Durum                           | Ne görünür                                                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Akış                            | üst bilgi + giriş satırı + N kart + Bitti                                                                            |
+| Kısa akış                       | + üstte bilgi şeridi, dökümde eksik kısım "Eşik altı"nda                                                             |
+| Hazırlanıyor                    | adım listesi (Toplandı ✓ → Ayrıldı ✓ → Claude puanlıyor ◌ → Doğrulama –), 3 iskelet kart, "pencereyi kapatabilirsin" |
+| Boş                             | doğrudan Bitti ekranı, Gösterilen 0                                                                                  |
+| Hata                            | ⚠, düz dilde neden, "toplanan gönderiler duruyor", Tekrar dene + Yeni akış topla, katlanır teknik ayrıntı            |
+| Görsel yüklenemedi (maket dışı) | hücre `--media-bg` zemininde kalır, alt metin görünür; kart düzeni kaymaz (genişlik/yükseklik önceden bilinmeli)     |
 
 ## Renderer'a devredilecek bileşenler
 
-| Bileşen | Girdi (core) | Not |
-| --- | --- | --- |
-| `ReadingWindow` | `RankedPost[]`, döküm sayıları, `capturedAt` | Electron'da ayrı pencere; kap genişliğiyle duyarlı |
-| `TimelineHeader` | tarih, N, tahmini süre, taranan | yapışkan; ilerleme sayacı + tema düğmesi |
-| `PostCard` | `RankedPost` | `article` + feed rolü |
-| `PostHeader` | `authorName`, `authorHandle`, `authorVerified`, `publishedAt` | göreli zaman, `title`'da mutlak |
-| `PostText` | `text`, `lang` | 600+ karakterde 10 satır kesme |
-| `MediaGrid` | `media[]` (photo) | 1 = tam boy, 2/3/4 = 16:9 ızgara |
-| `VideoPlayer` / `GifPlayer` | `media[]` (video/gif) | poster, süre, hareket azaltma |
-| `Lightbox` | gönderinin görselleri | `<dialog>`, ←/→/Esc |
-| `QuoteCard` | `quoted` | ↳, 6 satır kesme |
-| `LinkCard` | `media[type=link]` + kart verisi | başlık/görsel yoksa yalnız alan adı + URL'li sade satır |
-| `VerificationBand` | `verification` | 4 durum, açılır panel |
-| `WhyPanel` | `score` | gerekçe + düzey sözcüğü + sayı |
-| `EngagementRow` | `metrics` | `Intl` compact, salt gösterim |
-| `DoneScreen` + `Tally` | döküm sayıları | "Yeni akış topla" |
-| `PreparingState`, `ErrorState` | hat aşaması / hata | |
+| Bileşen                        | Girdi (core)                                                  | Not                                                     |
+| ------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------- |
+| `ReadingWindow`                | `RankedPost[]`, döküm sayıları, `capturedAt`                  | Electron'da ayrı pencere; kap genişliğiyle duyarlı      |
+| `TimelineHeader`               | tarih, N, tahmini süre, taranan                               | yapışkan; ilerleme sayacı + tema düğmesi                |
+| `PostCard`                     | `RankedPost`                                                  | `article` + feed rolü                                   |
+| `PostHeader`                   | `authorName`, `authorHandle`, `authorVerified`, `publishedAt` | göreli zaman, `title`'da mutlak                         |
+| `PostText`                     | `text`, `lang`                                                | 600+ karakterde 10 satır kesme                          |
+| `MediaGrid`                    | `media[]` (photo)                                             | 1 = tam boy, 2/3/4 = 16:9 ızgara                        |
+| `VideoPlayer` / `GifPlayer`    | `media[]` (video/gif)                                         | poster, süre, hareket azaltma                           |
+| `Lightbox`                     | gönderinin görselleri                                         | `<dialog>`, ←/→/Esc                                     |
+| `QuoteCard`                    | `quoted`                                                      | ↳, 6 satır kesme                                        |
+| `LinkCard`                     | `media[type=link]` + kart verisi                              | başlık/görsel yoksa yalnız alan adı + URL'li sade satır |
+| `VerificationBand`             | `verification`                                                | 4 durum, açılır panel                                   |
+| `WhyPanel`                     | `score`                                                       | gerekçe + düzey sözcüğü + sayı                          |
+| `EngagementRow`                | `metrics`                                                     | `Intl` compact, salt gösterim                           |
+| `DoneScreen` + `Tally`         | döküm sayıları                                                | "Yeni akış topla"                                       |
+| `PreparingState`, `ErrorState` | hat aşaması / hata                                            |                                                         |
 
 ## Şema boşlukları (renderer başlamadan core'da karar gerekir)
 

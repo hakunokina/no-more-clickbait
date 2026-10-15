@@ -498,7 +498,13 @@ describe("SessionController", () => {
 
   it("says the timeline is gone when its session folder was pruned", async () => {
     const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
-    const c = controller();
+    let renders = 0;
+    const c = controller(undefined, {
+      renderTimeline: (doc) => {
+        renders += 1;
+        return `<p>${doc.cards.length} posts</p>`;
+      },
+    });
     await c.runSession(id);
     expect(await c.availableTimeline()).toBe(join(root, id, TIMELINE_FILE));
     await rm(join(root, id), { recursive: true, force: true });
@@ -509,6 +515,10 @@ describe("SessionController", () => {
       timelineGone: true,
     });
     expect(c.timelinePath).toBeNull();
+    // Nothing is left to re-word: a language change renders no page.
+    const rendered = renders;
+    await expect(c.setLang("tr")).resolves.toBe(false);
+    expect(renders).toBe(rendered);
   });
 
   it("runs one session at a time and queues the next", async () => {

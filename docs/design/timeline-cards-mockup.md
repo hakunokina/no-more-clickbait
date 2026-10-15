@@ -136,11 +136,11 @@ ortaklık ise reklam değildir ve etiketiyle gösterilir.
 
 Tümü `timeline-mockup.md` token'larından. Yeni token **üç**:
 
-| Token | Değer | Kullanım |
-| --- | --- | --- |
-| `--fs-title` | 1.0625rem (17px) / 1.3 / 700 | yalnız genel kart başlığı |
-| `--thumb` | 88px (≤380px: 72px) | genel kart küçük görseli, köşe `--r-box` |
-| `--reel-h` | `min(80vh, 640px)` → makette 576px ölçülüyor | reel çerçeve yüksekliği |
+| Token        | Değer                                        | Kullanım                                 |
+| ------------ | -------------------------------------------- | ---------------------------------------- |
+| `--fs-title` | 1.0625rem (17px) / 1.3 / 700                 | yalnız genel kart başlığı                |
+| `--thumb`    | 88px (≤380px: 72px)                          | genel kart küçük görseli, köşe `--r-box` |
+| `--reel-h`   | `min(80vh, 640px)` → makette 576px ölçülüyor | reel çerçeve yüksekliği                  |
 
 Kaynak satırı: 13px/600 `--muted` (her iki temada ≥5,7:1, `--muted`'in
 onaylı kontrastı), işaret 16×16, köşe 4px, zemin `--muted` üzerinde metin
@@ -153,26 +153,26 @@ son kelimesine bitişik (başlık bloğundan ayrı satır kaplamaz).
 
 ### Varyant tablosu (IG)
 
-| `kind` / durum | Medya | Not |
-| --- | --- | --- |
-| tek kare | ilk kare oranı kıstırılmış, `contain`, ALT çipi | |
-| carousel (n≥2) | snap track + sayaç + oklar + noktalar | video karesi varsa poster + oynat, dönmez |
-| reel | 9:16, ≤576px, ortalı, "Reel" + süre çipi | oynatınca X `VideoPlayer` denetimleri |
-| caption ≤180 kr / 3 satır | tam gösterilir | üstü "Devamını oku" (yerinde açılır) |
-| caption boş | metinsiz kart | `mediaOnly` kuralıyla zaten akışta olmamalı — olursa caption satırı yok |
+| `kind` / durum            | Medya                                           | Not                                                                     |
+| ------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------- |
+| tek kare                  | ilk kare oranı kıstırılmış, `contain`, ALT çipi |                                                                         |
+| carousel (n≥2)            | snap track + sayaç + oklar + noktalar           | video karesi varsa poster + oynat, dönmez                               |
+| reel                      | 9:16, ≤576px, ortalı, "Reel" + süre çipi        | oynatınca X `VideoPlayer` denetimleri                                   |
+| caption ≤180 kr / 3 satır | tam gösterilir                                  | üstü "Devamını oku" (yerinde açılır)                                    |
+| caption boş               | metinsiz kart                                   | `mediaOnly` kuralıyla zaten akışta olmamalı — olursa caption satırı yok |
 
 ### Varyant tablosu (genel)
 
-| Durum | Düzen |
-| --- | --- |
-| başlık + metin + görsel | başlık, metin, 88px görsel sağda |
-| başlık + görsel, metin yok | aynı; metin satırı yok |
-| başlık + metin, görsel yok | tam genişlik metin (4 satır kesme) |
-| `kind=image` | tam boy medya başlığın altında (`MediaGrid`) |
-| başlık + bağlantı yalnız | en kısa kart: yer + başlık + alan adı + alt bilgi |
-| başlıksız (yalnız metin) | metin başlığa çıkar (`aria-labelledby` yer satırına) |
-| uzun başlık | kesilmez, sarar; etiket başlığın sonuna eklenir |
-| zaman yok | meta satırında yalnız yazar; yazar da yoksa satır yok |
+| Durum                      | Düzen                                                 |
+| -------------------------- | ----------------------------------------------------- |
+| başlık + metin + görsel    | başlık, metin, 88px görsel sağda                      |
+| başlık + görsel, metin yok | aynı; metin satırı yok                                |
+| başlık + metin, görsel yok | tam genişlik metin (4 satır kesme)                    |
+| `kind=image`               | tam boy medya başlığın altında (`MediaGrid`)          |
+| başlık + bağlantı yalnız   | en kısa kart: yer + başlık + alan adı + alt bilgi     |
+| başlıksız (yalnız metin)   | metin başlığa çıkar (`aria-labelledby` yer satırına)  |
+| uzun başlık                | kesilmez, sarar; etiket başlığın sonuna eklenir       |
+| zaman yok                  | meta satırında yalnız yazar; yazar da yoksa satır yok |
 
 ## Duyarlılık
 
@@ -216,35 +216,35 @@ X maketindeki kurallar aynen geçerli; ekler:
 
 ## Durumlar
 
-| Durum | Ne görünür |
-| --- | --- |
-| Karışık akış | kaynak satırları + kaynaklı giriş + kırılımlı döküm |
-| Yalnız X | kaynak satırı yok, eski görünüm birebir |
-| Kısa akış | mevcut bilgi şeridi değişmez |
-| Hazırlanıyor / boş / hata | mevcut ekranlar; hatada hangi kaynağın toplanamadığı teknik ayrıntıya yazılır, toplanan kaynakların akışı yine de teslim edilirse şeritte söylenir — yoksa `error` hâli (renderer kararı, bkz. istek 8) |
-| IG medyası yüklenemedi | çerçeve `--media-bg` + alt metin; carousel'de o kare sayaçtan düşmez (`n/N` bozulmaz), kare kayması yok |
-| Genel görsel yüklenemedi | 88px kutu `--media-bg`'de durur, başlık kaymaz (en-boy önceden gerekli, istek 2) |
-| Uzun handle/başlık/alan adı | handle ve alan adı `…`; başlık asla kesilmez, kırılır |
+| Durum                       | Ne görünür                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Karışık akış                | kaynak satırları + kaynaklı giriş + kırılımlı döküm                                                                                                                                                     |
+| Yalnız X                    | kaynak satırı yok, eski görünüm birebir                                                                                                                                                                 |
+| Kısa akış                   | mevcut bilgi şeridi değişmez                                                                                                                                                                            |
+| Hazırlanıyor / boş / hata   | mevcut ekranlar; hatada hangi kaynağın toplanamadığı teknik ayrıntıya yazılır, toplanan kaynakların akışı yine de teslim edilirse şeritte söylenir — yoksa `error` hâli (renderer kararı, bkz. istek 8) |
+| IG medyası yüklenemedi      | çerçeve `--media-bg` + alt metin; carousel'de o kare sayaçtan düşmez (`n/N` bozulmaz), kare kayması yok                                                                                                 |
+| Genel görsel yüklenemedi    | 88px kutu `--media-bg`'de durur, başlık kaymaz (en-boy önceden gerekli, istek 2)                                                                                                                        |
+| Uzun handle/başlık/alan adı | handle ve alan adı `…`; başlık asla kesilmez, kırılır                                                                                                                                                   |
 
 ## Renderer'a devredilecek bileşenler (yeni/değişen)
 
 Eskiler (`timeline-mockup.md`) aynen; ekler:
 
-| Bileşen | Girdi (core) | Not |
-| --- | --- | --- |
-| `SourceLine` | `platform`, `repostedBy?`, karışık mı | yalnız >1 platformlu dokümanda |
-| `IgCard` | `InstagramPost` | `renderCard` `platformOf` ile dağıtır |
-| `IgAuthorRow` | yazar, `paidPartnership?`, `location?`, `coauthors?` | handle + alt satır |
-| `IgMedia` | `kind`, `media[]` | tek kare oranı ilk karedir |
-| `Carousel` | `InstagramMedia[]` | yukarıdaki klavye/odak kuralları zorunlu |
-| `ReelPlayer` | video media | `VideoPlayer`'ın 9:16 varyantı; ayrı oyuncu yazma |
-| `IgCaption` | `caption`, `lang` | 180 kr / 3 satır kesme |
-| `GenericCard` | `GenericItem` | Reddit/özel ayrımı yalnız sözlükte |
-| `PlaceRow` | `community`/`siteName`, `author?`, `publishedAt?` | site rozeti (favicon yoksa harf) |
-| `GenericTitle` | `title`, `flair?`, `lang` | kesme yok |
-| `Thumb` | `image` | `kind=image` değilse; yoksa düzen tek sütun |
-| `DomainLine` | `domain`, `linkUrl?`, `url` | Reddit self gönderide gizli |
-| `Tally` (değişik) | `bySource` | 1 kaynakta eski metin |
+| Bileşen           | Girdi (core)                                         | Not                                               |
+| ----------------- | ---------------------------------------------------- | ------------------------------------------------- |
+| `SourceLine`      | `platform`, `repostedBy?`, karışık mı                | yalnız >1 platformlu dokümanda                    |
+| `IgCard`          | `InstagramPost`                                      | `renderCard` `platformOf` ile dağıtır             |
+| `IgAuthorRow`     | yazar, `paidPartnership?`, `location?`, `coauthors?` | handle + alt satır                                |
+| `IgMedia`         | `kind`, `media[]`                                    | tek kare oranı ilk karedir                        |
+| `Carousel`        | `InstagramMedia[]`                                   | yukarıdaki klavye/odak kuralları zorunlu          |
+| `ReelPlayer`      | video media                                          | `VideoPlayer`'ın 9:16 varyantı; ayrı oyuncu yazma |
+| `IgCaption`       | `caption`, `lang`                                    | 180 kr / 3 satır kesme                            |
+| `GenericCard`     | `GenericItem`                                        | Reddit/özel ayrımı yalnız sözlükte                |
+| `PlaceRow`        | `community`/`siteName`, `author?`, `publishedAt?`    | site rozeti (favicon yoksa harf)                  |
+| `GenericTitle`    | `title`, `flair?`, `lang`                            | kesme yok                                         |
+| `Thumb`           | `image`                                              | `kind=image` değilse; yoksa düzen tek sütun       |
+| `DomainLine`      | `domain`, `linkUrl?`, `url`                          | Reddit self gönderide gizli                       |
+| `Tally` (değişik) | `bySource`                                           | 1 kaynakta eski metin                             |
 
 ## Core şema istekleri (Kernel-1 #1377'ye)
 
@@ -280,8 +280,8 @@ Mevcut `InstagramPost`/`GenericItem` alanları yukarıda yeterli; eksikler
    dolduramıyorsa renderer 1:1'e (IG) / 3:2'ye (genel) düşer ve düzen
    zıplar — toplama kuralı olarak zorunlu yapmak daha doğru; karar
    Kernel'in.
-7. ★ **Kaynak başına huni sayıları.** `RunMetrics.bySource: { label,
-   in }[]` (yalnız "Taranan" kırılımı yeterli; elenme nedenleri
+7. ★ **Kaynak başına huni sayıları.**
+   `RunMetrics.bySource: { label, in }[]` (yalnız "Taranan" kırılımı yeterli; elenme nedenleri
    kaynak bazında **gösterilmiyor** — döküm kalabalıklaşırdı, kullanıcıya
    faydası yok).
 8. **Kısmi başarı durumu.** Kaynakların biri toplanamadı ama akış
