@@ -229,7 +229,7 @@ the payload shape and measure collection time:
 ### Run the desktop app
 
 ```sh
-pnpm --filter @nmc/desktop start
+pnpm dev  # same as: pnpm --filter @nmc/desktop start
 ```
 
 It starts in the system tray; click the tray icon for the status window
