@@ -198,6 +198,9 @@ the payload shape and measure collection time:
    `captionless` / `shortCaption` (≤20 characters) with their ratios:
    caption-less posts cannot be judged from text and are not shown.
    Same rule: rebuild the host first.
+7. On Reddit and Instagram the page's `fetch`/XHR are wrapped only while
+   the tick is on (the listener is registered with the tick, removed
+   without it): **reload an open tab** after ticking or unticking.
 
 > **Raw captures are personal data.** They are your own home timeline as
 > X sent it to your browser. Keep them on your machine, never share

@@ -163,6 +163,23 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
         xdt_api__v1__feed__timeline__connection: { edges: [null, { node: { media: 7 } }] },
       }),
     ).toEqual([]);
+    // taken_at past Date's range (bad or changed schema): skipped, not a RangeError.
+    const media = { pk: "1", code: "abc", user: { username: "someone" } };
+    const control = parseInstagramTimeline({
+      xdt_api__v1__feed__timeline__connection: {
+        edges: [{ node: { media: { ...media, taken_at: 1791000000 } } }],
+      },
+    });
+    expect(control).toHaveLength(1);
+    for (const takenAt of [1e13, Number.MAX_SAFE_INTEGER, "9e15"]) {
+      const result = parseInstagramTimelineWithStats({
+        xdt_api__v1__feed__timeline__connection: {
+          edges: [{ node: { media: { ...media, taken_at: takenAt } } }],
+        },
+      });
+      expect(result.posts).toEqual([]);
+      expect(result.stats.skipped["invalid-media"]).toBe(1);
+    }
   });
 
   it("feeds the hard filter: ad dropped, cross-response repeat dropped, caption-less flagged", () => {

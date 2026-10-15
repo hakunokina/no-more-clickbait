@@ -50,7 +50,9 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes[SETTINGS_STORAGE_KEY]) {
-    void devCaptureEnabled().then(setEnabled);
+    void devCaptureEnabled()
+      .then(setEnabled)
+      .catch(() => undefined);
   }
 });
 
