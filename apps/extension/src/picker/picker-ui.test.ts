@@ -163,6 +163,7 @@ describe("in-page picker", () => {
     key("3", ui.shadow.activeElement ?? document.body);
     click(inShadow("[data-p='preview']"));
     expect(ui.mode).toBe("preview");
+    expect(ui.shadow.activeElement?.className).toBe("post");
     expect(inShadow(".drawer")?.hidden).toBe(false);
     expect(ui.shadow.querySelectorAll(".drawer .post")).toHaveLength(5);
     expect(inShadow(".d-sum")?.textContent).toContain("6 items");

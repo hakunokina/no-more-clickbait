@@ -838,7 +838,9 @@ export class PickerUI {
     this.mode = "preview";
     this.minimized = false;
     this.closePop(false);
-    this.render(".drawer .post, .drawer [data-p='back']");
+    // Focus on the first item (design); the back button when nothing came out.
+    this.render();
+    (this.q(".drawer .post") ?? this.q(".drawer [data-p='back']"))?.focus();
     void this.runProbe();
   }
 
