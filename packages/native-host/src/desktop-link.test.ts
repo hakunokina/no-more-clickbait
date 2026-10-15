@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -105,6 +105,14 @@ describe("desktop link", () => {
     await expect(readLinkToken(tokenPath)).resolves.toBe(token);
     await writeFile(tokenPath, "not-a-token", "utf8");
     await expect(readLinkToken(tokenPath)).resolves.toBeNull();
+  });
+
+  it("rewrites the token while a host briefly holds it open", async () => {
+    // Windows: replacing an open file fails with EPERM until it is closed.
+    const reader = await open(tokenPath, "r");
+    setTimeout(() => void reader.close(), 50);
+    const fresh = await writeLinkToken(tokenPath);
+    await expect(readLinkToken(tokenPath)).resolves.toBe(fresh);
   });
 
   it("authenticates both ends, then carries events and commands", async () => {
