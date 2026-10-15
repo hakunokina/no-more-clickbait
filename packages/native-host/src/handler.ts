@@ -2,6 +2,8 @@ import {
   BridgeMessageSchema,
   type BridgeReply,
   type CaptureStats,
+  type CollectionComplete,
+  type CollectionStartResult,
   type ModeBRunSummary,
   type OversizedCapture,
   type PostBatch,
@@ -10,6 +12,8 @@ import {
 } from "@nmc/core";
 
 export interface BridgeHandlers {
+  /** A ping opens the extension's long-lived port (the desktop link starts on it). */
+  onPing?: () => void;
   /** Called with every validated post batch from the extension. */
   onPostBatch(batch: PostBatch): Promise<void> | void;
   /** Stores one raw developer capture; returns its sequence number. */
@@ -20,6 +24,10 @@ export interface BridgeHandlers {
   captureStats?: () => CaptureStats;
   /** Records a finished Mode B run's counts in the session summary. */
   onModeBRun?: (run: ModeBRunSummary) => Promise<void> | void;
+  /** Closes the collection session and tells the desktop app it can run. */
+  onCollectionComplete?: (complete: CollectionComplete) => Promise<void> | void;
+  /** Relays the extension's answer to the desktop's start-collection. */
+  onCollectionStartResult?: (result: CollectionStartResult) => Promise<void> | void;
   /** Saves the user's synced pipeline settings for the desktop. */
   onSettingsSync?: (settings: SyncedSettings) => Promise<void> | void;
 }
@@ -59,6 +67,7 @@ export async function handleBridgeMessage(
 
   switch (parsed.data.type) {
     case "ping":
+      handlers.onPing?.();
       return { type: "pong" };
     case "post-batch":
       await handlers.onPostBatch(parsed.data.batch);
@@ -99,11 +108,15 @@ export async function handleBridgeMessage(
       await handlers.onSettingsSync(parsed.data.settings);
       return { type: "settings-synced" };
     }
-    // Temporary: the schema exists (core #1935), the handler lands with Pixel-3's work.
-    case "collection-complete":
-      return {
-        type: "error",
-        message: `${parsed.data.type} is not supported by this host yet`,
-      };
+    case "collection-complete": {
+      if (!handlers.onCollectionComplete) {
+        return { type: "error", message: "collection sessions are not configured on this host" };
+      }
+      await handlers.onCollectionComplete(parsed.data);
+      return { type: "collection-recorded" };
+    }
+    case "collection-start-result":
+      await handlers.onCollectionStartResult?.(parsed.data);
+      return { type: "collection-recorded" };
   }
 }

@@ -175,19 +175,27 @@ describe("handleBridgeMessage", () => {
   });
 
   // settings-sync: see settings-store.test.ts.
-  it("answers the not-yet-handled collection message with an error", async () => {
+  it("records a finished collection", async () => {
     const message = {
       type: "collection-complete",
       uniquePostCount: 1,
       responseCount: 1,
       mode: "A",
-      reason: "x",
+      reason: "target-reached",
     };
+    const seen: unknown[] = [];
+    await expect(
+      handleBridgeMessage(JSON.stringify(message), {
+        onPostBatch: () => {},
+        onCollectionComplete: (complete) => void seen.push(complete),
+      }),
+    ).resolves.toEqual({ type: "collection-recorded" });
+    expect(seen).toEqual([message]);
     await expect(
       handleBridgeMessage(JSON.stringify(message), { onPostBatch: () => {} }),
     ).resolves.toEqual({
       type: "error",
-      message: "collection-complete is not supported by this host yet",
+      message: "collection sessions are not configured on this host",
     });
   });
 });

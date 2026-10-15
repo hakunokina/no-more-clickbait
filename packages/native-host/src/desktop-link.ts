@@ -4,6 +4,7 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
+import { CollectionStartResultSchema } from "@nmc/core";
 import { encodeMessage, MessageDecoder } from "./framing.js";
 
 /**
@@ -56,18 +57,6 @@ export function desktopPipePath(
 /** Host session ids double as folder names: validate before any path use. */
 export const SessionIdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[0-9a-f]{4}$/);
 
-/** Why a start-collection request did or did not start a run. */
-export const CollectionStartOutcomeSchema = z.enum([
-  "started",
-  /** Mode B is off: the user collects by browsing x.com/home (Mode A). */
-  "mode-b-off",
-  /** A Mode B run is already going. */
-  "busy",
-  "permission-missing",
-  "error",
-]);
-export type CollectionStartOutcome = z.infer<typeof CollectionStartOutcomeSchema>;
-
 const NonceSchema = z.string().regex(/^[0-9a-f]{64}$/);
 const ProofSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
@@ -83,12 +72,8 @@ export const CollectionCompleteEventSchema = z.object({
 });
 export type CollectionCompleteEvent = z.infer<typeof CollectionCompleteEventSchema>;
 
-export const CollectionStartResultEventSchema = z.object({
-  type: z.literal("collection-start-result"),
-  outcome: CollectionStartOutcomeSchema,
-  /** Collection target the extension is working towards. */
-  target: z.number().int().positive().optional(),
-});
+/** The extension's answer to start-collection, relayed as is. */
+export const CollectionStartResultEventSchema = CollectionStartResultSchema;
 export type CollectionStartResultEvent = z.infer<typeof CollectionStartResultEventSchema>;
 
 /** Host -> desktop events after the handshake. */
@@ -311,8 +296,13 @@ export interface LinkClientOptions {
   tokenPath?: string;
   onCommand(command: DesktopCommand): void;
   onConnectionChanged?(connected: boolean): void;
-  /** Delay between connection attempts while the desktop app is closed. */
+  /**
+   * First delay between connection attempts while the desktop app is
+   * closed; it doubles per failed attempt up to `maxRetryMs` and resets
+   * once a link stands.
+   */
   retryMs?: number;
+  maxRetryMs?: number;
   /** Diagnostics only (stderr); never feed content. */
   log?(line: string): void;
 }
@@ -328,9 +318,16 @@ export class LinkClient {
   #ready = false;
   #timer: NodeJS.Timeout | null = null;
   #closed = false;
+  #delayMs: number;
 
   constructor(options: LinkClientOptions) {
     this.#options = options;
+    this.#delayMs = options.retryMs ?? 5_000;
+  }
+
+  /** Delay before the next attempt (exposed for tests). */
+  get retryDelayMs(): number {
+    return this.#delayMs;
   }
 
   get connected(): boolean {
@@ -354,10 +351,12 @@ export class LinkClient {
 
   #retry(): void {
     if (this.#closed || this.#timer) return;
+    const delay = this.#delayMs;
+    this.#delayMs = Math.min(delay * 2, this.#options.maxRetryMs ?? 60_000);
     this.#timer = setTimeout(() => {
       this.#timer = null;
       void this.#attempt();
-    }, this.#options.retryMs ?? 5_000);
+    }, delay);
     this.#timer.unref?.();
   }
 
@@ -388,6 +387,7 @@ export class LinkClient {
           if (!ReadySchema.safeParse(message).success) return connection.close();
           state = "open";
           this.#ready = true;
+          this.#delayMs = this.#options.retryMs ?? 5_000;
           this.#options.onConnectionChanged?.(true);
           return;
         }

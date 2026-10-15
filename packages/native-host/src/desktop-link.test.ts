@@ -204,6 +204,25 @@ describe("desktop link", () => {
     await waitFor(() => link.connected && hostCount === 1);
   });
 
+  it("backs off exponentially while the desktop app is away, then resets", async () => {
+    await server.close();
+    client = new LinkClient({
+      path,
+      tokenPath,
+      retryMs: 10,
+      maxRetryMs: 40,
+      onCommand: (command) => commands.push(command),
+    });
+    client.start();
+    await waitFor(() => client?.retryDelayMs === 40);
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(client.retryDelayMs).toBe(40);
+    server = new LinkServer({ path, token, onEvent: (event) => events.push(event) });
+    await server.listen();
+    await waitFor(() => client?.connected === true);
+    expect(client.retryDelayMs).toBe(10);
+  });
+
   it("reports nothing sent while the desktop app is away", async () => {
     await server.close();
     const link = startClient(10_000);

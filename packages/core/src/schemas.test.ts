@@ -187,6 +187,16 @@ describe("collection and settings bridge messages", () => {
     );
   });
 
+  it("accepts the extension's answer to start-collection", () => {
+    const message = { type: "collection-start-result", outcome: "mode-b-off", target: 250 };
+    expect(BridgeMessageSchema.parse(message)).toEqual(message);
+    expect(
+      BridgeMessageSchema.safeParse({ type: "collection-start-result", outcome: "started" }).success,
+    ).toBe(true);
+    expect(BridgeMessageSchema.safeParse({ ...message, outcome: "maybe" }).success).toBe(false);
+    expect(BridgeMessageSchema.safeParse({ ...message, target: 0 }).success).toBe(false);
+  });
+
   it("syncs only the pipeline settings and the collection target", () => {
     expect(Object.keys(synced).sort()).toEqual(Object.keys(SYNCED_SETTING_FIELDS).sort());
     expect(synced).toEqual({
