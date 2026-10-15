@@ -1,5 +1,7 @@
 import { z } from "zod";
 import {
+  CliNotAuthenticatedError,
+  CliNotFoundError,
   createClaudeCliProvider,
   llmResultToCallMetrics,
   type ClaudeCliOptions,
@@ -28,8 +30,10 @@ import { buildScorerPrompt } from "./scorer-prompt.js";
  * line size the tail is far below any output limit. Ids still missing
  * afterwards come back marked `scoringFailed` with conservative
  * placeholder scores — visible, never silently dropped. Provider
- * errors (CLI missing / not logged in) propagate instead: they are
- * actionable by the user, not per-post failures.
+ * errors on the first call propagate. On the retry only CLI missing /
+ * not logged in propagate (actionable by the user); any other retry
+ * failure (CLI error, timeout) keeps the first call's scores and marks
+ * only the still-missing ids `scoringFailed`.
  */
 
 export const ClaudeScorerEntrySchema = z
@@ -176,9 +180,16 @@ export const CLAUDE_SCORER_CLI_DEFAULTS = {
   effort: "low",
 } as const satisfies ClaudeCliOptions;
 
-/** The `claude` CLI provider with the Scorer's pinned settings. */
+/**
+ * The `claude` CLI provider with the Scorer's pinned settings. Options
+ * explicitly set to `undefined` are skipped, so `{ model: undefined }`
+ * keeps the pinned model instead of falling back to the CLI default.
+ */
 export function createClaudeScorerProvider(options: ClaudeCliOptions = {}): CliLlmProvider {
-  return createClaudeCliProvider({ ...CLAUDE_SCORER_CLI_DEFAULTS, ...options });
+  const defined = Object.fromEntries(
+    Object.entries(options).filter(([, value]) => value !== undefined),
+  ) as ClaudeCliOptions;
+  return createClaudeCliProvider({ ...CLAUDE_SCORER_CLI_DEFAULTS, ...defined });
 }
 
 export interface ClaudeScorerOptions {
@@ -211,7 +222,15 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
       const byId = await callOnce(posts);
       const missing = posts.filter((post) => !byId.has(post.id));
       if (missing.length > 0) {
-        for (const [id, entry] of await callOnce(missing)) byId.set(id, entry);
+        try {
+          for (const [id, entry] of await callOnce(missing)) byId.set(id, entry);
+        } catch (error) {
+          if (error instanceof CliNotFoundError || error instanceof CliNotAuthenticatedError) {
+            throw error;
+          }
+          // Retry failed (CLI error, timeout): keep the first call's scores;
+          // the still-missing ids fall through to unscoredEntry below.
+        }
       }
       return posts.map((post) => {
         const entry = byId.get(post.id);

@@ -1,7 +1,14 @@
 import { EventEmitter } from "node:events";
 import { PassThrough, Writable } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { createClaudeCliProvider, type SpawnFn } from "../llm/cli-provider.js";
+import {
+  CliNotAuthenticatedError,
+  CliNotFoundError,
+  CliRunError,
+  createClaudeCliProvider,
+  type LlmProvider,
+  type SpawnFn,
+} from "../llm/cli-provider.js";
 import { RunMetricsCollector } from "../metrics.js";
 import { ScoreEntrySchema, type Post } from "../schemas.js";
 import {
@@ -97,6 +104,22 @@ function line(
 }
 
 const reply = (...lines: string[]): string => lines.join("\n");
+
+/** A provider whose calls answer, in order, with a text or a thrown error. */
+function scriptedProvider(steps: readonly (string | Error)[]): LlmProvider & { calls: number } {
+  const provider = {
+    id: "scripted",
+    calls: 0,
+    checkAvailable: async () => ({ ok: true as const, version: "0" }),
+    complete: async () => {
+      const step = steps[provider.calls++];
+      if (step === undefined) throw new Error("unexpected extra call");
+      if (step instanceof Error) throw step;
+      return { text: step, durationMs: 1 };
+    },
+  };
+  return provider;
+}
 
 describe("createClaudeScorer (fake claude process)", () => {
   it("scores the whole batch in one call and maps 0-10 onto 0..1", async () => {
@@ -259,6 +282,45 @@ describe("createClaudeScorer (fake claude process)", () => {
     const scorer = createClaudeScorer({ provider: createClaudeCliProvider({ spawnFn }) });
     expect(await scorer.score([])).toEqual([]);
     expect(calls).toHaveLength(0);
+  });
+
+  it("keeps first-call scores and marks only the missing ids unscored when the retry fails", async () => {
+    for (const retryError of [
+      new CliRunError("claude", "exit 1"),
+      new CliRunError("claude", "timed out after 1 ms"),
+    ]) {
+      const provider = scriptedProvider([reply(line(1, { clickbait: 3 })), retryError]);
+      const out = await createClaudeScorer({ provider }).score([post("a"), post("b")]);
+      expect(provider.calls).toBe(2);
+      expect(out.map((e) => [e.postId, e.scoringFailed])).toEqual([
+        ["a", false],
+        ["b", true],
+      ]);
+      expect(out[0]?.clickbaitScore).toBeCloseTo(0.3);
+    }
+  });
+
+  it("propagates CLI-missing / not-logged-in errors from the retry", async () => {
+    for (const retryError of [
+      new CliNotFoundError("claude"),
+      new CliNotAuthenticatedError("claude", "401"),
+    ]) {
+      const provider = scriptedProvider([reply(line(1)), retryError]);
+      await expect(createClaudeScorer({ provider }).score([post("a"), post("b")])).rejects.toBe(
+        retryError,
+      );
+    }
+  });
+
+  it("keeps the pinned model and effort when options pass them as undefined", async () => {
+    const { spawnFn, calls } = fakeClaude([reply(line(1))]);
+    const scorer = createClaudeScorer({
+      provider: createClaudeScorerProvider({ spawnFn, model: undefined, effort: undefined }),
+    });
+    await scorer.score([post("a")]);
+    const args = calls[0]?.args ?? [];
+    expect(args[args.indexOf("--model") + 1]).toBe(CLAUDE_SCORER_CLI_DEFAULTS.model);
+    expect(args[args.indexOf("--effort") + 1]).toBe(CLAUDE_SCORER_CLI_DEFAULTS.effort);
   });
 
   it("propagates provider errors instead of masking them as unscored", async () => {
