@@ -1,4 +1,4 @@
-import { writeFile } from "node:fs/promises";
+import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { toTimelineDoc, type Settings, type TimelineDoc } from "@nmc/core";
 import {
@@ -15,6 +15,8 @@ import {
   initialStatus,
   isRunActive,
   type DesktopStatus,
+  type RunError,
+  type RunErrorKind,
 } from "../shared/status.js";
 import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
 
@@ -31,9 +33,10 @@ import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
  *   superseded;
  * - writes `result.json`, `timeline.json` (the renderer's TimelineDoc)
  *   and `timeline.html` into the session folder, then
- *   `processed.json` (done / cancelled). A failed run stays unprocessed
- *   so "Try again" (or the next app start) can redo it without
- *   collecting again.
+ *   `processed.json` (done / cancelled / error). A failed run is marked
+ *   `error` and never re-run on its own (it would spend tokens on every
+ *   start): the next app start shows the error and "Try again" redoes it
+ *   without collecting again.
  *
  * Logs and status carry counts only, never feed content.
  */
@@ -64,6 +67,10 @@ export class SessionController {
   #status: DesktopStatus = initialStatus();
   /** Sessions whose run failed in this app session: never retried automatically. */
   readonly #failed = new Set<string>();
+  /** "Cancel" pressed before the runner started (loading the session). */
+  #cancelRequested = false;
+  /** The runner owns the run (its own cancel applies). */
+  #inRunner = false;
   /** Session waiting for the current run to finish. */
   #queued: string | null = null;
   #lastTimeline: string | null = null;
@@ -81,6 +88,27 @@ export class SessionController {
   /** Path of the newest finished timeline, if any. */
   get timelinePath(): string | null {
     return this.#lastTimeline;
+  }
+
+  /**
+   * The newest finished timeline if it is still on disk. A host may
+   * have pruned its session folder since (heavy browsing): the status
+   * then says the timeline is gone instead of opening an empty window.
+   */
+  async availableTimeline(): Promise<string | null> {
+    const path = this.#lastTimeline;
+    if (!path) return null;
+    try {
+      await access(path);
+      return path;
+    } catch {
+      this.#lastTimeline = null;
+      this.#update((status) => {
+        status.run.hasTimeline = false;
+        status.run.timelineGone = true;
+      });
+      return null;
+    }
   }
 
   #now(): string {
@@ -221,7 +249,13 @@ export class SessionController {
   }
 
   cancel(): boolean {
-    return this.#deps.runner.cancel();
+    if (this.#deps.runner.cancel()) return true;
+    // Still reading the session back: stop before the runner starts.
+    if (this.#busy && !this.#inRunner && this.#status.run.stage === "checking") {
+      this.#cancelRequested = true;
+      return true;
+    }
+    return false;
   }
 
   get busy(): boolean {
@@ -249,11 +283,39 @@ export class SessionController {
     for (const old of pending) {
       await markSessionProcessed(old.dir, "superseded", () => this.#now());
     }
-    if (!newest?.completion || this.#failed.has(newest.id)) return;
+    if (!newest?.completion) {
+      await this.#showLastFailure();
+      return;
+    }
+    if (this.#failed.has(newest.id)) return;
     if (newest.completion.mode === "B") await this.runSession(newest.id);
     else if (this.#status.pending?.sessionId !== newest.id) {
       await this.#awaitConfirmation(newest.id, newest.completion.uniquePostCount, false);
     }
+  }
+
+  /**
+   * At start-up: when the newest run (from an earlier app session)
+   * failed, show it so the user can "Try again"; never re-run it.
+   */
+  async #showLastFailure(): Promise<void> {
+    if (this.#status.run.stage !== "idle" || this.#busy) return;
+    const last = (await listSessions(this.#deps.sessionsRoot))
+      .filter((session) => session.processed && session.processed.status !== "superseded")
+      .pop();
+    if (last?.processed?.status !== "error" || this.#status.run.stage !== "idle") return;
+    const saved = last.processed.error;
+    this.#failed.add(last.id);
+    this.#update((status) => {
+      status.run.sessionId = last.id;
+      status.run.stage = "error";
+      status.run.endedAt = last.processed?.processedAt ?? null;
+      status.run.error = {
+        kind: isRunErrorKind(saved?.kind) ? saved.kind : "internal",
+        message: saved?.message ?? "The last run failed.",
+        detail: null,
+      };
+    });
   }
 
   async runSession(sessionId: string): Promise<void> {
@@ -262,6 +324,7 @@ export class SessionController {
       return;
     }
     this.#busy = true;
+    this.#cancelRequested = false;
     const startedAt = this.#now();
     this.#update((status) => {
       if (status.pending?.sessionId === sessionId) status.pending = null;
@@ -277,6 +340,7 @@ export class SessionController {
         funnel: null,
         error: null,
         hasTimeline: false,
+        timelineGone: false,
       };
     });
 
@@ -286,14 +350,20 @@ export class SessionController {
       session = await loadSession(this.#deps.sessionsRoot, sessionId);
       settings = await this.#deps.loadSettings();
     } catch (error) {
-      this.#failed.add(sessionId);
+      await this.#fail(sessionId, {
+        kind: "session-unreadable",
+        message: "The collected posts could not be read back from disk.",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+      return;
+    }
+
+    if (this.#cancelRequested) {
+      await markSessionProcessed(session.dir, "cancelled", () => this.#now()).catch(
+        () => undefined,
+      );
       this.#finish((status) => {
-        status.run.stage = "error";
-        status.run.error = {
-          kind: "session-unreadable",
-          message: "The collected posts could not be read back from disk.",
-          detail: error instanceof Error ? error.message : String(error),
-        };
+        status.run.stage = "cancelled";
       });
       return;
     }
@@ -302,19 +372,24 @@ export class SessionController {
     const spanMs = collection
       ? Date.parse(collection.lastCapturedAt) - Date.parse(collection.firstCapturedAt)
       : null;
-    const outcome = await this.#deps.runner.run(
-      session.posts,
-      settings,
-      (progress) =>
-        this.#update((status) => {
-          status.run.stage = progress.stage;
-          status.run.counts = progress.counts;
-          status.run.usage = progress.usage;
-          status.run.stageDurationsMs = progress.stageDurationsMs;
-          status.run.collectionSpanMs = spanMs;
-        }),
-      collection ?? undefined,
-    );
+    this.#inRunner = true;
+    const outcome = await this.#deps.runner
+      .run(
+        session.posts,
+        settings,
+        (progress) =>
+          this.#update((status) => {
+            status.run.stage = progress.stage;
+            status.run.counts = progress.counts;
+            status.run.usage = progress.usage;
+            status.run.stageDurationsMs = progress.stageDurationsMs;
+            status.run.collectionSpanMs = spanMs;
+          }),
+        collection ?? undefined,
+      )
+      .finally(() => {
+        this.#inRunner = false;
+      });
 
     if (outcome.status === "cancelled") {
       await markSessionProcessed(session.dir, "cancelled", () => this.#now()).catch(
@@ -327,11 +402,8 @@ export class SessionController {
       return;
     }
     if (outcome.status === "error") {
-      this.#failed.add(sessionId);
       this.#deps.log?.(`run failed: ${outcome.error.kind}`);
-      this.#finish((status) => {
-        status.run.stage = "error";
-        status.run.error = outcome.error;
+      await this.#fail(sessionId, outcome.error, (status) => {
         status.run.usage = usageOf(outcome.metrics);
       });
       return;
@@ -360,14 +432,10 @@ export class SessionController {
       await writeFile(timelinePath, this.#deps.renderTimeline(doc), "utf8");
       await markSessionProcessed(session.dir, "done", () => this.#now());
     } catch (error) {
-      this.#failed.add(sessionId);
-      this.#finish((status) => {
-        status.run.stage = "error";
-        status.run.error = {
-          kind: "internal",
-          message: "The timeline could not be written to disk.",
-          detail: error instanceof Error ? error.message : String(error),
-        };
+      await this.#fail(sessionId, {
+        kind: "internal",
+        message: "The timeline could not be written to disk.",
+        detail: error instanceof Error ? error.message : String(error),
       });
       return;
     }
@@ -384,6 +452,26 @@ export class SessionController {
     this.#deps.onReady({ sessionId, timelinePath, selected: outcome.result.posts.length });
   }
 
+  /** Ends a run in error; marks the session so no app start re-runs it. */
+  async #fail(
+    sessionId: string,
+    error: RunError,
+    mutate?: (status: DesktopStatus) => void,
+  ): Promise<void> {
+    this.#failed.add(sessionId);
+    await markSessionProcessed(
+      join(this.#deps.sessionsRoot, sessionId),
+      "error",
+      () => this.#now(),
+      { kind: error.kind, message: error.message.slice(0, 500) },
+    ).catch(() => undefined);
+    this.#finish((status) => {
+      status.run.stage = "error";
+      status.run.error = error;
+      mutate?.(status);
+    });
+  }
+
   #finish(mutate: (status: DesktopStatus) => void): void {
     this.#update((status) => {
       mutate(status);
@@ -394,4 +482,16 @@ export class SessionController {
     this.#queued = null;
     if (queued) void this.runSession(queued);
   }
+}
+
+const RUN_ERROR_KINDS: readonly RunErrorKind[] = [
+  "cli-not-found",
+  "cli-not-authenticated",
+  "cli-error",
+  "session-unreadable",
+  "internal",
+];
+
+function isRunErrorKind(kind: string | undefined): kind is RunErrorKind {
+  return (RUN_ERROR_KINDS as readonly (string | undefined)[]).includes(kind);
 }

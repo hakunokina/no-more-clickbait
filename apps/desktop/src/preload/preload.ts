@@ -3,9 +3,10 @@ import type { LlmAvailability } from "@nmc/core/llm";
 import type { DesktopStatus } from "../shared/status.js";
 
 /**
- * The entire renderer-facing API, shared by the monitor and the reading
- * window. Nothing else crosses the bridge: status (counts only) flows
- * in, a handful of commands flow out; main checks every caller.
+ * The monitor window's API. Nothing else crosses the bridge: status
+ * (counts only) flows in, a handful of commands flow out; main checks
+ * every caller. The reading window has its own, narrower preload
+ * (reader-preload.ts).
  */
 export interface DesktopApi {
   checkLlmStatus(): Promise<LlmAvailability>;
@@ -38,16 +39,3 @@ const api: DesktopApi = {
 };
 
 contextBridge.exposeInMainWorld("nmc", api);
-
-/**
- * The rendered timeline page (packages/timeline-renderer, `actions: true`)
- * carries "Yeni akış topla" / "Tekrar dene" buttons as
- * `data-action="collect" | "retry"`; its hash-pinned script does not
- * handle them, the host does — from this isolated world.
- */
-document.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target.closest("[data-action]") : null;
-  const action = target?.getAttribute("data-action");
-  if (action === "collect") void api.startCollection();
-  else if (action === "retry") void api.retryRun();
-});

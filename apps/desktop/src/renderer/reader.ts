@@ -1,4 +1,4 @@
-import type { DesktopApi } from "../preload/preload.js";
+import type { ReaderApi } from "../preload/reader-bridge.js";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
 
 /**
@@ -9,11 +9,8 @@ import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status
  * nothing here ever interprets text as markup.
  */
 
-declare global {
-  interface Window {
-    nmc: DesktopApi;
-  }
-}
+// Not a global augmentation: the monitor page declares the wider DesktopApi.
+const nmc = (window as unknown as { nmc: ReaderApi }).nmc;
 
 const view = document.getElementById("view") as HTMLElement;
 
@@ -36,7 +33,7 @@ function button(label: string, action: () => Promise<unknown>, primary = false):
 }
 
 const collectButton = (primary = true): HTMLElement =>
-  button("Yeni akış topla", () => window.nmc.startCollection(), primary);
+  button("Yeni akış topla", () => nmc.startCollection(), primary);
 
 type StepState = "done" | "current" | "wait";
 
@@ -106,7 +103,7 @@ function preparing(status: DesktopStatus): HTMLElement[] {
     h(
       "div",
       { class: "btn-row" },
-      button("İptal", () => window.nmc.cancelRun()),
+      button("İptal", () => nmc.cancelRun()),
     ),
     skeleton,
   ];
@@ -139,7 +136,7 @@ function render(status: DesktopStatus): void {
       h(
         "div",
         { class: "btn-row" },
-        button("Akışı oluştur", () => window.nmc.buildTimeline(), true),
+        button("Akışı oluştur", () => nmc.buildTimeline(), true),
         collectButton(false),
       ),
     ];
@@ -163,7 +160,7 @@ function render(status: DesktopStatus): void {
       h(
         "div",
         { class: "btn-row" },
-        button("Tekrar dene", () => window.nmc.retryRun(), true),
+        button("Tekrar dene", () => nmc.retryRun(), true),
         collectButton(false),
       ),
     ];
@@ -174,9 +171,19 @@ function render(status: DesktopStatus): void {
       h(
         "div",
         { class: "btn-row" },
-        button("Tekrar dene", () => window.nmc.retryRun(), true),
+        button("Tekrar dene", () => nmc.retryRun(), true),
         collectButton(false),
       ),
+    ];
+  } else if (run.stage === "ready" && run.timelineGone) {
+    content = [
+      h("h1", {}, "Akış artık yok"),
+      h(
+        "p",
+        {},
+        "Bu akışın dosyaları yer açmak için silindi (eski toplamalar sınırlı sayıda saklanır). Yeni bir akış toplayabilirsin.",
+      ),
+      h("div", { class: "btn-row" }, collectButton()),
     ];
   } else if (run.stage === "ready" && run.hasTimeline) {
     content = [
@@ -185,7 +192,7 @@ function render(status: DesktopStatus): void {
       h(
         "div",
         { class: "btn-row" },
-        button("Akışı aç", () => window.nmc.openReader(), true),
+        button("Akışı aç", () => nmc.openReader(), true),
         collectButton(false),
       ),
     ];
@@ -216,5 +223,5 @@ function render(status: DesktopStatus): void {
   }
 }
 
-window.nmc.onStatus(render);
-void window.nmc.getStatus().then(render);
+nmc.onStatus(render);
+void nmc.getStatus().then(render);

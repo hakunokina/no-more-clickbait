@@ -15,8 +15,8 @@ import { desktopDataDir, SessionIdSchema } from "./desktop-link.js";
  *
  * One host process == one session (the extension reconnects to start a
  * new one). Batches hold feed content — personal data that stays in the
- * user's profile and is never logged. Only the newest SESSION_RETENTION
- * sessions are kept.
+ * user's profile and is never logged. At most SESSION_RETENTION
+ * sessions are kept (see pruneSessions for which go first).
  */
 
 export const SESSION_RETENTION = 10;
@@ -35,8 +35,16 @@ export const SessionCompletionSchema = z.object({
 export type SessionCompletion = z.infer<typeof SessionCompletionSchema>;
 
 export const SessionProcessedSchema = z.object({
-  status: z.enum(["done", "cancelled", "superseded"]),
+  /** `error`: the run failed; only the user's "Try again" runs it again. */
+  status: z.enum(["done", "cancelled", "superseded", "error"]),
   processedAt: z.string().datetime(),
+  /** Why the run failed (status `error`); fixed messages, never feed content. */
+  error: z
+    .object({
+      kind: z.string().max(64),
+      message: z.string().max(500),
+    })
+    .optional(),
 });
 export type SessionProcessed = z.infer<typeof SessionProcessedSchema>;
 
@@ -59,22 +67,52 @@ async function readJson(path: string): Promise<unknown> {
   }
 }
 
-/** Deletes all but the newest `keep` session folders (ids sort by time). */
+async function hasBatches(dir: string): Promise<boolean> {
+  try {
+    return (await readdir(join(dir, "batches"))).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Trims the session folders down to `keep`. Never deleted: `protect`
+ * (the calling host's own session), the newest `done` session (the
+ * timeline the user may be reading), the newest complete unprocessed
+ * session (the desktop app is running it or it waits for the user's
+ * go) and the newest failed one ("Try again"). Superseded, cancelled
+ * and empty sessions go first, then the rest oldest first (ids sort
+ * by time).
+ */
 export async function pruneSessions(
   root: string,
   keep: number = SESSION_RETENTION,
   protect?: string,
 ): Promise<void> {
-  let names: string[];
-  try {
-    names = await readdir(root);
-  } catch {
-    return;
+  const sessions = await listSessions(root);
+  const excess = sessions.length - keep;
+  if (excess <= 0) return;
+  const newest = (match: (session: SessionListing) => boolean): string | undefined =>
+    [...sessions].reverse().find(match)?.id;
+  const kept = new Set(
+    [
+      protect,
+      newest((session) => session.processed?.status === "done"),
+      newest((session) => session.complete && session.processed === null),
+      newest((session) => session.processed?.status === "error"),
+    ].filter((id): id is string => id !== undefined),
+  );
+  const discardable: SessionListing[] = [];
+  const rest: SessionListing[] = [];
+  for (const session of sessions) {
+    if (kept.has(session.id)) continue;
+    const status = session.processed?.status;
+    const discarded =
+      status === "superseded" || status === "cancelled" || !(await hasBatches(session.dir));
+    (discarded ? discardable : rest).push(session);
   }
-  const ids = names.filter((name) => SessionIdSchema.safeParse(name).success).sort();
-  for (const id of ids.slice(0, Math.max(0, ids.length - keep))) {
-    if (id === protect) continue;
-    await rm(join(root, id), { recursive: true, force: true });
+  for (const session of [...discardable, ...rest].slice(0, excess)) {
+    await rm(session.dir, { recursive: true, force: true });
   }
 }
 
@@ -183,8 +221,10 @@ export async function markSessionProcessed(
   dir: string,
   status: SessionProcessed["status"],
   now: () => string = () => new Date().toISOString(),
+  error?: SessionProcessed["error"],
 ): Promise<void> {
-  await writeJsonAtomic(join(dir, "processed.json"), { status, processedAt: now() });
+  const record: SessionProcessed = { status, processedAt: now(), ...(error ? { error } : {}) };
+  await writeJsonAtomic(join(dir, "processed.json"), record);
 }
 
 export interface LoadedSession {

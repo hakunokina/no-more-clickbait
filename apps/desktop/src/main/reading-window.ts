@@ -29,6 +29,8 @@ function lockedDownSession(fileRoots: readonly string[]): Session {
 
 export interface ReadingWindowOptions {
   preload: string;
+  /** Passed to the preload's argv (it tells our own page from a timeline). */
+  preloadArguments?: string[];
   /** Our own status page (preparing / error / empty states). */
   appPage: string;
   /** Directories the window may load files from. */
@@ -99,6 +101,7 @@ export class ReadingWindow {
       autoHideMenuBar: true,
       webPreferences: {
         preload: this.#options.preload,
+        additionalArguments: this.#options.preloadArguments ?? [],
         session: lockedDownSession(this.#options.fileRoots),
         sandbox: true,
         contextIsolation: true,

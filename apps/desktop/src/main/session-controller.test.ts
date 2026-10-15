@@ -89,11 +89,14 @@ describe("SessionController", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  function controller(): SessionController {
+  function controller(settingsReady: Promise<unknown> = Promise.resolve()): SessionController {
     return new SessionController({
       sessionsRoot: root,
       runner: new PipelineRunner(() => runStages),
-      loadSettings: async () => SettingsSchema.parse({ collectTarget: 120 }),
+      loadSettings: async () => {
+        await settingsReady;
+        return SettingsSchema.parse({ collectTarget: 120 });
+      },
       renderTimeline: (doc) => `<p>${doc.cards.length} posts</p>`,
       sendToHost: (command) => {
         if (!hostOnline) return false;
@@ -257,27 +260,87 @@ describe("SessionController", () => {
     expect(byId).toEqual({ [older]: "superseded", [newer]: null });
   });
 
-  it("shows a CLI error, keeps the session pending and retries on request", async () => {
+  it("marks a failed run on disk, never re-runs it, and retries on request", async () => {
     const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
+    let checks = 0;
     runStages = stages({
-      checkAvailable: async () => ({ ok: false, reason: "not-found", detail: "ENOENT" }),
+      checkAvailable: async () => {
+        checks += 1;
+        return { ok: false, reason: "not-found", detail: "ENOENT" };
+      },
     });
     const c = controller();
     await c.processPending();
     expect(c.status.run.stage).toBe("error");
     expect(c.status.run.error?.kind).toBe("cli-not-found");
-    expect((await listSessions(root))[0]?.processed).toBeNull();
+    expect((await listSessions(root))[0]?.processed).toMatchObject({
+      status: "error",
+      error: { kind: "cli-not-found" },
+    });
 
     // Not retried automatically (no error loop on every host reconnect)...
     const before = statuses.length;
     await c.processPending();
     expect(statuses).toHaveLength(before);
 
-    // ...but "Try again" does it, without collecting again.
+    // ...nor at the next app start: the error is shown for "Try again".
+    const restarted = controller();
+    await restarted.processPending();
+    expect(checks).toBe(1);
+    expect(restarted.status.run).toMatchObject({
+      stage: "error",
+      sessionId: id,
+      error: { kind: "cli-not-found", detail: null },
+    });
+
+    // "Try again" runs it, without collecting again.
     runStages = stages();
+    await restarted.retry();
+    expect(restarted.status.run.stage).toBe("ready");
+    expect(ready.map((r) => r.sessionId)).toEqual([id]);
+    expect((await listSessions(root))[0]?.processed?.status).toBe("done");
+  });
+
+  it("cancels while the session is still being read back, before the runner starts", async () => {
+    let checks = 0;
+    runStages = stages({
+      checkAvailable: async () => {
+        checks += 1;
+        return { ok: true, version: "fake" };
+      },
+    });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
+    const c = controller(gate);
+    const running = c.runSession(id);
+    expect(c.status.run.stage).toBe("checking");
+    expect(c.cancel()).toBe(true);
+    release();
+    await running;
+    expect(checks).toBe(0);
+    expect(c.status.run.stage).toBe("cancelled");
+    expect((await listSessions(root))[0]?.processed?.status).toBe("cancelled");
+    expect(ready).toEqual([]);
+
+    // The flag does not leak into the next run.
     await c.retry();
     expect(c.status.run.stage).toBe("ready");
-    expect(ready.map((r) => r.sessionId)).toEqual([id]);
+  });
+
+  it("says the timeline is gone when its session folder was pruned", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
+    const c = controller();
+    await c.runSession(id);
+    expect(await c.availableTimeline()).toBe(join(root, id, TIMELINE_FILE));
+    await rm(join(root, id), { recursive: true, force: true });
+    expect(await c.availableTimeline()).toBeNull();
+    expect(c.status.run).toMatchObject({
+      stage: "ready",
+      hasTimeline: false,
+      timelineGone: true,
+    });
+    expect(c.timelinePath).toBeNull();
   });
 
   it("runs one session at a time and queues the next", async () => {

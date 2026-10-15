@@ -1,4 +1,4 @@
-// Bundles main (ESM), preload (CJS — required for sandboxed preloads)
+// Bundles main (ESM), the preloads (CJS — required for sandboxed preloads)
 // and the renderer pages (monitor, reading window) into dist/.
 import { build } from "esbuild";
 import { cp, mkdir, rm } from "node:fs/promises";
@@ -23,17 +23,19 @@ await build({
   logLevel: "info",
 });
 
-await build({
-  entryPoints: [join(root, "src/preload/preload.ts")],
-  outfile: join(dist, "preload.cjs"),
-  bundle: true,
-  format: "cjs",
-  platform: "node",
-  target: "node20",
-  external: ["electron"],
-  sourcemap: true,
-  logLevel: "info",
-});
+for (const name of ["preload", "reader-preload"]) {
+  await build({
+    entryPoints: [join(root, `src/preload/${name}.ts`)],
+    outfile: join(dist, `${name}.cjs`),
+    bundle: true,
+    format: "cjs",
+    platform: "node",
+    target: "node20",
+    external: ["electron"],
+    sourcemap: true,
+    logLevel: "info",
+  });
+}
 
 await build({
   entryPoints: [join(root, "src/renderer/renderer.ts"), join(root, "src/renderer/reader.ts")],

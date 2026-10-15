@@ -92,6 +92,8 @@ export interface DesktopStatus {
     error: RunError | null;
     /** A finished timeline for `sessionId` can be opened. */
     hasTimeline: boolean;
+    /** The finished timeline was deleted since (session folders are pruned). */
+    timelineGone: boolean;
   };
 }
 
@@ -132,6 +134,7 @@ export function initialStatus(): DesktopStatus {
       funnel: null,
       error: null,
       hasTimeline: false,
+      timelineGone: false,
     },
   };
 }

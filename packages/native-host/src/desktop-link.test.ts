@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { connect } from "node:net";
+import { connect, createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -188,6 +188,31 @@ describe("desktop link", () => {
     await new Promise((resolve) => socket.once("connect", resolve));
     await new Promise((resolve) => socket.once("close", resolve));
     expect(hostCount).toBe(0);
+  });
+
+  it("drops a silent desktop peer after the handshake timeout and tries again", async () => {
+    await server.close();
+    const sockets: Socket[] = [];
+    const silent = createServer((socket) => sockets.push(socket));
+    await new Promise<void>((resolve) => silent.listen(path, resolve));
+    try {
+      client = new LinkClient({
+        path,
+        tokenPath,
+        retryMs: 10,
+        handshakeTimeoutMs: 50,
+        onCommand: (command) => commands.push(command),
+      });
+      client.start();
+      // The first connection was dropped by the client, a second one followed.
+      await waitFor(() => sockets.length >= 2);
+      expect(client.connected).toBe(false);
+    } finally {
+      client?.close();
+      client = null;
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => silent.close(resolve));
+    }
   });
 
   it("reconnects when the desktop app starts after the host", async () => {

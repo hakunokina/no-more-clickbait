@@ -18,6 +18,20 @@ const response1 = readFileSync(
   ),
   "utf8",
 );
+const response2 = readFileSync(
+  join(
+    import.meta.dirname,
+    "..",
+    "..",
+    "..",
+    "packages",
+    "core",
+    "fixtures",
+    "x-home-timeline",
+    "response-2.json",
+  ),
+  "utf8",
+);
 
 type Listener = (...args: unknown[]) => void;
 
@@ -429,6 +443,30 @@ describe("desktop link in the background worker", () => {
     captureTimeline();
     await settle();
     expect(postedTypes(second)).toEqual(["ping", "post-batch", "collection-complete"]);
+  });
+
+  it("reports the count as it stands when the queued Mode A completion runs", async () => {
+    await setSettings({ collectTarget: 4 });
+    await settle();
+    const port = currentPort();
+    // The first response reaches the target (4); the second, arriving
+    // before the queued completion runs, adds one more post (5).
+    captureTimeline();
+    fake.chrome.runtime.onMessage.emit(
+      { kind: "timeline-capture", operation: "HomeTimeline", bodyText: response2, status: 200 },
+      { id: "test", tab: { id: USER_TAB } },
+    );
+    await settle();
+    expect(postedTypes(port)).toEqual([
+      "ping",
+      "post-batch",
+      "post-batch",
+      "collection-complete",
+    ]);
+    expect(port.posted.at(-1)).toMatchObject({
+      type: "collection-complete",
+      uniquePostCount: 5,
+    });
   });
 
   it("leaves developer capture sessions alone at the target", async () => {
