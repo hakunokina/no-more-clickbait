@@ -6,10 +6,53 @@ import { z } from "zod";
  * process boundary is parsed through these schemas.
  */
 
+/** One playable rendition of a video/GIF. */
+export const VideoVariantSchema = z.object({
+  url: z.string().url(),
+  /** Bits per second, when the platform reports it (GIFs often report 0). */
+  bitrate: z.number().int().nonnegative().optional(),
+});
+export type VideoVariant = z.infer<typeof VideoVariantSchema>;
+
+/** An image with its original pixel size, when known. */
+export const SizedImageSchema = z.object({
+  url: z.string().url(),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+});
+export type SizedImage = z.infer<typeof SizedImageSchema>;
+
+/**
+ * Link preview data the platform attached to a link. Often absent (X
+ * delivers most organic cards as a bare id); the renderer then falls
+ * back to the link's own hostname.
+ */
+export const LinkCardSchema = z.object({
+  title: z.string().optional(),
+  description: z.string().optional(),
+  /** Display domain the card names (e.g. "news.example"). */
+  domain: z.string().optional(),
+  image: SizedImageSchema.optional(),
+});
+export type LinkCard = z.infer<typeof LinkCardSchema>;
+
 export const PostMediaSchema = z.object({
   type: z.enum(["photo", "video", "gif", "link"]),
+  /**
+   * photo: the image; video/gif: the poster frame; link: the target
+   * (expanded, not the shortener).
+   */
   url: z.string().url(),
   altText: z.string().optional(),
+  /** Original pixel size of the photo/video (aspect ratio before load). */
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  /** video: playback length. GIFs loop and carry none. */
+  durationMs: z.number().int().nonnegative().optional(),
+  /** video/gif: playable MP4 renditions, highest bitrate (best) first. */
+  variants: z.array(VideoVariantSchema).optional(),
+  /** link: the platform's preview card for this link, when delivered. */
+  card: LinkCardSchema.optional(),
 });
 export type PostMedia = z.infer<typeof PostMediaSchema>;
 
@@ -20,6 +63,8 @@ export const PostSchema = z.object({
   source: z.string().min(1),
   authorHandle: z.string().min(1),
   authorName: z.string().optional(),
+  /** Author's profile image (platform CDN), when delivered. */
+  authorAvatarUrl: z.string().url().optional(),
   text: z.string(),
   /** Canonical URL of the post on its platform. */
   url: z.string().url(),
@@ -53,6 +98,12 @@ export const PostSchema = z.object({
       id: z.string().min(1),
       authorHandle: z.string().min(1),
       text: z.string(),
+      authorName: z.string().optional(),
+      authorVerified: z.boolean().optional(),
+      /** ISO 8601 timestamp of the quoted post. */
+      publishedAt: z.string().datetime().optional(),
+      /** The quoted post's media and links (same shape as `Post.media`). */
+      media: z.array(PostMediaSchema).optional(),
     })
     .optional(),
   /**
@@ -183,16 +234,159 @@ export const ModeBStrategySchema = z.enum([
 ]);
 export type ModeBStrategy = z.infer<typeof ModeBStrategySchema>;
 
-/** User settings shared between the extension options page and desktop. */
-export const SettingsSchema = z.object({
+interface IntegerSettingField {
+  kind: "integer";
+  min: number;
+  max: number;
+  default: number;
+  /** Short UI label (Options page language: English). */
+  label: string;
+  /** One or two plain sentences: what it does, what raising/lowering it does. */
+  description: string;
+}
+
+interface BooleanSettingField {
+  kind: "boolean";
+  default: boolean;
+  label: string;
+  description: string;
+}
+
+/**
+ * The pipeline settings users tune on the Options page: bounds,
+ * defaults and UI copy in one place. `SettingsSchema` is built from
+ * this, so the form and the validation cannot drift apart. Scores are
+ * on the 0-10 scale users see; the pipeline works on 0..1
+ * (see `pipelineConfigFromSettings`).
+ */
+export const PIPELINE_SETTING_FIELDS = {
+  timelineSize: {
+    kind: "integer",
+    min: 1,
+    max: 100,
+    default: 20,
+    label: "Posts per finished timeline",
+    description:
+      "How many posts a finished timeline shows. If fewer posts pass the filters, " +
+      "the timeline ends shorter instead of padding.",
+  },
+  maxClickbait: {
+    kind: "integer",
+    min: 1,
+    max: 10,
+    default: 7,
+    label: "Clickbait limit (0–10)",
+    description:
+      "Posts whose clickbait score is below this pass. Lower it for a stricter " +
+      "filter; raise it to let more sensational posts through.",
+  },
+  minReadValue: {
+    kind: "integer",
+    min: 0,
+    max: 10,
+    default: 2,
+    label: "Minimum read value (0–10)",
+    description:
+      "Posts below this read value never appear. Raising it gives a shorter, " +
+      "denser timeline; lowering it fills the timeline more easily.",
+  },
+  minReadForVerify: {
+    kind: "integer",
+    min: 0,
+    max: 10,
+    default: 4,
+    label: "Verify posts from read value (0–10)",
+    description:
+      "Factual claims in posts with at least this read value are checked " +
+      "against web sources. Lower it to check more posts (slower, uses more " +
+      "LLM quota); raise it to check only the most valuable ones.",
+  },
+  maxVerifications: {
+    kind: "integer",
+    min: 1,
+    max: 20,
+    default: 20,
+    label: "Most source checks per run",
+    description:
+      "Upper bound on web-source checks in one run, given to the best posts " +
+      "first. Each check takes time and LLM quota.",
+  },
+  verifyEnabled: {
+    kind: "boolean",
+    default: true,
+    label: "Check claims against sources",
+    description:
+      "Look up factual claims on the web before showing them. Posts whose " +
+      "claims the sources contradict are left out. Turn off for faster, cheaper runs.",
+  },
+} as const satisfies Record<string, IntegerSettingField | BooleanSettingField>;
+
+export type PipelineSettingKey = keyof typeof PIPELINE_SETTING_FIELDS;
+
+/**
+ * Every setting the extension syncs to the desktop (`settings-sync`):
+ * the pipeline settings plus the collection target, with the same
+ * bounds/defaults/UI copy shape.
+ */
+export const SYNCED_SETTING_FIELDS = {
+  collectTarget: {
+    kind: "integer",
+    min: 1,
+    max: 10_000,
+    default: 250,
+    label: "Posts to collect",
+    description:
+      "How many distinct posts to gather from your feed (as you scroll, or " +
+      "automatically in Mode B) before the timeline is built. More posts give " +
+      "the filters more to choose from but take longer to collect and judge.",
+  },
+  ...PIPELINE_SETTING_FIELDS,
+} as const satisfies Record<string, IntegerSettingField | BooleanSettingField>;
+
+export type SyncedSettingKey = keyof typeof SYNCED_SETTING_FIELDS;
+
+function integerSetting(field: IntegerSettingField) {
+  return z
+    .number()
+    .int()
+    .min(field.min)
+    .max(field.max)
+    .default(field.default)
+    .describe(field.description);
+}
+
+/**
+ * The settings object itself (use for `.shape`/`.pick`). Parse stored
+ * settings through `SettingsSchema`, which also migrates old ones.
+ */
+export const SettingsFieldsSchema = z.object({
   /** Mode B: auto-scroll a hidden tab to gather posts. OFF by default. */
   modeBEnabled: z.boolean().default(false),
-  /** Mode B stops once this many distinct organic posts were collected. */
+  /**
+   * @deprecated Use `collectTarget` (shared by Modes A and B). Kept so
+   * settings saved before it still parse; it seeds `collectTarget` when
+   * that is missing.
+   */
   modeBTarget: z.number().int().min(1).max(1000).default(100),
+  /** Distinct organic posts to collect (Mode A and Mode B) before a run. */
+  collectTarget: integerSetting(SYNCED_SETTING_FIELDS.collectTarget),
   /** Developer choice of the hidden surface Mode B scrolls in. */
   modeBStrategy: ModeBStrategySchema.default("minimized-window"),
-  /** How many posts a finished timeline shows before it ends. */
-  timelineSize: z.number().int().min(1).max(100).default(20),
+  /** How many posts a finished timeline shows before it ends (N). */
+  timelineSize: integerSetting(PIPELINE_SETTING_FIELDS.timelineSize),
+  /** Clickbait score (0-10) a post must stay BELOW to pass. */
+  maxClickbait: integerSetting(PIPELINE_SETTING_FIELDS.maxClickbait),
+  /** Read-value floor (0-10): posts below it are dropped. */
+  minReadValue: integerSetting(PIPELINE_SETTING_FIELDS.minReadValue),
+  /** Read value (0-10) a check-worthy post needs to be verified (owner: 4). */
+  minReadForVerify: integerSetting(PIPELINE_SETTING_FIELDS.minReadForVerify),
+  /** Most Verifier calls in one run. */
+  maxVerifications: integerSetting(PIPELINE_SETTING_FIELDS.maxVerifications),
+  /** Run the Verifier stage at all. */
+  verifyEnabled: z
+    .boolean()
+    .default(PIPELINE_SETTING_FIELDS.verifyEnabled.default)
+    .describe(PIPELINE_SETTING_FIELDS.verifyEnabled.description),
   /**
    * Developer capture: forward raw HomeTimeline response bodies to the
    * native host for local inspection. OFF by default. Raw captures are
@@ -206,7 +400,30 @@ export const SettingsSchema = z.object({
    */
   captureTarget: z.number().int().min(1).max(10_000).default(250),
 });
+
+/** User settings shared between the extension options page and desktop. */
+export const SettingsSchema = z.preprocess((raw) => {
+  // Settings saved before `collectTarget` existed: Mode B's target was
+  // the only collection target, so it carries over.
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const stored = raw as Record<string, unknown>;
+  return stored["collectTarget"] === undefined && stored["modeBTarget"] !== undefined
+    ? { ...stored, collectTarget: stored["modeBTarget"] }
+    : stored;
+}, SettingsFieldsSchema);
 export type Settings = z.infer<typeof SettingsSchema>;
+
+/** The settings `settings-sync` carries to the desktop. */
+export const SyncedSettingsSchema = SettingsFieldsSchema.pick({
+  collectTarget: true,
+  timelineSize: true,
+  maxClickbait: true,
+  minReadValue: true,
+  minReadForVerify: true,
+  maxVerifications: true,
+  verifyEnabled: true,
+});
+export type SyncedSettings = z.infer<typeof SyncedSettingsSchema>;
 
 /** Hard ceiling for one framed native-messaging message (extension + host). */
 export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -296,6 +513,24 @@ export const ModeBRunSummarySchema = z.object({
 });
 export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
 
+/**
+ * The extension finished collecting for a run (target reached, or the
+ * collection stopped). Counts only — never content.
+ */
+export const CollectionCompleteSchema = z.object({
+  type: z.literal("collection-complete"),
+  /** Capture/collection session the counts belong to, when there is one. */
+  sessionId: z.string().min(1).max(128).optional(),
+  /** Distinct organic posts collected (hard-filtered: no ads, no repeats). */
+  uniquePostCount: z.number().int().nonnegative(),
+  responseCount: z.number().int().nonnegative(),
+  /** A: the user's own scrolling; B: the hidden auto-scroll surface. */
+  mode: z.enum(["A", "B"]),
+  /** Why collection ended, e.g. "target-reached" or a ModeBStopReason. */
+  reason: z.string().min(1).max(64),
+});
+export type CollectionComplete = z.infer<typeof CollectionCompleteSchema>;
+
 /** Messages from the browser extension to the desktop app (via native host). */
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
@@ -304,10 +539,17 @@ export const BridgeMessageSchema = z.discriminatedUnion("type", [
   OversizedCaptureSchema,
   /** A finished Mode B run, recorded in the capture session's summary. */
   z.object({ type: z.literal("mode-b-run"), run: ModeBRunSummarySchema }),
+  CollectionCompleteSchema,
+  /** The user's synced settings, saved by the host for the desktop pipeline. */
+  z.object({ type: z.literal("settings-sync"), settings: SyncedSettingsSchema }),
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
-/** Replies from the desktop side back to the extension. */
+/**
+ * Messages from the desktop side to the extension: replies to the
+ * messages above, plus unsolicited pushes (`start-collection`,
+ * `link-status`).
+ */
 export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
   z.object({ type: z.literal("batch-accepted"), postCount: z.number().int().nonnegative() }),
@@ -322,6 +564,22 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
     stats: CaptureStatsSchema,
   }),
   z.object({ type: z.literal("mode-b-run-recorded") }),
+  /** Ack of `collection-complete`. */
+  z.object({ type: z.literal("collection-recorded") }),
+  /** Ack of `settings-sync`: the host saved them. */
+  z.object({ type: z.literal("settings-synced") }),
+  /** Push: the desktop asks the extension to start collecting. */
+  z.object({
+    type: z.literal("start-collection"),
+    /** Overrides the user's `collectTarget` for this collection. */
+    target: z.number().int().min(1).max(10_000).optional(),
+  }),
+  /** Push: which ends of the bridge are currently connected. */
+  z.object({
+    type: z.literal("link-status"),
+    desktopConnected: z.boolean(),
+    extensionConnected: z.boolean(),
+  }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type BridgeReply = z.infer<typeof BridgeReplySchema>;

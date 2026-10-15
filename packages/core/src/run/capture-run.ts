@@ -7,18 +7,28 @@ import {
   RunMetricsCollector,
   summarizeRunMetrics,
   type CollectionMetrics,
+  type FunnelCounts,
   type RunMetrics,
   type RunMetricsTotals,
 } from "../metrics.js";
 import {
   createThresholdSelector,
+  pipelineConfigFromSettings,
   runPipeline,
   type Scorer,
   type SelectorOptions,
   type VerificationStats,
   type Verifier,
 } from "../pipeline.js";
-import type { Post, RankedPost, ScoreEntry, VerificationResult } from "../schemas.js";
+import {
+  SettingsFieldsSchema,
+  type PipelineSettingKey,
+  type Post,
+  type RankedPost,
+  type ScoreEntry,
+  type Settings,
+  type VerificationResult,
+} from "../schemas.js";
 import {
   parseHomeTimelineWithStats,
   type HomeTimelineParseStats,
@@ -171,19 +181,34 @@ export function scoreDistribution(scores: readonly ScoreEntry[]): ScoreDistribut
   };
 }
 
+/** The `Settings` fields a pipeline run reads. */
+export type PipelineSettings = Pick<Settings, PipelineSettingKey>;
+
+const PipelineSettingsSchema = SettingsFieldsSchema.pick({
+  timelineSize: true,
+  maxClickbait: true,
+  minReadValue: true,
+  minReadForVerify: true,
+  maxVerifications: true,
+  verifyEnabled: true,
+});
+
 export interface CaptureRunOptions {
   scorer: Scorer;
   /** Shared with the scorer so its LLM calls land in the same metrics. */
   metrics: RunMetricsCollector;
-  selector: SelectorOptions;
-  timelineSize: number;
-  /** Omit to run without verification (every post `verification: null`). */
+  /**
+   * Thresholds, N and verification, as the user set them (0-10 scores).
+   * Omitted fields take the Settings defaults; out-of-range values throw.
+   */
+  settings: Partial<PipelineSettings>;
+  /**
+   * Used only when `settings.verifyEnabled` is on; omit to run without
+   * verification (every post `verification: null`).
+   */
   verifier?: Verifier;
   /** Max simultaneous Verifier calls (default 4). */
   verifyConcurrency?: number;
-  maxVerifications?: number;
-  /** Read-worthiness (0..1) a check-worthy post needs to be verified. */
-  minReadForVerify?: number;
 }
 
 export interface CaptureRunReport {
@@ -192,6 +217,8 @@ export interface CaptureRunReport {
   collection?: CollectionMetrics;
   parse: HomeTimelineParseStats;
   hardFilter: HardFilterStats;
+  /** The pipeline settings the run used (defaults filled in). */
+  settings: PipelineSettings;
   selector: SelectorOptions & { timelineSize: number; candidates: number };
   /** Every scorer judgement, in the scored posts' feed order. */
   scores: ScoreEntry[];
@@ -201,6 +228,8 @@ export interface CaptureRunReport {
   verification?: VerificationStats;
   /** Media-only posts passed through unscored, outside the selection count. */
   unjudged: Post[];
+  /** Where every parsed post went; the buckets add up to `scanned`. */
+  funnel: FunnelCounts;
   metrics: RunMetrics;
   totals: RunMetricsTotals;
 }
@@ -210,11 +239,14 @@ export async function runCapture(
   options: CaptureRunOptions,
 ): Promise<CaptureRunReport> {
   const { metrics } = options;
+  const settings = PipelineSettingsSchema.parse(options.settings);
+  const config = pipelineConfigFromSettings(settings);
+  const verifier = config.verify ? options.verifier : undefined;
   metrics.recordStageDuration("parse", capture.parseMs);
   const hardFilter = createHardFilter();
   let scores: ScoreEntry[] = [];
   let candidates = 0;
-  const selector = createThresholdSelector(options.selector);
+  const selector = createThresholdSelector(config.selector);
 
   const result = await runPipeline(
     {
@@ -231,19 +263,16 @@ export async function runCapture(
           candidates = ranked.length;
           return ranked;
         },
+        rejection: (scored) => selector.rejection(scored),
       },
-      ...(options.verifier ? { verifier: options.verifier } : {}),
+      ...(verifier ? { verifier } : {}),
     },
     capture.posts,
     {
-      timelineSize: options.timelineSize,
+      timelineSize: config.timelineSize,
       verifyConcurrency: options.verifyConcurrency ?? 4,
-      ...(options.maxVerifications !== undefined
-        ? { maxVerifications: options.maxVerifications }
-        : {}),
-      ...(options.minReadForVerify !== undefined
-        ? { minReadForVerify: options.minReadForVerify }
-        : {}),
+      maxVerifications: config.maxVerifications,
+      minReadForVerify: config.minReadForVerify,
       metrics,
       ...(capture.collection ? { collection: capture.collection } : {}),
     },
@@ -255,12 +284,14 @@ export async function runCapture(
     ...(capture.collection ? { collection: capture.collection } : {}),
     parse: capture.parse,
     hardFilter: hardFilter.stats,
-    selector: { ...options.selector, timelineSize: options.timelineSize, candidates },
+    settings,
+    selector: { ...config.selector, timelineSize: config.timelineSize, candidates },
     scores,
     distribution: scoreDistribution(scores),
     selected: result.posts,
     ...(result.verification ? { verification: result.verification } : {}),
     unjudged: result.unjudged,
+    funnel: result.funnel,
     metrics: result.metrics,
     totals: summarizeRunMetrics(result.metrics),
   };
