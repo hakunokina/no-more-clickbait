@@ -235,6 +235,9 @@ export function createClaudeScorer(options: ClaudeScorerOptions): Scorer {
         durationMs: Date.now() - started,
         postCount: posts.length,
         failed: true,
+        ...(error instanceof CliRunError && error.costUsd !== undefined
+          ? { costUsd: error.costUsd }
+          : {}),
       });
       throw error;
     }

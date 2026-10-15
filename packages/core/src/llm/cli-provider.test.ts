@@ -7,6 +7,7 @@ import {
   CliLlmProvider,
   CliRunError,
   createClaudeCliProvider,
+  parseClaudeFailureCostUsd,
   parseClaudeJsonOutput,
   parseClaudeStreamJsonOutput,
   type SpawnFn,
@@ -216,6 +217,44 @@ describe("createClaudeCliProvider (fake process)", () => {
     await expect(provider.complete({ prompt: "x" })).rejects.toBeInstanceOf(
       CliNotAuthenticatedError,
     );
+  });
+
+  it("keeps the cost a failed run reported (budget cap: exit 1 with an error result)", async () => {
+    const { spawnFn } = fakeSpawn(() => ({
+      stdout: JSON.stringify({
+        type: "result",
+        subtype: "error_max_budget_usd",
+        is_error: true,
+        total_cost_usd: 0.52,
+      }),
+      exitCode: 1,
+    }));
+    const error = await createClaudeCliProvider({ spawnFn })
+      .complete({ prompt: "x" })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(CliRunError);
+    expect((error as CliRunError).costUsd).toBe(0.52);
+  });
+
+  it("keeps the cost of an exit-0 error result, and has none when nothing was reported", async () => {
+    const errorResult = JSON.stringify({
+      type: "result",
+      is_error: true,
+      result: "something broke",
+      total_cost_usd: 0.07,
+    });
+    const { spawnFn } = fakeSpawn(() => ({ stdout: errorResult }));
+    const error = await createClaudeCliProvider({ spawnFn })
+      .complete({ prompt: "x" })
+      .catch((e: unknown) => e);
+    expect((error as CliRunError).costUsd).toBe(0.07);
+
+    const silent = fakeSpawn(() => ({ stderr: "boom", exitCode: 1 }));
+    const bare = await createClaudeCliProvider({ spawnFn: silent.spawnFn })
+      .complete({ prompt: "x" })
+      .catch((e: unknown) => e);
+    expect(bare).toBeInstanceOf(CliRunError);
+    expect((bare as CliRunError).costUsd).toBeUndefined();
   });
 
   it("checkAvailable reads loggedIn:false as not-authenticated (exit 0 is not enough)", async () => {
@@ -517,5 +556,20 @@ describe("structured output, budget cap and helper-model usage", () => {
     );
     expect(parsed.webSearchRequests).toBe(2);
     expect(parsed.inputTokens).toBe(1);
+  });
+});
+
+describe("parseClaudeFailureCostUsd", () => {
+  it("reads total_cost_usd from json and stream-json output, ignoring torn lines", () => {
+    expect(parseClaudeFailureCostUsd('{"type":"result","total_cost_usd":0.1}')).toBe(0.1);
+    const stream = [
+      '{"type":"system","subtype":"init"}',
+      '{"type":"assist',
+      '{"type":"result","is_error":true,"total_cost_usd":0.25}',
+      "",
+    ].join("\n");
+    expect(parseClaudeFailureCostUsd(stream)).toBe(0.25);
+    expect(parseClaudeFailureCostUsd("")).toBeUndefined();
+    expect(parseClaudeFailureCostUsd('{"total_cost_usd":-1}')).toBeUndefined();
   });
 });
