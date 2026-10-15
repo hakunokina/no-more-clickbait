@@ -47,6 +47,51 @@ describe("ensureCollectBrowser", () => {
     }
   });
 
+  it("collects in the linked browser when the choice resolves to none, and says so", async () => {
+    let launched = false;
+    const result = await ensureCollectBrowser({
+      resolution: {
+        ok: false,
+        reason: "Your default browser is not a supported Chromium browser.",
+      },
+      isConnected: () => false,
+      launch: () => (launched = true),
+      waitForConnection: () => Promise.resolve(false),
+      anyConnected: () => "brave",
+    });
+    expect(result).toEqual({
+      ok: true,
+      launched: false,
+      notice:
+        "Your default browser is not a supported Chromium browser. " +
+        "Collecting in the connected Brave instead.",
+    });
+    expect(launched).toBe(false);
+
+    const unknown = await ensureCollectBrowser({
+      resolution: { ok: false, reason: "No browser." },
+      isConnected: () => false,
+      launch: () => undefined,
+      waitForConnection: () => Promise.resolve(false),
+      anyConnected: () => "other",
+    });
+    expect(unknown).toMatchObject({
+      ok: true,
+      notice: expect.stringContaining("connected browser"),
+    });
+
+    // Nobody linked: still refused, with the choice's own reason.
+    await expect(
+      ensureCollectBrowser({
+        resolution: { ok: false, reason: "No browser." },
+        isConnected: () => false,
+        launch: () => undefined,
+        waitForConnection: () => Promise.resolve(false),
+        anyConnected: () => null,
+      }),
+    ).resolves.toEqual({ ok: false, reason: "No browser." });
+  });
+
   it("passes an unresolvable choice through and reports a failed launch", async () => {
     await expect(
       ensureCollectBrowser({

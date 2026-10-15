@@ -327,8 +327,8 @@ function toggleMonitor(): void {
 async function startCollection(): Promise<void> {
   reader.expectTimeline();
   // The chosen browser must be up with its extension linked; an
-  // unresolvable choice keeps the older any-host behaviour via the
-  // controller's own refusal when nobody answers.
+  // unresolvable choice falls back to whichever extension is linked
+  // (the any-host send picks the newest host) and says so.
   if (collectBrowser) {
     const ensured = await ensureCollectBrowser({
       resolution: collectBrowser,
@@ -336,12 +336,14 @@ async function startCollection(): Promise<void> {
         link?.hosts.some((host) => hostMatchesBrowser(host.browser, browser)) ?? false,
       launch: launchDetached,
       waitForConnection: (check) => waitForConnection(check),
+      anyConnected: () => link?.hosts.at(-1)?.browser.family ?? null,
     });
     if (!ensured.ok) {
       log(`collection not started: ${ensured.reason}`);
       notify("collection not started", ensured.reason, showMonitor);
       return;
     }
+    if (ensured.notice) notify("collecting in another browser", ensured.notice, showMonitor);
     if (ensured.launched) settingsManager.setBrowserConnected(collectBrowserConnected());
   }
   return controller.startCollection();

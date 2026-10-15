@@ -1,9 +1,12 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   browserFamilyOfProgId,
   defaultBrowserFamily,
   defaultBrowserProgId,
   installedBrowsers,
+  launchDetached,
   parseOpenCommand,
   parseRegSubkeys,
   parseRegValue,
@@ -127,5 +130,13 @@ describe("waitForConnection", () => {
     await expect(
       waitForConnection(() => false, { timeoutMs: 20, intervalMs: 5 }),
     ).resolves.toBe(false);
+  });
+});
+
+describe("launchDetached", () => {
+  it("fails at once for a browser path that no longer exists", () => {
+    expect(() => launchDetached(join(tmpdir(), "nmc-missing-browser", "brave.exe"))).toThrow(
+      /not found/,
+    );
   });
 });

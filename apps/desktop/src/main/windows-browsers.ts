@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
 import { browserFamilyOfExe, type BrowserFamily } from "@nmc/native-host";
 
 /**
@@ -166,6 +167,10 @@ export function regExeReader(run: RegRunner = runReg): RegistryReader {
 export type ProcessLauncher = (exePath: string) => void;
 
 export const launchDetached: ProcessLauncher = (exePath) => {
+  // spawn reports a missing file only through its async `error` event:
+  // checked up front, a stale registry path fails at once instead of
+  // after the whole connection wait.
+  if (!existsSync(exePath)) throw new Error(`not found: ${exePath}`);
   const child: ChildProcess = spawn(exePath, [], {
     detached: true,
     stdio: "ignore",
