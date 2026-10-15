@@ -450,6 +450,19 @@ describe("desktop link in the background worker", () => {
     );
   });
 
+  it("cancels the desktop's collection on its stop-collection push", async () => {
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    const linkPort = currentPort();
+    linkPort.onMessage.emit({ type: "start-collection" });
+    linkPort.onMessage.emit({ type: "stop-collection" }); // before the start finished
+    await settle();
+    expect(lastRun()).toMatchObject({ stopReason: "cancelled" });
+    expect(fake.ports.flatMap((port) => port.posted)).toContainEqual(
+      expect.objectContaining({ type: "collection-complete", mode: "B", reason: "cancelled" }),
+    );
+  });
+
   it("completes a Mode A collection once the user's own scrolling reaches the target", async () => {
     await setSettings({ collectTarget: 4 });
     await settle();

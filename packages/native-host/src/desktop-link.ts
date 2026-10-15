@@ -101,6 +101,7 @@ export const DesktopCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("start-collection"),
     target: z.number().int().min(1).max(10_000).optional(),
   }),
+  z.object({ type: z.literal("stop-collection") }),
 ]);
 export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 

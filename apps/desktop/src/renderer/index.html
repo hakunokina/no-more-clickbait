@@ -20,8 +20,7 @@
       dd { margin: 0; font-variant-numeric: tabular-nums; }
       button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
       button:disabled { opacity: 0.6; }
-      .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-      .row button { margin-top: 0; }
+      button.link { width: auto; min-height: 2.5rem; padding: 0.4rem 0.25rem; background: none; border: none; color: inherit; text-decoration: underline; cursor: pointer; font-size: 0.9rem; }
       :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
       .ok { color: #1c7c3c; }
       .bad { color: #b3261e; }
@@ -51,15 +50,9 @@
         <p id="run-error-message" class="note bad"></p>
         <details><summary>Technical detail</summary><pre id="run-error-detail"></pre></details>
       </div>
-      <div id="pending" hidden>
-        <p id="pending-note" class="note"></p>
-        <button id="build" type="button">Build timeline</button>
-      </div>
-      <button id="collect" type="button">Collect new timeline</button>
-      <div class="row" style="margin-top: 0.5rem">
-        <button id="cancel" type="button" disabled>Cancel run</button>
-        <button id="retry" type="button" disabled>Try again</button>
-      </div>
+      <p id="pending-note" class="note"></p>
+      <button id="primary" type="button">Collect new timeline</button>
+      <button id="collect-link" class="link" type="button" hidden>Collect new timeline</button>
       <button id="open-reader" type="button">Open reading window</button>
     </section>
 

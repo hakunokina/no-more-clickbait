@@ -41,6 +41,7 @@ export function describeRun(status: DesktopStatus): string {
       return "Run cancelled";
     case "idle":
       if (collection.state === "requested") return "Asking the extension to collect…";
+      if (collection.state === "cancelling") return "Cancelling the collection…";
       if (collection.state === "collecting") {
         if (collection.count !== null && collection.target) {
           return `Collecting in the browser… ${formatCount(collection.count)} / ${formatCount(collection.target)} posts`;

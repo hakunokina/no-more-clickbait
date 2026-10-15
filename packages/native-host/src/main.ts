@@ -45,12 +45,8 @@ function pushToExtension(message: BridgeReply): void {
 function startDesktopLink(): void {
   if (link) return;
   link = new LinkClient({
-    onCommand: (command) => {
-      pushToExtension({
-        type: "start-collection",
-        ...(command.target !== undefined ? { target: command.target } : {}),
-      });
-    },
+    // Desktop commands are extension pushes of the same shape.
+    onCommand: pushToExtension,
     onConnectionChanged: (desktopConnected) => {
       pushToExtension({ type: "link-status", desktopConnected, extensionConnected: true });
     },

@@ -42,7 +42,9 @@ const HOST_MAIN = fileURLToPath(
   new URL("../../../../packages/native-host/dist/main.js", import.meta.url),
 );
 
-const HOST_SRC = fileURLToPath(new URL("../../../../packages/native-host/src/", import.meta.url));
+const HOST_SRC = fileURLToPath(
+  new URL("../../../../packages/native-host/src/", import.meta.url),
+);
 /** Written by the host's `build` script after every build (tsc skips unchanged outputs). */
 const HOST_BUILD_STAMP = join(HOST_SRC, "..", "dist", ".build-stamp");
 

@@ -29,6 +29,9 @@ import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
  * - `collection-progress` shows a Mode B run's "x / N"; a request the
  *   extension does not answer, or a collection that goes silent, ends
  *   in a message after a timeout;
+ * - "Cancel" while collecting → `stop-collection`; the run ends as
+ *   `cancelled` (never built), or counts as cancelled here when the
+ *   extension does not confirm in time;
  * - `collection-complete` from a host (planCompletion): a Mode B
  *   collection (the user asked for it) runs the pipeline at once, even
  *   short of the target; a Mode A one (the user's own scrolling reached
@@ -181,6 +184,9 @@ export class SessionController {
     this.#update((status) => {
       status.link = { ...status.link, ...link };
     });
+    if (this.#status.link.hosts === 0 && this.#status.collection.state === "cancelling") {
+      this.#collectionCancelled();
+    }
     if (this.#status.link.hosts === 0 && this.#status.collection.state === "requested") {
       this.#setCollection(() => ({
         state: "refused",
@@ -210,6 +216,14 @@ export class SessionController {
       target: settings.collectTarget,
     });
     this.#requestedAt = sent ? this.#now() : null;
+    const { stage } = this.#status.run;
+    if (sent && (stage === "error" || stage === "cancelled")) {
+      // A new collection replaces the failed/cancelled run's "try again".
+      this.#update((status) => {
+        status.run.stage = "idle";
+        status.run.error = null;
+      });
+    }
     this.#setCollection(() =>
       sent
         ? { state: "requested", message: null, target: settings.collectTarget, count: null }
@@ -224,6 +238,13 @@ export class SessionController {
   }
 
   handleHostEvent(event: HostEvent): void {
+    // Cancelling: only the run's end (collection-complete) matters now.
+    if (
+      this.#status.collection.state === "cancelling" &&
+      event.type !== "collection-complete"
+    ) {
+      return;
+    }
     if (event.type === "collection-start-result") {
       this.#setCollection((status) => {
         const target = event.target ?? status.collection.target;
@@ -315,7 +336,7 @@ export class SessionController {
     }
     // A session found on disk must not end a collection that is running now.
     const { state } = this.#status.collection;
-    if (done.live || (state !== "requested" && state !== "collecting")) {
+    if (done.live || !isCollecting(state)) {
       this.#setCollection(() => ({ state: "idle", message, target: null, count: null }));
     }
     if (done.sessionId === null) return;
@@ -381,8 +402,16 @@ export class SessionController {
     if (this.#watchdog) clearTimeout(this.#watchdog);
     this.#watchdog = null;
     const { state } = this.#status.collection;
-    if (state !== "requested" && state !== "collecting") return;
     const limits = { ...DEFAULT_COLLECTION_TIMEOUTS, ...this.#deps.collectionTimeoutsMs };
+    if (state === "cancelling") {
+      this.#watchdog = setTimeout(() => {
+        this.#watchdog = null;
+        this.#collectionCancelled();
+      }, limits.answerMs);
+      this.#watchdog.unref?.();
+      return;
+    }
+    if (state !== "requested" && state !== "collecting") return;
     const waitMs = state === "requested" ? limits.answerMs : limits.silenceMs;
     this.#watchdog = setTimeout(() => {
       this.#watchdog = null;
@@ -414,7 +443,7 @@ export class SessionController {
     const sessions = await listSessions(this.#deps.sessionsRoot);
     const newest = sessions[sessions.length - 1];
     const { state } = this.#status.collection;
-    const since = state === "requested" || state === "collecting" ? this.#requestedAt : null;
+    const since = isCollecting(state) ? this.#requestedAt : null;
     const newestStart = newest ? sessionStartedAt(newest.id) : null;
     const newestEnded = since !== null && newestStart !== null && newestStart < since;
     const unfinished = sessions.filter(
@@ -439,12 +468,39 @@ export class SessionController {
 
   cancel(): boolean {
     if (this.#deps.runner.cancel()) return true;
+    if (this.#cancelCollection()) return true;
     // Still reading the session back: stop before the runner starts.
     if (this.#busy && !this.#inRunner && this.#status.run.stage === "checking") {
       this.#cancelRequested = true;
       return true;
     }
     return false;
+  }
+
+  /** Asks the extension to end the running collection (Mode B) as cancelled. */
+  #cancelCollection(): boolean {
+    const { state } = this.#status.collection;
+    if (state !== "requested" && state !== "collecting") return false;
+    if (!this.#deps.sendToHost({ type: "stop-collection" })) {
+      this.#collectionCancelled();
+      return true;
+    }
+    this.#setCollection((status) => ({
+      ...status.collection,
+      state: "cancelling",
+      message: null,
+    }));
+    return true;
+  }
+
+  /** Ends a collection on this side only (the extension did not confirm). */
+  #collectionCancelled(): void {
+    this.#setCollection(() => ({
+      state: "idle",
+      message: "Collection cancelled; no timeline was built.",
+      target: null,
+      count: null,
+    }));
   }
 
   get busy(): boolean {
@@ -676,6 +732,11 @@ export class SessionController {
     this.#queued = null;
     if (queued) void this.runSession(queued);
   }
+}
+
+/** A collection this app asked for may still be running. */
+function isCollecting(state: DesktopStatus["collection"]["state"]): boolean {
+  return state === "requested" || state === "collecting" || state === "cancelling";
 }
 
 const RUN_ERROR_KINDS: readonly RunErrorKind[] = [

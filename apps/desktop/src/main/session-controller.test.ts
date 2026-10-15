@@ -529,6 +529,63 @@ describe("SessionController", () => {
     expect(c.status.collection).toMatchObject({ state: "collecting", count: 60 });
   });
 
+  it("cancels a running collection through the extension", async () => {
+    const c = controller();
+    await c.startCollection();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 120 });
+    expect(c.cancel()).toBe(true);
+    expect(sent.at(-1)).toEqual({ type: "stop-collection" });
+    expect(c.status.collection.state).toBe("cancelling");
+
+    // Late progress does not bring "collecting" back.
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 5,
+      target: 120,
+    });
+    expect(c.status.collection.state).toBe("cancelling");
+
+    const id = await stoppedSession("cancelled", 3);
+    c.handleHostEvent(completeEvent(id, "cancelled", 3));
+    await expect
+      .poll(async () => (await listSessions(root))[0]?.processed?.status)
+      .toBe("cancelled");
+    expect(c.status.collection).toMatchObject({ state: "idle", count: null });
+    expect(c.status.collection.message).toMatch(/no timeline was built/);
+    expect(c.status.run.stage).toBe("idle");
+  });
+
+  it("counts a collection as cancelled when the extension does not confirm or is gone", async () => {
+    const c = controller(undefined, { collectionTimeoutsMs: { answerMs: 20 } });
+    await c.startCollection();
+    c.cancel();
+    expect(c.status.collection.state).toBe("cancelling");
+    await expect.poll(() => c.status.collection.state).toBe("idle");
+    expect(c.status.collection.message).toMatch(/Collection cancelled/);
+
+    await c.startCollection();
+    hostOnline = false;
+    expect(c.cancel()).toBe(true);
+    expect(c.status.collection).toMatchObject({
+      state: "idle",
+      message: expect.stringMatching(/Collection cancelled/),
+    });
+    expect(c.cancel()).toBe(false); // nothing left to cancel
+  });
+
+  it("drops an old run's Try again once a new collection starts", async () => {
+    runStages = stages({
+      checkAvailable: async () => ({ ok: false, reason: "not-found", detail: "x" }),
+    });
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
+    const c = controller();
+    await c.runSession(id);
+    expect(c.status.run.stage).toBe("error");
+    await c.startCollection();
+    expect(c.status.run).toMatchObject({ stage: "idle", error: null, sessionId: id });
+  });
+
   /** A session with one batch and no complete.json (Mode B: session.json too). */
   async function openSession(at: string, ids: string[], mode: "A" | "B"): Promise<void> {
     const store = new PostSessionStore(root, () => at);

@@ -7,7 +7,11 @@ export interface NativePort {
 }
 
 /** Host messages that answer nothing: the desktop's pushes. */
-const PUSHES: ReadonlySet<string> = new Set(["start-collection", "link-status"]);
+const PUSHES: ReadonlySet<string> = new Set([
+  "start-collection",
+  "stop-collection",
+  "link-status",
+]);
 
 function isPush(reply: unknown): boolean {
   const type = (reply as { type?: unknown } | null)?.type;
