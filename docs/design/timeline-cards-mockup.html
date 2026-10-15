@@ -1,0 +1,1533 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'">
+<title>Üç kart türü — maket</title>
+<!--
+  No More Clickbait — okuma penceresi, üç kart türü (X · Instagram · genel).
+  X kartı timeline-mockup.html'den AYNEN alındı (onaylı, değişmez).
+  Tamamen SENTETİK: kullanıcılar, metinler, alan adları (example.invalid) ve
+  görseller (gömülü SVG) uydurmadır. Dış kaynak yüklenmez. Marka logosu yok.
+  Tasarım kararları, bileşenler ve şema istekleri: timeline-cards-mockup.md
+-->
+<style>
+/* ── Token'lar ─────────────────────────────────────────────── */
+:root {
+  color-scheme: light;
+  --bg: #ffffff;
+  --surface: #f5f7f8;
+  --surface-2: #eceff1;
+  --text: #0f1419;
+  --muted: #536471;
+  --border: #d5dde2;
+  --accent: #0b57d0;
+  --on-accent: #ffffff;
+  --focus: #0b57d0;
+  --media-bg: #e3e8eb;
+  --ok: #176934;      --ok-bg: #e7f4eb;
+  --warn: #8a4b00;    --warn-bg: #fdf1e0;
+  --info: #3f4f5e;    --info-bg: #edf1f4;
+  --scrim: rgb(0 0 0 / .62);
+
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --r-media: 16px; --r-pill: 999px; --r-box: 12px;
+  --col: 640px;               /* içerik sütunu (600–680 aralığı) */
+  --avatar: 40px;
+  --pad-x: var(--s4);
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --fs-body: .9375rem;        /* 15px */
+  --fs-meta: .875rem;         /* 14px */
+  --fs-small: .8125rem;       /* 13px */
+  --fs-title: 1.0625rem;      /* 17px — yalnız genel kartın başlığı */
+  --lh-body: 1.45;
+  --thumb: 88px;              /* genel kart küçük görseli */
+  --reel-h: min(80vh, 640px); /* reel çerçevesinin en büyük yüksekliği */
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116; --surface: #161b22; --surface-2: #1e252e; --text: #e7e9ea; --muted: #9aa5b1;
+  --border: #2f3640; --accent: #8ab4f8; --on-accent: #0e1116; --focus: #8ab4f8; --media-bg: #1b2129;
+  --ok: #72d39c; --ok-bg: #12261b; --warn: #f2b45a; --warn-bg: #2b1f0d; --info: #b8c3ce; --info-bg: #1e252e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1116; --surface: #161b22; --surface-2: #1e252e; --text: #e7e9ea; --muted: #9aa5b1;
+    --border: #2f3640; --accent: #8ab4f8; --on-accent: #0e1116; --focus: #8ab4f8; --media-bg: #1b2129;
+    --ok: #72d39c; --ok-bg: #12261b; --warn: #f2b45a; --warn-bg: #2b1f0d; --info: #b8c3ce; --info-bg: #1e252e;
+  }
+}
+
+/* ── Temel ─────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; } }
+body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs-body)/var(--lh-body) var(--font); }
+a { color: var(--accent); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+[hidden] { display: none !important; }
+
+/* ── Maket denetimleri (üründe yok) ─────────────────────────── */
+.mock {
+  border-bottom: 2px dashed var(--border); background: var(--surface-2);
+  padding: var(--s2) var(--s4); display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); align-items: center;
+  font-size: var(--fs-small);
+}
+.mock__tag { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.mock__group { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.mock__group > span { color: var(--muted); margin-right: var(--s1); }
+.seg { border: 1px solid var(--border); background: var(--bg); border-radius: var(--r-pill); padding: 4px 10px; min-height: 28px; cursor: pointer; }
+.seg[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.mock__hint { color: var(--muted); }
+kbd { font: inherit; font-size: .75rem; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--bg); }
+
+/* ── Uygulama kabuğu ───────────────────────────────────────── */
+.stage { display: flex; justify-content: center; }
+.app {
+  container: app / inline-size;
+  width: 100%; max-width: var(--col); min-height: 100vh;
+  border-inline: 1px solid var(--border); background: var(--bg);
+}
+.stage[data-width="414"] .app { max-width: 414px; }
+.stage[data-width="360"] .app { max-width: 360px; }
+
+/* Üst bilgi */
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+}
+.topbar__row { display: flex; align-items: center; gap: var(--s3); padding: var(--s3) var(--pad-x); }
+.topbar__titles { flex: 1; min-width: 0; }
+.topbar__brand { font-size: var(--fs-small); color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+.topbar h1 { font-size: 1.125rem; line-height: 1.3; margin: 0; }
+.topbar__meta { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-meta); }
+.topbar__meta b { color: var(--text); font-weight: 600; }
+.progress-text { font-variant-numeric: tabular-nums; font-size: var(--fs-meta); color: var(--muted); white-space: nowrap; }
+.progress-text b { color: var(--text); }
+.icon-btn {
+  display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-pill);
+  border: 1px solid var(--border); background: var(--bg); cursor: pointer; flex: none;
+}
+.icon-btn:hover { background: var(--surface); }
+.progress { height: 3px; background: transparent; }
+.progress span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .2s ease; }
+
+.intro { margin: 0; padding: var(--s3) var(--pad-x); color: var(--muted); font-size: var(--fs-meta); border-bottom: 1px solid var(--border); }
+
+/* ── Gönderi kartı ─────────────────────────────────────────── */
+.feed { margin: 0; padding: 0; list-style: none; }
+.post { padding: var(--s3) var(--pad-x); border-bottom: 1px solid var(--border); scroll-margin-top: 96px; }
+.post:focus-visible { outline-offset: -3px; border-radius: 0; }
+.post__repost { display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s1) calc(var(--avatar) - 18px); color: var(--muted); font-size: var(--fs-small); font-weight: 600; }
+.post__repost svg.i { width: 16px; height: 16px; }
+.post__grid { display: grid; grid-template-columns: var(--avatar) minmax(0, 1fr); gap: var(--s3); }
+.avatar {
+  width: var(--avatar); height: var(--avatar); border-radius: 50%; display: grid; place-items: center;
+  color: #fff; font-weight: 700; font-size: .875rem; user-select: none;
+}
+.avatar--sm { width: 20px; height: 20px; font-size: .5625rem; }
+.post__head { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s1); font-size: var(--fs-body); line-height: 1.3; }
+.post__name { color: var(--text); font-weight: 700; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.post__name:hover { text-decoration: underline; }
+.badge-verified { width: 18px; height: 18px; flex: none; }
+.post__handle, .post__time, .post__dot { color: var(--muted); font-size: var(--fs-meta); }
+.post__handle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.post__text { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.post__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 10; -webkit-box-orient: vertical; overflow: hidden; }
+.link-btn { border: 0; background: none; padding: 4px 0; min-height: 28px; color: var(--accent); cursor: pointer; font-size: var(--fs-meta); }
+.link-btn:hover { text-decoration: underline; }
+
+/* Medya */
+.media {
+  margin-top: var(--s3); border: 1px solid var(--border); border-radius: var(--r-media); overflow: hidden;
+  display: grid; gap: 2px; background: var(--border);
+}
+.media__cell { position: relative; background: var(--media-bg); min-height: 0; }
+.media__zoom { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.media__zoom:focus-visible { outline-offset: -3px; }
+.media img { display: block; width: 100%; }
+.media--1 img { height: auto; max-height: min(80vh, 720px); object-fit: contain; }
+.media--2, .media--3, .media--4 { aspect-ratio: 16 / 9; grid-template-columns: 1fr 1fr; }
+.media--3, .media--4 { grid-template-rows: 1fr 1fr; }
+.media--3 .media__cell:first-child { grid-row: span 2; }
+.media--2 img, .media--3 img, .media--4 img { height: 100%; object-fit: cover; }
+.chip {
+  position: absolute; left: var(--s2); bottom: var(--s2);
+  background: rgb(0 0 0 / .72); color: #fff; border: 0; border-radius: 4px;
+  font-size: .75rem; font-weight: 700; line-height: 1; padding: 4px 6px; letter-spacing: .03em;
+}
+button.chip { cursor: pointer; min-height: 24px; }
+.alt-pop {
+  position: absolute; left: var(--s2); right: var(--s2); bottom: 40px; margin: 0;
+  background: rgb(0 0 0 / .85); color: #fff; padding: var(--s2) var(--s3); border-radius: 8px; font-size: var(--fs-small);
+}
+
+/* Video / GIF */
+.video, .gif { position: relative; background: #000; }
+.video img, .gif img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.video__play {
+  position: absolute; inset: 0; margin: auto; width: 64px; height: 64px; border-radius: 50%;
+  border: 3px solid #fff; background: rgb(15 20 25 / .75); color: #fff; display: grid; place-items: center; cursor: pointer;
+}
+.video__play svg.i { width: 28px; height: 28px; fill: #fff; stroke: none; margin-left: 4px; }
+.video[data-state="playing"] .video__play { display: none; }
+.video .chip--dur { left: var(--s2); }
+.video[data-state="playing"] .chip--dur { display: none; }
+.video__bar {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; align-items: center; gap: var(--s2);
+  padding: var(--s3) var(--s3) var(--s2); color: #fff; background: linear-gradient(transparent, rgb(0 0 0 / .75));
+  font-size: var(--fs-small); font-variant-numeric: tabular-nums;
+}
+.video__bar button { border: 0; background: none; color: #fff; width: 32px; height: 32px; display: grid; place-items: center; cursor: pointer; border-radius: 50%; }
+.video__bar button:focus-visible, .video__play:focus-visible, .gif__toggle:focus-visible { outline-color: #fff; }
+.video__track { flex: 1; height: 4px; background: rgb(255 255 255 / .35); border-radius: 2px; overflow: hidden; }
+.video__track span { display: block; height: 100%; width: 12%; background: #fff; }
+.gif__toggle {
+  position: absolute; right: var(--s2); bottom: var(--s2); width: 32px; height: 32px; border-radius: 50%;
+  border: 0; background: rgb(0 0 0 / .72); color: #fff; display: grid; place-items: center; cursor: pointer;
+}
+.gif__toggle svg.i { width: 16px; height: 16px; }
+
+/* Alıntı ve bağlantı kartı */
+.quote, .linkcard {
+  display: block; margin-top: var(--s3); border: 1px solid var(--border); border-radius: var(--r-media);
+  color: var(--text); text-decoration: none; overflow: hidden;
+}
+.quote { padding: var(--s3); }
+.quote:hover, .linkcard:hover { background: var(--surface); }
+.quote__head { display: flex; align-items: center; gap: var(--s1); font-size: var(--fs-meta); flex-wrap: wrap; }
+.quote__arrow { color: var(--muted); font-weight: 700; }
+.quote__head .post__handle, .quote__head .post__time { font-size: var(--fs-meta); }
+.quote__text { margin: var(--s1) 0 0; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+.linkcard img { display: block; width: 100%; aspect-ratio: 1.91 / 1; object-fit: cover; background: var(--media-bg); border-bottom: 1px solid var(--border); }
+.linkcard__body { display: grid; gap: 2px; padding: var(--s3); }
+.linkcard__domain { color: var(--muted); font-size: var(--fs-small); }
+.linkcard__title { font-weight: 600; }
+.linkcard__desc { color: var(--muted); font-size: var(--fs-meta); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* Doğrulama bandı */
+.verify { margin-top: var(--s3); border-radius: var(--r-box); background: var(--v-bg); color: var(--v-fg); }
+.verify--ok   { --v-bg: var(--ok-bg);   --v-fg: var(--ok); }
+.verify--warn { --v-bg: var(--warn-bg); --v-fg: var(--warn); }
+.verify--info { --v-bg: var(--info-bg); --v-fg: var(--info); }
+.verify--quiet { --v-bg: transparent; --v-fg: var(--muted); }
+.verify__toggle {
+  width: 100%; display: flex; align-items: center; gap: var(--s2); text-align: left;
+  border: 0; background: none; color: inherit; padding: var(--s2) var(--s3); min-height: 40px; cursor: pointer; border-radius: var(--r-box);
+}
+.verify--quiet .verify__toggle { padding-inline: 0; min-height: 32px; }
+.verify__label { font-weight: 700; white-space: nowrap; font-size: var(--fs-meta); }
+.verify--quiet .verify__label { font-weight: 600; }
+.verify__claim { flex: 1; min-width: 0; color: var(--text); font-size: var(--fs-meta); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.verify--quiet .verify__claim { color: var(--muted); }
+.verify__chev { transition: transform .15s ease; }
+.verify__toggle[aria-expanded="true"] .verify__chev { transform: rotate(180deg); }
+.verify__panel { padding: 0 var(--s3) var(--s3) calc(var(--s3) + 18px + var(--s2)); color: var(--text); font-size: var(--fs-meta); }
+.verify--quiet .verify__panel { padding-left: calc(18px + var(--s2)); }
+.verify__panel p { margin: 0 0 var(--s2); }
+.verify__claimfull { font-style: italic; }
+.verify__sources { margin: 0 0 var(--s2); padding-left: 1.1em; }
+.verify__sources li { margin-bottom: 2px; }
+.verify__sources small { color: var(--muted); }
+.verify__meta { color: var(--muted); font-size: var(--fs-small); margin: 0 !important; }
+
+/* Alt bilgi */
+.post__foot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s4); margin-top: var(--s2); }
+.stats { list-style: none; margin: 0; padding: 0; display: flex; gap: var(--s4); flex: 1; color: var(--muted); font-size: var(--fs-small); font-variant-numeric: tabular-nums; }
+.stats li { display: inline-flex; align-items: center; gap: var(--s1); }
+.stats svg.i { width: 16px; height: 16px; }
+.post__actions { display: flex; align-items: center; gap: var(--s4); margin-left: auto; }
+.why-btn { color: var(--muted); }
+.open-x { display: inline-flex; align-items: center; gap: var(--s1); font-size: var(--fs-meta); font-weight: 600; text-decoration: none; min-height: 28px; }
+.open-x:hover { text-decoration: underline; }
+.open-x svg.i { width: 15px; height: 15px; }
+.why { margin-top: var(--s2); padding: var(--s3); border-radius: var(--r-box); background: var(--surface); font-size: var(--fs-meta); }
+.why p { margin: 0 0 var(--s2); }
+.why dl { display: grid; grid-template-columns: auto 1fr; gap: 2px var(--s3); margin: 0; }
+.why dt { color: var(--muted); }
+.why dd { margin: 0; }
+.why dd small { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* ── Bitti ─────────────────────────────────────────────────── */
+.done { padding: var(--s7) var(--pad-x) var(--s7); text-align: center; }
+.done:focus { outline: none; }
+.done__icon { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto var(--s3); display: grid; place-items: center; background: var(--ok-bg); color: var(--ok); }
+.done__icon svg.i { width: 30px; height: 30px; stroke-width: 2.5; }
+.done h2 { font-size: 1.75rem; line-height: 1.2; margin: 0 0 var(--s1); }
+.done__lead { margin: 0 0 var(--s5); color: var(--muted); }
+.tally { max-width: 360px; margin: 0 auto var(--s5); text-align: left; border: 1px solid var(--border); border-radius: var(--r-box); padding: var(--s2) var(--s4); }
+.tally__row { display: grid; grid-template-columns: 1.2em 1fr auto; gap: var(--s2); padding: 6px 0; align-items: baseline; }
+.tally__row + .tally__row { border-top: 1px solid var(--border); }
+.tally__op { color: var(--muted); text-align: center; }
+.tally dt span { display: block; color: var(--muted); font-size: var(--fs-small); }
+.tally dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+.tally__row--sum dt, .tally__row--sum dd { font-weight: 700; }
+.tally__row--total { border-top: 2px solid var(--text) !important; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  min-height: 44px; padding: 0 var(--s5); border-radius: var(--r-pill); border: 1px solid transparent; font-weight: 700; cursor: pointer;
+}
+.btn--primary { background: var(--text); color: var(--bg); }
+.btn--primary:hover { opacity: .9; }
+.btn--ghost { background: transparent; border-color: var(--border); color: var(--text); }
+.done__foot { margin: var(--s3) 0 0; color: var(--muted); font-size: var(--fs-small); }
+
+/* ── Durumlar ──────────────────────────────────────────────── */
+.state { padding: var(--s7) var(--pad-x); text-align: center; }
+.state h2 { font-size: 1.25rem; margin: 0 0 var(--s2); }
+.state p { color: var(--muted); margin: 0 0 var(--s4); }
+.state__icon { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto var(--s3); display: grid; place-items: center; background: var(--surface-2); color: var(--muted); }
+.state__icon svg.i { width: 28px; height: 28px; }
+.state--error .state__icon { background: var(--warn-bg); color: var(--warn); }
+.steps { list-style: none; margin: 0 auto var(--s5); padding: 0; max-width: 360px; text-align: left; }
+.steps li { display: grid; grid-template-columns: 24px 1fr; gap: var(--s2); padding: var(--s2) 0; align-items: start; }
+.steps li small { display: block; color: var(--muted); font-size: var(--fs-small); }
+.steps .st-done { color: var(--ok); }
+.steps .st-wait { color: var(--muted); }
+.steps li[aria-current="step"] { font-weight: 600; }
+.spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; margin-top: 2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.skeleton { padding: var(--s3) var(--pad-x); border-top: 1px solid var(--border); display: grid; grid-template-columns: var(--avatar) 1fr; gap: var(--s3); text-align: left; }
+.skeleton i { display: block; background: var(--surface-2); border-radius: 6px; height: 12px; margin-bottom: 8px; }
+.skeleton i:first-child { width: var(--avatar); height: var(--avatar); border-radius: 50%; }
+.error-detail { max-width: 420px; margin: 0 auto var(--s4); text-align: left; font-size: var(--fs-small); }
+.error-detail summary { cursor: pointer; color: var(--muted); }
+.error-detail pre { white-space: pre-wrap; background: var(--surface); padding: var(--s2) var(--s3); border-radius: 8px; color: var(--text); }
+.btn-row { display: flex; gap: var(--s2); justify-content: center; flex-wrap: wrap; }
+.short-note { margin: 0; padding: var(--s3) var(--pad-x); background: var(--info-bg); color: var(--info); font-size: var(--fs-meta); border-bottom: 1px solid var(--border); }
+
+/* ── Işık kutusu ───────────────────────────────────────────── */
+.lightbox { border: 0; padding: 0; max-width: none; max-height: none; width: 100vw; height: 100vh; background: rgb(0 0 0 / .92); color: #fff; }
+.lightbox::backdrop { background: rgb(0 0 0 / .6); }
+.lightbox__inner { height: 100%; display: grid; grid-template-rows: auto 1fr auto; }
+.lightbox__top { display: flex; justify-content: space-between; align-items: center; padding: var(--s3) var(--s4); }
+.lightbox__img { min-height: 0; display: grid; place-items: center; padding: 0 var(--s7); position: relative; }
+.lightbox__img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.lightbox__cap { padding: var(--s3) var(--s4) var(--s4); max-width: 720px; margin: 0 auto; font-size: var(--fs-meta); color: #d9dee2; }
+.lb-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgb(255 255 255 / .14); color: #fff; display: grid; place-items: center; cursor: pointer; }
+.lb-btn:hover { background: rgb(255 255 255 / .24); }
+.lb-btn:focus-visible { outline-color: #fff; }
+.lb-prev, .lb-next { position: absolute; top: 50%; transform: translateY(-50%); }
+.lb-prev { left: var(--s2); } .lb-next { right: var(--s2); }
+
+.toast {
+  position: fixed; left: 50%; bottom: var(--s5); transform: translateX(-50%); z-index: 20;
+  background: var(--text); color: var(--bg); padding: var(--s2) var(--s4); border-radius: var(--r-pill); font-size: var(--fs-meta);
+  max-width: calc(100vw - 32px);
+}
+
+/* ── Kaynak satırı (yalnız karışık akışta, X ve Instagram kartında) ── */
+.src {
+  display: flex; align-items: center; gap: var(--s2); margin: 0 0 var(--s1) calc(var(--avatar) - 16px);
+  color: var(--muted); font-size: var(--fs-small); font-weight: 600; min-width: 0;
+}
+.src svg.i { width: 16px; height: 16px; }
+.src__sep { font-weight: 400; }
+.src__mark {
+  width: 16px; height: 16px; border-radius: 4px; flex: none; display: grid; place-items: center;
+  background: var(--muted); color: var(--bg); font-size: .625rem; font-weight: 800; line-height: 1;
+}
+.src__mark svg.i { width: 12px; height: 12px; stroke-width: 2.4; }
+.src__repost { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+
+/* ── Instagram kartı ───────────────────────────────────────── */
+.ig__head { display: grid; grid-template-columns: var(--avatar) minmax(0, 1fr); gap: var(--s3); align-items: center; }
+.ig__who { min-width: 0; }
+.ig__line { display: flex; align-items: center; gap: 0 var(--s1); min-width: 0; line-height: 1.3; }
+.ig__handle { color: var(--text); font-weight: 700; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ig__handle:hover { text-decoration: underline; }
+.ig__sub { margin: 1px 0 0; color: var(--muted); font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ig__paid { color: var(--text); }
+.ig__media { position: relative; margin-top: var(--s3); border: 1px solid var(--border); border-radius: var(--r-media); overflow: hidden; background: var(--media-bg); }
+.ig__frame { position: relative; width: 100%; max-height: min(80vh, 720px); }
+.ig__frame img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.ig__frame .media__zoom { position: absolute; inset: 0; }
+
+/* Carousel: kaydırmalı iz + ok düğmeleri + sayaç çipi + noktalar */
+.car__track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior-x: contain; }
+.car__track::-webkit-scrollbar { display: none; }
+.car__slide { flex: 0 0 100%; scroll-snap-align: start; position: relative; }
+.car__count {
+  position: absolute; top: var(--s2); right: var(--s2); z-index: 1; background: rgb(0 0 0 / .72); color: #fff;
+  border-radius: var(--r-pill); font-size: .75rem; font-weight: 700; padding: 4px 8px; font-variant-numeric: tabular-nums;
+}
+.car__btn {
+  position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; width: 32px; height: 32px; border-radius: 50%;
+  border: 0; background: rgb(255 255 255 / .92); color: #0f1419; display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 1px 4px rgb(0 0 0 / .3);
+}
+.car__btn svg.i { width: 18px; height: 18px; stroke-width: 2.5; }
+.car__btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 2px #fff; }
+.car__prev { left: var(--s2); } .car__next { right: var(--s2); }
+.car__dots { display: flex; justify-content: center; gap: 4px; padding: var(--s2) 0 0; }
+.car__dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.car__dots i[data-on] { background: var(--accent); }
+
+/* Reel: dikey 9:16, kırpılmaz; yüksekliği sınırlı, ortalı */
+.reel-wrap { display: grid; place-items: center; background: var(--media-bg); }
+.reel { position: relative; aspect-ratio: 9 / 16; width: min(100%, calc(var(--reel-h) * 9 / 16)); background: #000; }
+.reel img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.reel__tag {
+  position: absolute; top: var(--s2); left: var(--s2); display: inline-flex; align-items: center; gap: 4px;
+  background: rgb(0 0 0 / .72); color: #fff; border-radius: 4px; font-size: .75rem; font-weight: 700; padding: 4px 6px;
+}
+.reel__tag svg.i { width: 14px; height: 14px; }
+.reel[data-state="playing"] .video__play, .reel[data-state="playing"] .chip--dur { display: none; }
+
+.ig__caption { margin: var(--s3) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ig__caption.is-clamped { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ig__caption b { font-weight: 700; }
+
+/* ── Genel kart (Reddit + özel siteler) ────────────────────── */
+.site-badge {
+  width: var(--avatar); height: var(--avatar); border-radius: 10px; display: grid; place-items: center;
+  color: #fff; font-weight: 800; font-size: 1rem; user-select: none;
+}
+.gen__head { display: flex; align-items: center; flex-wrap: wrap; gap: 0 var(--s1); line-height: 1.3; min-width: 0; }
+.gen__place { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.gen__meta, .gen__dot { color: var(--muted); font-size: var(--fs-meta); }
+.gen__meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.gen__body { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s3); margin-top: var(--s1); align-items: start; }
+.gen__body--solo { grid-template-columns: minmax(0, 1fr); }
+.gen__title { margin: 0; font-size: var(--fs-title); line-height: 1.3; font-weight: 700; overflow-wrap: anywhere; }
+.flair {
+  display: inline-block; vertical-align: 2px; margin-left: var(--s1); padding: 0 6px; border: 1px solid var(--border);
+  border-radius: var(--r-pill); color: var(--muted); font-size: .75rem; font-weight: 600; line-height: 1.5; white-space: nowrap;
+}
+.gen__text { margin: var(--s1) 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.gen__text.is-clamped { display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.gen__text--lead { margin-top: 0; }  /* başlıksız öğe: metin baş rolde */
+.gen__thumb { position: relative; width: var(--thumb); height: var(--thumb); border-radius: var(--r-box); overflow: hidden; border: 1px solid var(--border); background: var(--media-bg); }
+.gen__thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* ALT çipi yok: 88px'te sıkışır; alt metin img alt'ında ve ışık kutusu altyazısında */
+.gen__domain { display: inline-flex; align-items: center; gap: var(--s1); margin-top: var(--s2); min-height: 28px; font-size: var(--fs-small); color: var(--muted); text-decoration: none; max-width: 100%; }
+.gen__domain span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gen__domain:hover { text-decoration: underline; color: var(--accent); }
+.gen__domain svg.i { width: 14px; height: 14px; }
+
+/* ── Dar sütun (mobil 360–414) ─────────────────────────────── */
+@container app (max-width: 480px) {
+  .topbar__row, .post, .intro, .short-note { padding-inline: var(--s3); }
+  .topbar h1 { font-size: 1rem; }
+  .post__grid { gap: var(--s2); }
+  .media, .quote, .linkcard { border-radius: var(--r-box); }
+  .stats { gap: var(--s3); }
+  .post__foot { gap: var(--s1) var(--s3); }
+  .done h2 { font-size: 1.5rem; }
+  .tally { padding-inline: var(--s3); }
+  /* Instagram: medya kenardan kenara (Instagram'ın mobil alışkanlığı), köşesiz */
+  .ig__head { gap: var(--s2); }
+  .ig__media { margin-inline: calc(var(--s3) * -1); border-radius: 0; border-inline: 0; }
+  .src { margin-left: calc(var(--avatar) - 16px); }
+  .gen__body { gap: var(--s2); }
+}
+@container app (max-width: 380px) {
+  .stats li[data-k="views"] { display: none; }
+  .gen__thumb { width: 72px; height: 72px; }
+}
+</style>
+</head>
+<body>
+
+<div class="mock" role="region" aria-label="Maket denetimleri">
+  <span class="mock__tag">Maket · üründe yok</span>
+  <div class="mock__group" role="group" aria-label="Durum">
+    <span>Durum</span>
+    <button class="seg" data-state="feed" aria-pressed="true">Karışık akış</button>
+    <button class="seg" data-state="xonly" aria-pressed="false">Yalnız X</button>
+    <button class="seg" data-state="short" aria-pressed="false">Kısa akış</button>
+    <button class="seg" data-state="loading" aria-pressed="false">Hazırlanıyor</button>
+    <button class="seg" data-state="empty" aria-pressed="false">Boş</button>
+    <button class="seg" data-state="error" aria-pressed="false">Hata</button>
+  </div>
+  <div class="mock__group" role="group" aria-label="Sütun genişliği">
+    <span>Genişlik</span>
+    <button class="seg" data-width="auto" aria-pressed="true">640 (masaüstü)</button>
+    <button class="seg" data-width="414" aria-pressed="false">414</button>
+    <button class="seg" data-width="360" aria-pressed="false">360</button>
+  </div>
+  <span class="mock__hint"><kbd>J</kbd>/<kbd>K</kbd> kartlar arası · carousel'de ‹ › · <kbd>Esc</kbd> görseli kapatır</span>
+</div>
+
+<div class="stage" id="stage" data-width="auto">
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar__row">
+        <div class="topbar__titles">
+          <div class="topbar__brand">No More Clickbait</div>
+          <h1 id="title">15 Ekim Perşembe akışı</h1>
+          <p class="topbar__meta" id="meta"></p>
+        </div>
+        <span class="progress-text" id="progress-text" aria-hidden="true"></span>
+        <button class="icon-btn" id="theme-btn" type="button"></button>
+      </div>
+      <div class="progress" aria-hidden="true"><span id="progress-bar"></span></div>
+    </header>
+    <main id="main"></main>
+  </div>
+</div>
+
+<dialog class="lightbox" id="lightbox" aria-label="Görsel">
+  <div class="lightbox__inner">
+    <div class="lightbox__top">
+      <span id="lb-count" aria-live="polite"></span>
+      <button class="lb-btn" id="lb-close" type="button" aria-label="Kapat"></button>
+    </div>
+    <div class="lightbox__img">
+      <button class="lb-btn lb-prev" id="lb-prev" type="button" aria-label="Önceki görsel"></button>
+      <img id="lb-img" alt="">
+      <button class="lb-btn lb-next" id="lb-next" type="button" aria-label="Sonraki görsel"></button>
+    </div>
+    <p class="lightbox__cap" id="lb-cap"></p>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script>
+"use strict";
+
+/* ── İkonlar ──────────────────────────────────────────────── */
+const ICON = {
+  reply: '<path d="M4 5h16v11H10l-4 4v-4H4z"/>',
+  repost: '<path d="M7 17V8h11M15 5l3 3-3 3M17 7v9H6M9 19l-3-3 3-3"/>',
+  like: '<path d="M12 20s-7.5-4.6-7.5-10.2A4.2 4.2 0 0 1 12 7.3a4.2 4.2 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20z"/>',
+  views: '<path d="M5 19v-7M12 19V5M19 19v-10"/>',
+  external: '<path d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5"/>',
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  alert: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 17v.01"/>',
+  question: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.6 2.6 0 0 1 5 .8c0 1.8-2.5 2.2-2.5 3.7M12 17v.01"/>',
+  minus: '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
+  chevron: '<path d="M6 9l6 6 6-6"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  play: '<path d="M7 4.5v15l13-7.5z"/>',
+  pause: '<path d="M8 5v14M16 5v14"/>',
+  volume: '<path d="M4 9v6h4l5 4V5L8 9zM17 9l4 6M21 9l-4 6"/>',
+  expand: '<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>',
+  right: '<path d="M9 5l7 7-7 7"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
+  camera: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/>',
+  reel: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 8h18M8 3l3 5M14 3l3 5"/><path d="M10 11.5v5l4.5-2.5z"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  plays: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
+};
+const icon = (name, extra = "") => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true" ${extra}>${ICON[name]}</svg>`;
+const verifiedBadge = `<svg class="badge-verified" viewBox="0 0 24 24" role="img" aria-label="Onaylı hesap"><title>Onaylı hesap</title><path fill="var(--accent)" d="M12 1.8l2.6 1.9 3.2-.2 1 3 2.6 1.9-1 3 1 3-2.6 1.9-1 3-3.2-.2L12 22.2l-2.6-1.9-3.2.2-1-3-2.6-1.9 1-3-1-3 2.6-1.9 1-3 3.2.2z"/><path d="M8 12.3l2.7 2.7L16.2 9.5" fill="none" stroke="var(--on-accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+/* ── Yer tutucu görseller (gömülü SVG, sentetik) ──────────── */
+function ph({ w, h, hue, label, kind = "photo", animated = false }) {
+  const a = `hsl(${hue} 42% 62%)`, b = `hsl(${(hue + 40) % 360} 38% 30%)`;
+  let art = "";
+  if (kind === "map") {
+    let grid = "";
+    for (let x = 0; x <= w; x += w / 12) grid += `<path d="M${x} 0V${h}" stroke="#fff" stroke-opacity=".25"/>`;
+    for (let y = 0; y <= h; y += h / 9) grid += `<path d="M0 ${y}H${w}" stroke="#fff" stroke-opacity=".25"/>`;
+    art = grid + `<path d="M${w * .05} ${h * .2} C ${w * .3} ${h * .1}, ${w * .35} ${h * .6}, ${w * .6} ${h * .55} S ${w * .85} ${h * .9}, ${w * .97} ${h * .8}" fill="none" stroke="#e5484d" stroke-width="${w / 90}" stroke-dasharray="${w / 40} ${w / 70}"/>`
+      + `<rect x="${w * .55}" y="${h * .45}" width="${w * .14}" height="${h * .16}" fill="#fff" fill-opacity=".55" stroke="#fff"/>`;
+  } else {
+    const sun = animated
+      ? `<circle cx="${w * .3}" cy="${h * .35}" r="${h * .1}" fill="#fff" fill-opacity=".85"><animate attributeName="cy" values="${h * .35};${h * .2};${h * .35}" dur="1.4s" repeatCount="indefinite"/></circle>`
+      : `<circle cx="${w * .72}" cy="${h * .3}" r="${h * .09}" fill="#fff" fill-opacity=".8"/>`;
+    art = sun
+      + `<path d="M0 ${h * .78} L${w * .22} ${h * .5} L${w * .4} ${h * .7} L${w * .62} ${h * .42} L${w} ${h * .8} V${h} H0z" fill="${b}" fill-opacity=".85"/>`
+      + `<path d="M0 ${h * .9} L${w * .3} ${h * .72} L${w * .55} ${h * .86} L${w * .8} ${h * .7} L${w} ${h * .85} V${h} H0z" fill="#0b0f14" fill-opacity=".45"/>`;
+  }
+  const fs = Math.round(Math.min(w, h) / 16);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`
+    + `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs>`
+    + `<rect width="${w}" height="${h}" fill="url(#g)"/>${art}`
+    + `<text x="${fs}" y="${fs * 1.6}" font-family="system-ui,sans-serif" font-size="${fs}" fill="#fff" fill-opacity=".9">${label} · ${w}×${h} · sentetik</text></svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+
+/* ── Sentetik veri (RankedPost şekline yakın) ─────────────── */
+const CAPTURED_AT = "2026-10-15T14:20:00+03:00";
+// taranan = reklam + tekrar + clickbait + yargılanamayan medya + eşik altı + gösterilen
+const RUNS = {
+  mixed: {
+    targetSize: 14,
+    counts: { scanned: 240, promoted: 38, duplicate: 52, clickbait: 41, mediaOnly: 47, belowThreshold: 48 },
+    // kaynak başına taranan (şema isteği: RunMetrics.bySource)
+    bySource: [["X", 150], ["Instagram", 40], ["Reddit", 40], ["Kuzey Gazetesi", 6], ["Kent Konseyi", 2], ["Bisiklet Forumu", 2]],
+  },
+  xonly: {
+    targetSize: 5,
+    counts: { scanned: 150, promoted: 24, duplicate: 33, clickbait: 26, mediaOnly: 22, belowThreshold: 40 },
+    bySource: [["X", 150]],
+  },
+};
+let RUN = RUNS.mixed;
+const hoursAgo = (h) => new Date(Date.parse(CAPTURED_AT) - h * 3600e3).toISOString();
+const X = (handle, id) => `https://x.example.invalid/${handle}/status/${id}`;
+
+const POSTS = [
+  {
+    post: {
+      id: "1001", authorHandle: "selinaydogan_veri", authorName: "Selin Aydoğan", authorVerified: true, hue: 210,
+      publishedAt: hoursAgo(5.2), lang: "tr", url: X("selinaydogan_veri", "1001"),
+      text: "Kuzeykent'teki su kesintisi tartışmasına veriyle bakalım, çünkü iki taraf da yarım doğru söylüyor.\n\n1) Barajların toplam doluluğu bugün %38. Geçen yılın aynı haftasında %49'du. Yani evet, ciddi bir düşüş var.\n\n2) Ama bu düşüşün tamamı \"kuraklık\" değil. Eylül yağışı uzun dönem ortalamasının yalnızca %12 altında kaldı. Asıl fark tüketim tarafında: yaz boyunca şehre günlük ortalama %9 daha fazla su verildi; sebep büyük ölçüde yeni konut bölgeleri ve şebekedeki kayıp.\n\n3) Şebeke kaybı resmî raporda %31 olarak geçiyor. Bu, şehre verilen her üç litreden yaklaşık birinin musluğa ulaşmadan kaybolması demek. Planlı kesintiler bu kaybı azaltmıyor; yalnızca tüketimi bir süre bastırıyor.\n\n4) Kısa vadede kesinti mantıklı olabilir. Uzun vadede tartışmanın konusu kesinti saatleri değil, eski boru hatlarının ne zaman ve hangi bütçeyle yenileneceği olmalı.\n\nKaynaklar yanıtta. Rakamların hepsi kamuya açık haftalık raporlardan; yanlış okuduğum bir yer varsa düzeltirim.",
+      metrics: { replies: 214, reposts: 1830, likes: 6400, views: 412000 },
+    },
+    score: { readWorthinessScore: 0.91, clickbaitScore: 0.06, reason: "Kamuya açık veriye dayanan, iki tarafı da tartan yerel ve güncel bir açıklama; abartılı dil yok." },
+    verification: {
+      verdict: "supported", claim: "Kuzeykent barajlarının doluluğu geçen yılın aynı haftasına göre 11 puan düşük (%38'e karşı %49).",
+      rationale: "Su idaresinin haftalık raporu ve bölge meteoroloji özeti aynı rakamları veriyor.",
+      sources: [
+        { title: "Kuzeykent Su İdaresi — Haftalık doluluk raporu, 41. hafta", url: "https://su.kuzeykent.example.invalid/rapor/2026-41" },
+        { title: "Bölge Meteoroloji — Eylül 2026 yağış özeti", url: "https://meteo.example.invalid/ozet/2026-09" },
+      ],
+    },
+  },
+  {
+    post: {
+      id: "1002", authorHandle: "mertkaraca_harita", authorName: "Mert Karaca", hue: 25,
+      publishedAt: hoursAgo(9), lang: "tr", url: X("mertkaraca_harita", "1002"),
+      text: "1938 tarihli şehir haritasını bugünkü sokak dokusunun üstüne koydum. Kırmızı kesikli çizgi eski dere yatağı; beyaz kutu bugünkü açık otopark. Sel haberlerinde hep aynı mahallenin geçmesi tesadüf değil.",
+      media: [{ type: "photo", w: 1600, h: 1200, hue: 150, kind: "map", alt: "İki katmanlı harita: kırmızı kesikli çizgi eski dere yatağını gösteriyor; çizginin geçtiği yerde bugün beyaz bir kutuyla işaretlenmiş açık otopark var." }],
+      metrics: { replies: 96, reposts: 1120, likes: 5200, views: 230000 },
+    },
+    score: { readWorthinessScore: 0.86, clickbaitScore: 0.08, reason: "Özgün, açıklayıcı bir görsel karşılaştırma; iddiası görselin kendisiyle sınırlı." },
+    verification: null,
+  },
+  {
+    post: {
+      id: "1003", authorHandle: "priyanair_writes", authorName: "Priya Nair", authorVerified: true, hue: 300,
+      publishedAt: hoursAgo(13), lang: "en", url: X("priyanair_writes", "1003"),
+      text: "Long read on why small newsrooms are quietly pooling one fact-checking desk. The part about the shared corrections log is the most interesting bit — I hadn't seen that model before.",
+      link: { domain: "longform.example.invalid", url: "https://longform.example.invalid/shared-desk", title: "The shared desk: how twelve small newsrooms check facts together", desc: "A cooperative model that splits costs, standards and a public corrections log.", hue: 260 },
+      metrics: { replies: 41, reposts: 380, likes: 1900, views: 88000 },
+    },
+    score: { readWorthinessScore: 0.83, clickbaitScore: 0.1, reason: "Somut bir modeli anlatan uzun okumaya yönlendiriyor; başlık merak boşluğu yaratmıyor." },
+    verification: {
+      verdict: "unverifiable", claim: "Twelve regional newsrooms now share a single fact-checking desk.",
+      rationale: "Sayıyı yalnızca makalenin kendisi veriyor; bağımsız ikinci bir kaynak bulunamadı.",
+      sources: [{ title: "The shared desk (makalenin kendisi)", url: "https://longform.example.invalid/shared-desk" }],
+    },
+  },
+  {
+    post: {
+      id: "1004", authorHandle: "kuzeykenthaber", authorName: "Kuzeykent Haber", hue: 0,
+      publishedAt: hoursAgo(3.5), lang: "tr", url: X("kuzeykenthaber", "1004"),
+      text: "Sahil yolundaki yeni bisiklet yolu bugün açıldı. Belediye \"ülkenin en uzun kesintisiz bisiklet yolu\" diyor: 42 km. Baştan sona sürdük, fotoğraflar aşağıda.",
+      media: [
+        { type: "photo", w: 1600, h: 1067, hue: 190, alt: "Deniz kenarında kırmızı zeminli iki şeritli bisiklet yolu, sabah ışığı." },
+        { type: "photo", w: 1200, h: 1600, hue: 40, alt: "Bisiklet yolunun bir köprü altından geçtiği dar bölüm." },
+        { type: "photo", w: 1600, h: 1067, hue: 120, alt: "Yol kenarında yeni dikilmiş fidanlar ve oturma bankları." },
+        { type: "photo", w: 1600, h: 900, hue: 330, alt: "Yolun bittiği noktada inşaat bariyerleri ve 'yapım çalışması' tabelası." },
+      ],
+      metrics: { replies: 302, reposts: 640, likes: 3100, views: 190000 },
+    },
+    score: { readWorthinessScore: 0.79, clickbaitScore: 0.18, reason: "Yerinde çekilmiş fotoğraflarla somut bir haber; iddia belediyeye ait, gönderi aktarıyor." },
+    verification: {
+      verdict: "contradicted", claim: "Sahil bisiklet yolu, 42 km ile ülkenin en uzun kesintisiz bisiklet yoludur.",
+      rationale: "İki kaynak başka bir şehirde 57 km'lik kesintisiz bir yol olduğunu gösteriyor. Ayrıca yolun yaklaşık 6 km'lik bölümü henüz açılmamış görünüyor (dördüncü fotoğraftaki bariyerler de bununla uyumlu).",
+      sources: [
+        { title: "Ulaştırma Bakanlığı (kurgusal) — Bisiklet yolu envanteri 2026", url: "https://envanter.example.invalid/bisiklet-2026" },
+        { title: "Güneykıyı Belediyesi — 57 km sahil hattı açılış duyurusu", url: "https://guneykiyi.example.invalid/duyuru/sahil-hatti" },
+      ],
+    },
+  },
+  {
+    post: {
+      id: "1005", authorHandle: "ecetunc", authorName: "Ece Tunç", hue: 160,
+      publishedAt: hoursAgo(7), lang: "tr", url: X("ecetunc", "1005"),
+      text: "Bu tartışmada kimsenin sormadığı soru: kütüphaneler akşam 8'de kapanıyorsa \"öğrenciler çalışacak yer bulamıyor\" şikâyetinin çözümü neden hep kafeler oluyor? En ucuz çözüm zaten var olan kamu alanını açık tutmak.",
+      quoted: { id: "0991", authorHandle: "gundem_ozeti", authorName: "Gündem Özeti", hue: 45, hoursAgo: 11, text: "Öğrenci anketi: üniversite öğrencilerinin yarısından fazlası ders çalışmak için kafeleri tercih ediyor." },
+      metrics: { replies: 158, reposts: 420, likes: 2700, views: 97000 },
+    },
+    score: { readWorthinessScore: 0.74, clickbaitScore: 0.12, reason: "Alıntıladığı habere somut bir karşı öneri getiriyor." },
+    verification: {
+      verdict: "not-checked", claim: "Üniversite öğrencilerinin yarısından fazlası ders çalışmak için kafeleri tercih ediyor.",
+      rationale: "İddia alıntılanan gönderiye ait ve bu gönderinin ana konusu değil; kontrole değer görülmedi.",
+      sources: [],
+    },
+  },
+  {
+    post: {
+      id: "1006", authorHandle: "atolyenotlari", authorName: "Atölye Notları", authorVerified: true, hue: 90,
+      publishedAt: hoursAgo(20), lang: "tr", url: X("atolyenotlari", "1006"),
+      text: "Eski bir sandalyenin oturağını hasır örgüyle baştan sona yeniledim. En çok sorulan şey ipin gerginliğiydi; 3:10'da gösteriyorum.",
+      media: [{ type: "video", w: 1280, h: 720, hue: 30, duration: "6:12", alt: "Ahşap sandalye çerçevesine kenevir ipiyle hasır örülmesi, yakın plan." }],
+      metrics: { replies: 64, reposts: 510, likes: 4100, views: 260000 },
+    },
+    score: { readWorthinessScore: 0.71, clickbaitScore: 0.05, reason: "Pratik, adım adım bir anlatım; başlık ne vaat ediyorsa onu veriyor." },
+    verification: null,
+  },
+  {
+    post: {
+      id: "1007", authorHandle: "dogayuruyus", authorName: "Doğa Yürüyüşü Notları", hue: 130,
+      publishedAt: hoursAgo(26), lang: "tr", url: X("dogayuruyus", "1007"),
+      text: "Yayla yolunda üç günlük rota: her gün 14–18 km, iki konaklama. Rotanın GPX dosyasını ve su noktalarını yanıta ekledim; ikinci gün öğleden sonra sis çabuk iniyor, erken yola çıkın.",
+      media: [
+        { type: "photo", w: 1200, h: 1600, hue: 110, alt: "Sisli bir sırtta ilerleyen patika, önde sırt çantalı bir yürüyüşçü." },
+        { type: "photo", w: 1600, h: 1067, hue: 200, alt: "Yayla evleri ve arkada karlı tepeler." },
+        { type: "photo", w: 1600, h: 1067, hue: 60, alt: "Taş bir çeşme ve yanında doldurulmuş su şişeleri." },
+      ],
+      metrics: { replies: 22, reposts: 190, likes: 1500, views: 41000 },
+    },
+    score: { readWorthinessScore: 0.66, clickbaitScore: 0.07, reason: "Somut, uygulanabilir rota bilgisi." },
+    verification: null,
+  },
+  {
+    post: {
+      id: "1008", authorHandle: "burakesen", authorName: "Burak Esen", hue: 240,
+      publishedAt: hoursAgo(2), lang: "tr", url: X("burakesen", "1008"),
+      text: "Bugün öğrendiğim: SQLite'ta STRICT tablolar sütun tiplerini gerçekten zorunlu kılıyor. Yıllardır \"SQLite tip umursamaz\" diye bildiğim şey artık yalnızca varsayılan davranış.",
+      metrics: { replies: 18, reposts: 95, likes: 860, views: 24000 },
+    },
+    score: { readWorthinessScore: 0.62, clickbaitScore: 0.04, reason: "Kısa ama işe yarar teknik bilgi." },
+    verification: null,
+  },
+  {
+    post: {
+      id: "1009", authorHandle: "tomas_ibarra_photo", authorName: "Tomás Ibarra", hue: 15, repostedBy: "selinaydogan_veri",
+      publishedAt: hoursAgo(31), lang: "en", url: X("tomas_ibarra_photo", "1009"),
+      text: "Same street, 06:10 and 19:40. Nothing changed but the light.",
+      media: [
+        { type: "photo", w: 1200, h: 1500, hue: 220, alt: "Morning: an empty street with long blue shadows and closed shutters." },
+        { type: "photo", w: 1200, h: 1500, hue: 20, alt: "Evening: the same street in warm orange light, café tables out." },
+      ],
+      metrics: { replies: 12, reposts: 340, likes: 2900, views: 66000 },
+    },
+    score: { readWorthinessScore: 0.57, clickbaitScore: 0.03, reason: "Metni kısa ama görsel karşılaştırma gönderinin özü; okuma değeri orta." },
+    verification: null,
+  },
+  {
+    post: {
+      id: "1010", authorHandle: "zeynepulas", authorName: "Zeynep Ulaş", hue: 330,
+      publishedAt: hoursAgo(15), lang: "tr", url: X("zeynepulas", "1010"),
+      text: "Görüntü sınıflandırma modelim bir kediyi 41 kez \"ekmek\" diye etiketledikten sonra eğitim verisine bakınca fark ettim: \"ekmek\" klasörünün üçte biri tezgâhta uyuyan kedi fotoğrafıymış. Etiket temizliği model seçiminden önce gelir.",
+      media: [{ type: "gif", w: 480, h: 270, hue: 280, alt: "Animasyon: gözlerini kocaman açıp ekrana yaklaşan çizgi film karakteri." }],
+      metrics: { replies: 33, reposts: 260, likes: 3300, views: 110000 },
+    },
+    score: { readWorthinessScore: 0.52, clickbaitScore: 0.14, reason: "Esprili ama somut bir ders içeriyor; eşiğin biraz üstünde." },
+    verification: null,
+  },
+];
+
+/* ── Instagram (InstagramPost şekline yakın; ★ = şema isteği) ── */
+const IG = (id) => `https://instagram.example.invalid/p/${id}`;
+const IG_POSTS = [
+  {
+    post: {
+      platform: "instagram", id: "C7carousel01", url: IG("C7carousel01"),
+      authorHandle: "seramik.atolyesi", authorName: "Seramik Atölyesi", authorVerified: true, hue: 20,
+      kind: "carousel", publishedAt: hoursAgo(6), lang: "tr" /* ★ */, location: "Kuzeykent" /* ★ */,
+      caption: "Sırlama günü notları. Aynı sır, aynı fırın, üç farklı kalınlık: ince sürünce kahverengi, iki kat sürünce mavi-yeşil, üç katta akıp dibe toplanıyor. Fırın 1240°C, 9 saat. En çok gelen soru \"neden her seferinde farklı çıkıyor\"ydu; cevabın büyük kısmı kalınlık ve fırındaki yer. Son karede kesit var: sırın çamura ne kadar işlediği orada görünüyor.\n\n#seramik #sır #atölye",
+      media: [
+        { type: "image", w: 1080, h: 1350, hue: 30, alt: "Raflarda yan yana dizilmiş, sırlanmayı bekleyen beyaz kaseler." },
+        { type: "image", w: 1080, h: 1350, hue: 175, alt: "Üç kase yan yana: soldan sağa kahverengi, mavi-yeşil ve dibinde koyu birikinti olan." },
+        { type: "image", w: 1080, h: 1080, hue: 205, alt: "Fırının içi, raflara yerleştirilmiş kaseler." },
+        { type: "image", w: 1080, h: 1350, hue: 45, alt: "Kesilmiş bir kasenin kesiti; sır tabakasının kalınlığı görülüyor." },
+        { type: "image", w: 1350, h: 1080, hue: 140, alt: "Bitmiş kaseler pencere önünde, gün ışığında." },
+      ],
+      metrics: { likes: 8400, comments: 212 },
+    },
+    score: { readWorthinessScore: 0.88, clickbaitScore: 0.05, reason: "Görsellerle desteklenen somut bir süreç anlatımı; caption, görsellerin ne gösterdiğini açıklıyor." },
+    verification: null,
+  },
+  {
+    post: {
+      platform: "instagram", id: "C7reel0001", url: IG("C7reel0001"),
+      authorHandle: "kentin.sesi", authorName: "Kentin Sesi", hue: 260,
+      kind: "reel", publishedAt: hoursAgo(11), lang: "tr",
+      caption: "Tarihi çarşıdaki çatı onarımı tamamlandı mı? Yerinde baktık: kuzey cephe bitti, güney cephede iskele hâlâ duruyor. 48 saniyede iki cephe.",
+      media: [{ type: "video", w: 1080, h: 1920, hue: 250, duration: "0:48", alt: "Tarihi çarşının çatısı; kamera kuzey cepheden güney cephedeki iskeleye dönüyor." }],
+      metrics: { likes: 3100, comments: 96, views: 61000 },
+    },
+    score: { readWorthinessScore: 0.76, clickbaitScore: 0.16, reason: "Yerinde çekilmiş, iddiasını görüntüyle sınırlı tutan kısa bir haber videosu." },
+    verification: {
+      verdict: "supported", claim: "Tarihi çarşının kuzey cephesindeki çatı onarımı tamamlandı.",
+      rationale: "Belediyenin proje sayfası kuzey cepheyi tamamlandı, güney cepheyi sürüyor olarak gösteriyor.",
+      sources: [{ title: "Kuzeykent Belediyesi — Tarihi çarşı çatı onarımı proje sayfası", url: "https://belediye.kuzeykent.example.invalid/proje/carsi-cati" }],
+    },
+  },
+  {
+    post: {
+      platform: "instagram", id: "C7single001", url: IG("C7single001"),
+      authorHandle: "lezzet.rotasi", authorName: "Lezzet Rotası", hue: 350,
+      kind: "post", publishedAt: hoursAgo(22), lang: "tr",
+      paidPartnership: "Değirmen Un" /* ★ */, coauthors: ["firin.ustasi"] /* ★ */,
+      caption: "Ekşi mayayı ilk kez besleyecekler için tek kural: un ve suyu tartıyla ölçün, kaşıkla değil. Gerisi sabır.",
+      media: [{ type: "image", w: 1080, h: 1080, hue: 35, alt: "Cam kavanozda kabarmış ekşi maya, yanında mutfak tartısı." }],
+      metrics: { likes: 1900, comments: 41 },
+    },
+    score: { readWorthinessScore: 0.6, clickbaitScore: 0.22, reason: "Kısa ama uygulanabilir bir ipucu; ücretli ortaklık etiketli, ürün öne çıkarılmıyor." },
+    verification: null,
+  },
+];
+
+/* ── Genel (GenericItem şekline yakın; ★ = şema isteği) ─────── */
+const GEN_ITEMS = [
+  {
+    // Reddit bağlantı gönderisi: başlık + küçük görsel + dış alan adı
+    post: {
+      platform: "generic", id: "t3_g01", sourceLabel: "reddit", kind: "link" /* ★ */,
+      community: "r/bilim", author: "deniz_k", publishedAt: hoursAgo(4), lang: "tr", flair: "Araştırma" /* ★ */,
+      title: "Kent ağaçlarının yaz gecelerinde sokak sıcaklığını ortalama 1,8 °C düşürdüğü ölçüldü",
+      url: "https://reddit.example.invalid/r/bilim/comments/g01", linkUrl: "https://dergi.example.invalid/kent-agaclari" /* ★ */, domain: "dergi.example.invalid",
+      image: { w: 1200, h: 800, hue: 120, alt: "Ağaçlı bir sokağın termal kamera görüntüsü; ağaç altları mavi, açık asfalt kırmızı." },
+      engagement: { score: 4200, comments: 380 },
+    },
+    score: { readWorthinessScore: 0.84, clickbaitScore: 0.07, reason: "Başlık sonucu açıkça söylüyor; ölçülen değer ve kapsam başlıkta." },
+    verification: {
+      verdict: "unverifiable", claim: "Kent ağaçları yaz gecelerinde sokak sıcaklığını ortalama 1,8 °C düşürüyor.",
+      rationale: "Değeri yalnız bağlantı verilen çalışma bildiriyor; bağımsız bir ikinci ölçüm bulunamadı.",
+      sources: [{ title: "Kent ağaçları ve gece sıcaklığı (çalışmanın kendisi)", url: "https://dergi.example.invalid/kent-agaclari" }],
+    },
+  },
+  {
+    // Özel site (kural): başlık + özet + küçük görsel, etkileşim yok
+    post: {
+      platform: "generic", id: "u3f9a01", sourceLabel: "custom:kuzey-gazetesi", siteName: "Kuzey Gazetesi" /* ★ */, kind: "link", hue: 205,
+      author: "Ayşe Demir", publishedAt: hoursAgo(8), lang: "tr",
+      title: "Belediye meclisi, eski boru hatlarının yenilenmesi için 3 yıllık plan kabul etti",
+      text: "Plan, şebeke kaybının en yüksek olduğu dört mahalleden başlıyor. İlk yılın bütçesi 410 milyon lira; ihale takvimi ocakta açıklanacak.",
+      url: "https://kuzeygazete.example.invalid/haber/boru-plani", domain: "kuzeygazete.example.invalid",
+      image: { w: 1200, h: 675, hue: 210, alt: "Kazılmış bir sokakta yan yana dizilmiş yeni su boruları." },
+    },
+    score: { readWorthinessScore: 0.8, clickbaitScore: 0.06, reason: "Somut karar, tutar ve takvim veren yerel haber; başlık içeriği özetliyor." },
+    verification: null,
+  },
+  {
+    // Görselsiz Reddit metin gönderisi (uzun metin, kesilir)
+    post: {
+      platform: "generic", id: "t3_g03", sourceLabel: "reddit", kind: "text",
+      community: "r/kuzeykent", author: "bisikletli_mahalle", publishedAt: hoursAgo(14), lang: "tr",
+      title: "Sahil bisiklet yolunun açılmayan 6 km'lik kısmı için belediyeye dilekçe verdik; cevap geldi",
+      text: "Geçen hafta mahalle olarak dilekçe verdik. Cevapta güney ucundaki 6 km'nin istimlak davası yüzünden beklediği yazıyor; dava bitmeden yol açılamıyor. Tahmini tarih verilmemiş.\n\nCevabın tamamını aşağıya yazdım. Kısaca: kuzeydeki 36 km açık, güneydeki parça için \"yargı süreci\" deniyor. Mahkeme dosya numarasını da paylaştılar; isteyen e-devletten durumu izleyebilir.\n\nAçılış haberlerinde \"42 km kesintisiz\" diye geçtiği için çoğumuz bunu bilmiyordu.",
+      url: "https://reddit.example.invalid/r/kuzeykent/comments/g03", domain: "reddit.example.invalid",
+      engagement: { score: 912, comments: 147 },
+    },
+    score: { readWorthinessScore: 0.73, clickbaitScore: 0.09, reason: "Birinci elden belge aktaran, başlığı içeriğiyle örtüşen bir yerel gönderi." },
+    verification: {
+      verdict: "not-checked", claim: "Yolun güneydeki 6 km'lik bölümü istimlak davası nedeniyle açılamıyor.",
+      rationale: "Kaynağı gönderenin kendi aldığı resmi cevap; web aramasıyla doğrulanabilecek bir kayıt değil.",
+      sources: [],
+    },
+  },
+  {
+    // Reddit görsel gönderisi: görsel içeriğin kendisi → büyük medya
+    post: {
+      platform: "generic", id: "t3_g04", sourceLabel: "reddit", kind: "image",
+      community: "r/sehirfotograflari", author: "sabah_cekimi", publishedAt: hoursAgo(19), lang: "tr",
+      title: "Sisli bir sabah, eski iskeleden şehre bakış",
+      url: "https://reddit.example.invalid/r/sehirfotograflari/comments/g04", domain: "reddit.example.invalid",
+      image: { w: 1600, h: 1000, hue: 200, alt: "Sis içinde kalmış bir şehir silueti, önde ahşap iskelenin uç kısmı." },
+      engagement: { score: 2600, comments: 54 },
+    },
+    score: { readWorthinessScore: 0.64, clickbaitScore: 0.04, reason: "Başlık görseli dürüstçe tarif ediyor; okuma değeri görselde." },
+    verification: null,
+  },
+  {
+    // Metinsiz ve görselsiz: yalnız başlık + bağlantı
+    post: {
+      platform: "generic", id: "u3f9a05", sourceLabel: "custom:kent-konseyi", siteName: "Kent Konseyi", kind: "link", hue: 95,
+      publishedAt: hoursAgo(27), lang: "tr",
+      title: "Kasım ayı mahalle toplantıları takvimi yayımlandı",
+      url: "https://kentkonseyi.example.invalid/duyuru/kasim-toplantilari", domain: "kentkonseyi.example.invalid",
+    },
+    score: { readWorthinessScore: 0.55, clickbaitScore: 0.03, reason: "Yalın bir duyuru başlığı; işe yarar ama kısa." },
+    verification: null,
+  },
+  {
+    // Başlıksız: özel kuralın yalnız metin çektiği forum iletisi
+    post: {
+      platform: "generic", id: "u3f9a06", sourceLabel: "custom:bisiklet-forumu", siteName: "Bisiklet Forumu", kind: "text", hue: 320,
+      author: "zincir_yagi", publishedAt: hoursAgo(30), lang: "tr",
+      text: "Yağmurdan sonra zinciri kurulamadan yağlamayın; su altta kalır ve paslanma hızlanır. Önce bezle silip 10 dakika bekleyin.",
+      url: "https://bisikletforumu.example.invalid/konu/4410#m7", domain: "bisikletforumu.example.invalid",
+    },
+    score: { readWorthinessScore: 0.5, clickbaitScore: 0.02, reason: "Kısa, uygulanabilir bir bakım ipucu." },
+    verification: null,
+  },
+];
+
+/* Karışık akış: tek sıralama (okuma değeri), kaynaktan bağımsız. */
+const platformOf = (post) => post.platform ?? "x";
+const X_IDS = ["1001", "1002", "1004", "1006", "1009"];
+const X_FEED = POSTS.filter((e) => X_IDS.includes(e.post.id));
+const FEED = [...X_FEED, ...IG_POSTS, ...GEN_ITEMS]
+  .sort((a, b) => b.score.readWorthinessScore - a.score.readWorthinessScore);
+
+/* ── Biçimlendirme ────────────────────────────────────────── */
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const compact = new Intl.NumberFormat("tr-TR", { notation: "compact", maximumFractionDigits: 1 });
+const fmtNum = (n) => compact.format(n);
+const fmtAbs = new Intl.DateTimeFormat("tr-TR", { dateStyle: "long", timeStyle: "short" });
+const fmtDay = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "short" });
+const fmtClock = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+function relTime(iso) {
+  const min = Math.round((Date.parse(CAPTURED_AT) - Date.parse(iso)) / 60e3);
+  if (min < 60) return `${min} dk`;
+  if (min < 24 * 60) return `${Math.round(min / 60)} sa`;
+  return fmtDay.format(new Date(iso));
+}
+const level = (v) => v < 0.2 ? "Çok düşük" : v < 0.4 ? "Düşük" : v < 0.6 ? "Orta" : v < 0.8 ? "Yüksek" : "Çok yüksek";
+const dec = (v) => v.toFixed(2).replace(".", ",");
+const initials = (name) => name.split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toLocaleUpperCase("tr-TR");
+const avatar = (name, hue, cls = "") => `<span class="avatar ${cls}" style="background:hsl(${hue} 45% 36%)" aria-hidden="true">${esc(initials(name))}</span>`;
+
+function readingMinutes(list) {
+  let sec = 0;
+  const words = (s) => (s ? s.split(/\s+/).length : 0);
+  for (const { post } of list) {
+    const p = platformOf(post);
+    const text = p === "x" ? post.text + " " + (post.quoted ? post.quoted.text : "")
+      : p === "instagram" ? post.caption : `${post.title || ""} ${post.text || ""}`;
+    sec += words(text) / 200 * 60;
+    for (const m of post.media || []) sec += m.type === "photo" || m.type === "image" ? 8 : 15;
+    if (post.link || post.image) sec += 5;
+  }
+  return Math.max(1, Math.round(sec / 60));
+}
+
+/* ── Bileşenler ───────────────────────────────────────────── */
+const LIGHTBOX = {};
+
+function renderPhotos(pid, photos) {
+  LIGHTBOX[pid] = photos.map((m) => ({ src: m.src, alt: m.alt }));
+  const n = photos.length;
+  return `<div class="media media--${n}">` + photos.map((m, k) => {
+    const altId = `${pid}-alt-${k}`;
+    return `<div class="media__cell">
+      <button class="media__zoom" type="button" data-lb="${pid}" data-idx="${k}">
+        <img src="${m.src}" alt="${esc(m.alt)}" width="${m.w}" height="${m.h}" loading="lazy"><span class="sr-only"> — büyüt${n > 1 ? ` (${k + 1}/${n})` : ""}</span>
+      </button>
+      <button class="chip" type="button" aria-expanded="false" aria-controls="${altId}" data-alt>ALT<span class="sr-only"> metnini göster</span></button>
+      <p class="alt-pop" id="${altId}" hidden>${esc(m.alt)}</p>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+function renderVideo(pid, m) {
+  return `<div class="media media--1"><div class="media__cell video" data-state="idle" style="aspect-ratio:${m.w}/${m.h}">
+    <img src="${m.src}" alt="" width="${m.w}" height="${m.h}" loading="lazy">
+    <button class="video__play" type="button" aria-label="Videoyu oynat, süre ${m.duration}. ${esc(m.alt)}">${icon("play")}</button>
+    <span class="chip chip--dur" aria-hidden="true">${m.duration}</span>
+    <div class="video__bar" hidden>
+      <button type="button" data-video="pause" aria-label="Duraklat">${icon("pause")}</button>
+      <div class="video__track" role="progressbar" aria-label="Oynatma konumu" aria-valuemin="0" aria-valuemax="372" aria-valuenow="44" aria-valuetext="0:44 / ${m.duration}"><span></span></div>
+      <span>0:44 / ${m.duration}</span>
+      <button type="button" aria-label="Sesi aç">${icon("volume")}</button>
+      <button type="button" aria-label="Tam ekran">${icon("expand")}</button>
+    </div>
+  </div></div>`;
+}
+
+function renderGif(pid, m) {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  return `<div class="media media--1"><div class="media__cell gif" style="aspect-ratio:${m.w}/${m.h}" data-playing="${!reduce}">
+    <img src="${reduce ? m.src : m.srcAnim}" data-still="${m.src}" data-anim="${m.srcAnim}" alt="${esc(m.alt)}" width="${m.w}" height="${m.h}" loading="lazy">
+    <span class="chip" aria-hidden="true">GIF</span>
+    <button class="gif__toggle" type="button" aria-pressed="${!reduce}" aria-label="GIF'i oynat">${icon(reduce ? "play" : "pause")}</button>
+  </div></div>`;
+}
+
+function renderMedia(pid, media) {
+  if (!media || !media.length) return "";
+  const video = media.find((m) => m.type === "video");
+  if (video) return renderVideo(pid, video);
+  const gif = media.find((m) => m.type === "gif");
+  if (gif) return renderGif(pid, gif);
+  return renderPhotos(pid, media.filter((m) => m.type === "photo"));
+}
+
+function renderQuote(q) {
+  return `<a class="quote" href="${X(q.authorHandle, q.id)}">
+    <span class="sr-only">Alıntılanan gönderi: </span>
+    <div class="quote__head">
+      <span class="quote__arrow" aria-hidden="true">↳</span>${avatar(q.authorName, q.hue, "avatar--sm")}
+      <strong>${esc(q.authorName)}</strong><span class="post__handle">@${esc(q.authorHandle)}</span>
+      <span class="post__dot" aria-hidden="true">·</span><span class="post__time">${q.hoursAgo} sa</span>
+    </div>
+    <p class="quote__text">${esc(q.text)}</p>
+  </a>`;
+}
+
+function renderLink(l) {
+  return `<a class="linkcard" href="${esc(l.url)}">
+    <img src="${l.src}" alt="" width="1200" height="628" loading="lazy">
+    <span class="linkcard__body">
+      <span class="linkcard__domain">${esc(l.domain)}</span>
+      <span class="linkcard__title">${esc(l.title)}</span>
+      ${l.desc ? `<span class="linkcard__desc">${esc(l.desc)}</span>` : ""}
+    </span>
+  </a>`;
+}
+
+const VERDICT = {
+  supported:     { cls: "ok",    icon: "check",    label: "Doğrulandı",            lead: "Bulunan kaynaklar bu iddiayı destekliyor." },
+  contradicted:  { cls: "warn",  icon: "alert",    label: "Kaynaklarla çelişiyor", lead: "Bulunan kaynaklar bu iddiayla çelişiyor. Bu kesin bir hüküm değil; kaynaklara bakıp kendin değerlendir." },
+  unverifiable:  { cls: "info",  icon: "question", label: "Doğrulanamadı",         lead: "İddiayı destekleyen ya da çürüten güvenilir bir kaynak bulunamadı. Bu, iddianın yanlış olduğu anlamına gelmez." },
+  "not-checked": { cls: "quiet", icon: "minus",    label: "Doğrulanmadı",          lead: "" },
+};
+
+function renderVerify(pid, v) {
+  if (!v) return "";
+  const d = VERDICT[v.verdict];
+  const panelId = `${pid}-verify`;
+  const sources = v.sources.length
+    ? `<p><strong>Kaynaklar</strong></p><ul class="verify__sources">${v.sources.map((s) =>
+        `<li><a href="${esc(s.url)}">${esc(s.title)}</a> <small>${esc(new URL(s.url).hostname)}</small></li>`).join("")}</ul>`
+    : "";
+  return `<div class="verify verify--${d.cls}">
+    <button class="verify__toggle" type="button" aria-expanded="false" aria-controls="${panelId}">
+      ${icon(d.icon)}<span class="verify__label">${d.label}${v.verdict === "not-checked" ? " · kontrole değmez" : ""}</span>
+      <span class="verify__claim"><span class="sr-only">İddia: </span>${esc(v.claim)}</span>
+      ${icon("chevron", 'class="i verify__chev"')}
+    </button>
+    <div class="verify__panel" id="${panelId}" hidden>
+      <p class="verify__claimfull">“${esc(v.claim)}”</p>
+      ${d.lead ? `<p>${d.lead}</p>` : ""}
+      <p>${esc(v.rationale)}</p>
+      ${sources}
+      ${v.verdict === "not-checked" ? "" : `<p class="verify__meta">Claude ile web araması üzerinden kontrol edildi · 14:23</p>`}
+    </div>
+  </div>`;
+}
+
+/* Kaynak satırı: yalnız karışık akışta, X ve Instagram kartının başında.
+   X'te yeniden paylaşım satırını içine alır (iki satır yerine bir). */
+const SOURCE = {
+  x: { label: "X", mark: "X" },
+  instagram: { label: "Instagram", mark: icon("camera") },
+};
+function sourceLine(platform, repostedBy) {
+  const s = SOURCE[platform];
+  return `<div class="src"><span class="src__mark" aria-hidden="true">${s.mark}</span><span><span class="sr-only">Kaynak: </span>${s.label}</span>${repostedBy
+    ? `<span class="src__sep" aria-hidden="true">·</span>${icon("repost")}<span class="src__repost">@${esc(repostedBy)} yeniden paylaştı</span>` : ""}</div>`;
+}
+
+/* ── X kartı: timeline-mockup.html'den aynen; tek fark karışık akıştaki kaynak satırı ── */
+function renderPost(entry, i, total, mixed = false) {
+  const { post, score, verification } = entry;
+  const pid = `p${post.id}`;
+  const long = post.text.length > 600;
+  const m = post.metrics || {};
+  const stat = (k, ic, label) => m[k] == null ? "" :
+    `<li data-k="${k}" title="${label}">${icon(ic)}<span class="sr-only">${label}: </span>${fmtNum(m[k])}</li>`;
+  return `<article class="post" id="${pid}" tabindex="0" aria-posinset="${i + 1}" aria-setsize="${total}" aria-labelledby="${pid}-name" aria-describedby="${pid}-text">
+    ${mixed ? sourceLine("x", post.repostedBy)
+      : post.repostedBy ? `<div class="post__repost">${icon("repost")}<span>@${esc(post.repostedBy)} yeniden paylaştı</span></div>` : ""}
+    <div class="post__grid">
+      ${avatar(post.authorName, post.hue)}
+      <div class="post__main">
+        <div class="post__head">
+          <a class="post__name" id="${pid}-name" href="https://x.example.invalid/${esc(post.authorHandle)}">${esc(post.authorName)}</a>
+          ${post.authorVerified ? verifiedBadge : ""}
+          <span class="post__handle">@${esc(post.authorHandle)}</span>
+          <span class="post__dot" aria-hidden="true">·</span>
+          <time class="post__time" datetime="${post.publishedAt}" title="${fmtAbs.format(new Date(post.publishedAt))}">${relTime(post.publishedAt)}</time>
+        </div>
+        <p class="post__text${long ? " is-clamped" : ""}" id="${pid}-text" lang="${post.lang}">${esc(post.text)}</p>
+        ${long ? `<button class="link-btn" type="button" data-more aria-expanded="false" aria-controls="${pid}-text">Devamını oku</button>` : ""}
+        ${renderMedia(pid, post.media)}
+        ${post.quoted ? renderQuote(post.quoted) : ""}
+        ${post.link ? renderLink(post.link) : ""}
+        ${renderVerify(pid, verification)}
+        <div class="post__foot">
+          <ul class="stats" aria-label="Etkileşimler">
+            ${stat("replies", "reply", "Yanıt")}${stat("reposts", "repost", "Yeniden paylaşım")}${stat("likes", "like", "Beğeni")}${stat("views", "views", "Görüntülenme")}
+          </ul>
+          <div class="post__actions">
+            <button class="link-btn why-btn" type="button" aria-expanded="false" aria-controls="${pid}-why">Neden burada?</button>
+            <a class="open-x" href="${esc(post.url)}" target="_blank" rel="noopener noreferrer">X'te aç${icon("external")}<span class="sr-only"> (yeni pencerede)</span></a>
+          </div>
+        </div>
+        <div class="why" id="${pid}-why" hidden>
+          <p>${esc(score.reason)}</p>
+          <dl>
+            <dt>Okuma değeri</dt><dd>${level(score.readWorthinessScore)} <small>(${dec(score.readWorthinessScore)})</small></dd>
+            <dt>Clickbait</dt><dd>${level(score.clickbaitScore)} <small>(${dec(score.clickbaitScore)})</small></dd>
+            <dt>Sıra</dt><dd>${i + 1} / ${total}</dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+  </article>`;
+}
+
+/* ── Ortak alt bilgi + "Neden burada?" (X kartındakiyle aynı biçim) ── */
+function cardFoot(pid, stats, openLabel, url, score, i, total) {
+  return `<div class="post__foot">
+      <ul class="stats" aria-label="Etkileşimler">${stats}</ul>
+      <div class="post__actions">
+        <button class="link-btn why-btn" type="button" aria-expanded="false" aria-controls="${pid}-why">Neden burada?</button>
+        <a class="open-x" href="${esc(url)}" target="_blank" rel="noopener noreferrer">${openLabel}${icon("external")}<span class="sr-only"> (yeni pencerede)</span></a>
+      </div>
+    </div>
+    <div class="why" id="${pid}-why" hidden>
+      <p>${esc(score.reason)}</p>
+      <dl>
+        <dt>Okuma değeri</dt><dd>${level(score.readWorthinessScore)} <small>(${dec(score.readWorthinessScore)})</small></dd>
+        <dt>Clickbait</dt><dd>${level(score.clickbaitScore)} <small>(${dec(score.clickbaitScore)})</small></dd>
+        <dt>Sıra</dt><dd>${i + 1} / ${total}</dd>
+      </dl>
+    </div>`;
+}
+const statItem = (k, ic, label, v, text = fmtNum(v)) => v == null ? "" :
+  `<li data-k="${k}" title="${label}">${icon(ic)}<span class="sr-only">${label}: </span>${text}</li>`;
+const clampBtn = (pid, targetId) =>
+  `<button class="link-btn" type="button" data-more aria-expanded="false" aria-controls="${targetId}">Devamını oku</button>`;
+
+/* ── Instagram kartı ──────────────────────────────────────── */
+function igFrame(pid, m, k, n, ratio) {
+  const altId = `${pid}-alt-${k}`;
+  return `<div class="ig__frame" style="aspect-ratio:${ratio}">
+      <button class="media__zoom" type="button" data-lb="${pid}" data-idx="${k}">
+        <img src="${m.src}" alt="${esc(m.alt)}" width="${m.w}" height="${m.h}" loading="lazy"><span class="sr-only"> — büyüt${n > 1 ? ` (${k + 1}/${n})` : ""}</span>
+      </button>
+      <button class="chip" type="button" aria-expanded="false" aria-controls="${altId}" data-alt>ALT<span class="sr-only"> metnini göster</span></button>
+      <p class="alt-pop" id="${altId}" hidden>${esc(m.alt)}</p>
+    </div>`;
+}
+
+function igMedia(pid, p) {
+  const media = p.media || [];
+  if (!media.length) return "";
+  if (p.kind === "reel") {
+    const m = media[0];
+    return `<div class="ig__media reel-wrap"><div class="reel video" data-state="idle">
+      <img src="${m.src}" alt="" width="${m.w}" height="${m.h}" loading="lazy">
+      <span class="reel__tag" aria-hidden="true">${icon("reel")}Reel</span>
+      <button class="video__play" type="button" aria-label="Reel'i oynat, süre ${m.duration}. ${esc(m.alt)}">${icon("play")}</button>
+      <span class="chip chip--dur" aria-hidden="true">${m.duration}</span>
+      <div class="video__bar" hidden>
+        <button type="button" data-video="pause" aria-label="Duraklat">${icon("pause")}</button>
+        <div class="video__track" role="progressbar" aria-label="Oynatma konumu" aria-valuemin="0" aria-valuemax="48" aria-valuenow="6" aria-valuetext="0:06 / ${m.duration}"><span></span></div>
+        <span>0:06 / ${m.duration}</span>
+        <button type="button" aria-label="Sesi aç">${icon("volume")}</button>
+      </div>
+    </div></div>`;
+  }
+  const imgs = media.filter((m) => m.type === "image");
+  LIGHTBOX[pid] = imgs.map((m) => ({ src: m.src, alt: m.alt }));
+  // Instagram gibi: tüm kareler ilk karenin oranında; oran 4:5 ile 1,91:1 arasında tutulur. Kırpma yok (contain).
+  const r0 = Math.min(1.91, Math.max(0.8, imgs[0].w / imgs[0].h));
+  if (imgs.length === 1) return `<div class="ig__media">${igFrame(pid, imgs[0], 0, 1, r0)}</div>`;
+  const n = imgs.length;
+  return `<div class="ig__media car" data-car data-idx="0" role="group" aria-roledescription="carousel" aria-label="${n} görsellik carousel">
+      <span class="car__count" aria-hidden="true">1/${n}</span>
+      <div class="car__track">${imgs.map((m, k) =>
+        `<div class="car__slide" role="group" aria-roledescription="slide" aria-label="${k + 1} / ${n}"${k ? " inert" : ""}>${igFrame(pid, m, k, n, r0)}</div>`).join("")}
+      </div>
+      <button class="car__btn car__prev" type="button" data-car-step="-1" aria-label="Önceki görsel" hidden>${icon("left")}</button>
+      <button class="car__btn car__next" type="button" data-car-step="1" aria-label="Sonraki görsel">${icon("right")}</button>
+      <span class="sr-only" aria-live="polite" data-car-live></span>
+    </div>
+    <div class="car__dots" aria-hidden="true">${imgs.map((_, k) => `<i${k ? "" : " data-on"}></i>`).join("")}</div>`;
+}
+
+function renderIg(entry, i, total, mixed) {
+  const { post: p, score, verification } = entry;
+  const pid = `ig${p.id}`;
+  const long = p.caption.length > 180;
+  const m = p.metrics || {};
+  const sub = [
+    p.paidPartnership ? `<span class="ig__paid">Ücretli ortaklık</span> · ${esc(p.paidPartnership)}` : "",
+    p.location ? esc(p.location) : "",
+  ].filter(Boolean).join(" · ");
+  const coauthors = (p.coauthors || []).map((h) => ` ve <a class="ig__handle" href="https://instagram.example.invalid/${esc(h)}">${esc(h)}</a>`).join("");
+  const stats = statItem("likes", "like", "Beğeni", m.likes) + statItem("comments", "reply", "Yorum", m.comments) + statItem("views", "plays", "Oynatma", m.views);
+  return `<article class="post post--ig" id="${pid}" tabindex="0" aria-posinset="${i + 1}" aria-setsize="${total}" aria-labelledby="${pid}-name" aria-describedby="${pid}-text">
+    ${mixed ? sourceLine("instagram") : ""}
+    <div class="ig__head">
+      ${avatar(p.authorName || p.authorHandle, p.hue)}
+      <div class="ig__who">
+        <div class="ig__line">
+          <a class="ig__handle" id="${pid}-name" href="https://instagram.example.invalid/${esc(p.authorHandle)}">${esc(p.authorHandle)}</a>
+          ${p.authorVerified ? verifiedBadge : ""}${coauthors}
+          <span class="post__dot" aria-hidden="true">·</span>
+          <time class="post__time" datetime="${p.publishedAt}" title="${fmtAbs.format(new Date(p.publishedAt))}">${relTime(p.publishedAt)}</time>
+        </div>
+        ${sub ? `<p class="ig__sub">${sub}</p>` : ""}
+      </div>
+    </div>
+    ${igMedia(pid, p)}
+    <p class="ig__caption${long ? " is-clamped" : ""}" id="${pid}-text" lang="${p.lang || "und"}"><b>${esc(p.authorHandle)}</b> ${esc(p.caption)}</p>
+    ${long ? clampBtn(pid, `${pid}-text`) : ""}
+    ${renderVerify(pid, verification)}
+    ${cardFoot(pid, stats, "Instagram'da aç", p.url, score, i, total)}
+  </article>`;
+}
+
+/* ── Genel kart (Reddit + özel siteler) ───────────────────── */
+function renderGeneric(entry, i, total) {
+  const { post: p, score, verification } = entry;
+  const pid = `g${p.id}`;
+  const reddit = p.sourceLabel === "reddit";
+  const place = p.community || p.siteName || p.domain;
+  const badge = reddit ? "r/" : (p.siteName || p.domain)[0].toLocaleUpperCase("tr-TR");
+  const hue = reddit ? 16 : p.hue;
+  const meta = [
+    p.author ? esc(reddit ? `u/${p.author}` : p.author) : "",
+    p.publishedAt ? `<time datetime="${p.publishedAt}" title="${fmtAbs.format(new Date(p.publishedAt))}">${relTime(p.publishedAt)}</time>` : "",
+  ].filter(Boolean);
+  const big = p.kind === "image" && p.image;           // görsel içeriğin kendisi → büyük medya
+  const thumb = p.image && !big;                       // aksi hâlde sağda küçük görsel
+  if (p.image) LIGHTBOX[pid] = [{ src: p.image.src, alt: p.image.alt }];
+  const long = (p.text || "").length > 320;
+  const textId = `${pid}-text`, titleId = `${pid}-title`;
+  // Reddit metin gönderisinde alan adı tekrar olur (reddit.com); dış bağlantıda ve özel sitede gösterilir.
+  const showDomain = !(reddit && !p.linkUrl);
+  const e = p.engagement || {};
+  const stats = statItem("score", "up", "Puan", e.score, e.score < 0 ? `−${fmtNum(-e.score)}` : fmtNum(e.score ?? 0))
+    + statItem("comments", "reply", "Yorum", e.comments);
+  return `<article class="post post--gen" id="${pid}" tabindex="0" aria-posinset="${i + 1}" aria-setsize="${total}" aria-labelledby="${p.title ? titleId : `${pid}-place`}"${p.text ? ` aria-describedby="${textId}"` : ""}>
+    <div class="post__grid">
+      <span class="site-badge" style="background:hsl(${hue} 55% 38%)" aria-hidden="true">${esc(badge)}</span>
+      <div class="post__main">
+        <div class="gen__head">
+          <span class="gen__place" id="${pid}-place">${reddit ? `<span class="sr-only">Reddit, </span>` : ""}${esc(place)}</span>
+          ${meta.length ? `<span class="gen__dot" aria-hidden="true">·</span><span class="gen__meta">${meta.join(` <span aria-hidden="true">·</span> `)}</span>` : ""}
+        </div>
+        <div class="gen__body${thumb ? "" : " gen__body--solo"}">
+          <div>
+            ${p.title ? `<p class="gen__title" id="${titleId}" lang="${p.lang || "und"}">${esc(p.title)}${p.flair ? `<span class="flair"><span class="sr-only">Etiket: </span>${esc(p.flair)}</span>` : ""}</p>` : ""}
+            ${p.text ? `<p class="gen__text${p.title ? "" : " gen__text--lead"}${long ? " is-clamped" : ""}" id="${textId}" lang="${p.lang || "und"}">${esc(p.text)}</p>` : ""}
+            ${long ? clampBtn(pid, textId) : ""}
+          </div>
+          ${thumb ? `<div class="gen__thumb"><button class="media__zoom" type="button" data-lb="${pid}" data-idx="0"><img src="${p.image.src}" alt="${esc(p.image.alt)}" width="${p.image.w}" height="${p.image.h}" loading="lazy"><span class="sr-only"> — büyüt</span></button></div>` : ""}
+        </div>
+        ${big ? renderPhotos(pid, [{ ...p.image, type: "photo" }]) : ""}
+        ${showDomain ? `<a class="gen__domain" href="${esc(p.linkUrl || p.url)}" target="_blank" rel="noopener noreferrer">${icon("link")}<span>${esc(p.domain)}</span><span class="sr-only"> (yeni pencerede)</span></a>` : ""}
+        ${renderVerify(pid, verification)}
+        ${cardFoot(pid, stats, "Kaynağa git", p.url, score, i, total)}
+      </div>
+    </div>
+  </article>`;
+}
+
+function renderCard(entry, i, total, mixed) {
+  const p = platformOf(entry.post);
+  if (p === "instagram") return renderIg(entry, i, total, mixed);
+  if (p === "generic") return renderGeneric(entry, i, total);
+  return renderPost(entry, i, total, mixed);
+}
+
+function renderTally(shown) {
+  const c = RUN.counts;
+  const bySource = RUN.bySource.length > 1 ? RUN.bySource.map(([k, n]) => `${k} ${n}`).join(" · ") : "Ana akıştan toplanan gönderi";
+  const rows = [
+    ["", "Taranan", bySource, c.scanned, "sum"],
+    ["−", "Reklam", "", c.promoted],
+    ["−", "Tekrar", "Aynı gönderi ya da yeniden paylaşımı", c.duplicate],
+    ["−", "Clickbait", "Tık tuzağı olarak elenen", c.clickbait],
+    ["−", "Yargılanamayan medya", "Metni yok, yalnız görsel/video", c.mediaOnly],
+    ["−", "Eşik altı", "Okumaya yeterince değer bulunmadı", c.belowThreshold + (RUN.targetSize - shown)],
+    ["=", "Gösterilen", "", shown, "sum total"],
+  ];
+  return `<dl class="tally">${rows.map(([op, label, hint, n, mod = ""]) =>
+    `<div class="tally__row ${mod.split(" ").filter(Boolean).map((x) => "tally__row--" + x).join(" ")}">
+      <span class="tally__op" aria-hidden="true">${op}</span>
+      <dt>${label}${hint ? `<span>${hint}</span>` : ""}</dt><dd>${n}</dd>
+    </div>`).join("")}</dl>`;
+}
+
+function renderDone(shown) {
+  const lead = shown === 0
+    ? "Bugün okumaya değer bir gönderi çıkmadı. Bu da bir sonuç."
+    : `Bugünlük bu kadar — ${shown} gönderinin hepsini gördün.`;
+  return `<section class="done" id="done" tabindex="-1" aria-labelledby="done-h">
+    <div class="done__icon" aria-hidden="true">${icon("check")}</div>
+    <h2 id="done-h">Bitti</h2>
+    <p class="done__lead">${lead}</p>
+    ${renderTally(shown)}
+    <button class="btn btn--primary" type="button" data-collect>${icon("refresh")}Yeni akış topla</button>
+    <p class="done__foot">Son toplama: ${fmtClock.format(new Date(CAPTURED_AT))} · Yeni akış yalnız sen isteyince hazırlanır.</p>
+  </section>`;
+}
+
+/* ── Durumlar ─────────────────────────────────────────────── */
+const main = document.getElementById("main");
+const meta = document.getElementById("meta");
+const progressText = document.getElementById("progress-text");
+const progressBar = document.getElementById("progress-bar");
+let currentList = [];
+
+function setFeed(list, { short = false } = {}) {
+  currentList = list;
+  const mins = readingMinutes(list);
+  // Kaynak satırı yalnız akışta birden çok kaynak varsa (tek kaynakta gürültü olurdu).
+  const mixed = new Set(list.map((e) => platformOf(e.post))).size > 1;
+  const sources = RUN.bySource.map(([k]) => k);
+  const sourceText = sources.length > 1 ? ` Kaynaklar: ${sources.slice(0, -1).join(", ")} ve ${sources.at(-1)}.` : "";
+  meta.innerHTML = `<b>${list.length} gönderi</b> · ≈ ${mins} dk okuma · ${RUN.counts.scanned} gönderiden seçildi`;
+  main.innerHTML =
+    (short ? `<p class="short-note">Bugün yalnız ${list.length} gönderi eşiği geçti (hedef ${RUN.targetSize}). Akış kısa bitiyor; doldurmak için eşik düşürülmedi.</p>` : "")
+    + `<p class="intro">Okuma değerine göre sıralı — en değerli üstte.${sourceText} Reklam, tekrar ve clickbait çıkarıldı.</p>`
+    + `<div class="feed" role="feed" aria-busy="false" aria-label="Akış, ${list.length} gönderi">${list.map((e, i) => renderCard(e, i, list.length, mixed)).join("")}</div>`
+    + renderDone(list.length);
+  updateProgress();
+}
+
+function setLoading() {
+  currentList = [];
+  meta.innerHTML = `Hazırlanıyor…`;
+  progressText.textContent = "";
+  progressBar.style.width = "0";
+  main.innerHTML = `<section class="state" aria-labelledby="ld-h">
+    <h2 id="ld-h">Akış hazırlanıyor</h2>
+    <p>Genelde 2–3 dakika sürer. Bu pencereyi kapatabilirsin; hazır olunca tepsiden haber verilir.</p>
+    <ol class="steps" aria-live="polite">
+      <li><span class="st-done">${icon("check")}</span><span>Toplandı<small>${RUN.counts.scanned} gönderi</small></span></li>
+      <li><span class="st-done">${icon("check")}</span><span>Reklam, tekrar ve yalnız-medya ayrıldı<small>${RUN.counts.scanned - RUN.counts.promoted - RUN.counts.duplicate - RUN.counts.mediaOnly} gönderi değerlendirilecek</small></span></li>
+      <li aria-current="step"><span class="spinner" aria-hidden="true"></span><span>Claude okuyor ve puanlıyor<small>Tek çağrı · yaklaşık 2 dk</small></span></li>
+      <li><span class="st-wait">${icon("minus")}</span><span>Doğrulamaya değer iddialar kontrol edilecek</span></li>
+    </ol>
+  </section>
+  <div aria-hidden="true">${'<div class="skeleton"><i></i><div><i style="width:40%"></i><i></i><i style="width:85%"></i></div></div>'.repeat(3)}</div>`;
+}
+
+function setEmpty() {
+  currentList = [];
+  meta.innerHTML = `<b>0 gönderi</b> · ${RUN.counts.scanned} gönderi tarandı`;
+  progressText.textContent = "";
+  progressBar.style.width = "100%";
+  main.innerHTML = renderDone(0);
+}
+
+function setError() {
+  currentList = [];
+  meta.innerHTML = `Hazırlanamadı`;
+  progressText.textContent = "";
+  progressBar.style.width = "0";
+  main.innerHTML = `<section class="state state--error" role="alert" aria-labelledby="er-h">
+    <div class="state__icon" aria-hidden="true">${icon("alert")}</div>
+    <h2 id="er-h">Akış hazırlanamadı</h2>
+    <p>Claude 3 dakika içinde yanıt vermedi. Toplanan ${RUN.counts.scanned} gönderi duruyor; yeniden denemek için yeniden toplamak gerekmez.</p>
+    <details class="error-detail"><summary>Teknik ayrıntı</summary><pre>scorer: claude CLI zaman aşımı (180 sn)
+çağrı: 1 · giriş ≈ 36 bin token · çıkış: yok</pre></details>
+    <div class="btn-row">
+      <button class="btn btn--primary" type="button" data-retry>${icon("refresh")}Tekrar dene</button>
+      <button class="btn btn--ghost" type="button" data-collect>Yeni akış topla</button>
+    </div>
+  </section>`;
+}
+
+const STATES = {
+  feed: () => { RUN = RUNS.mixed; setFeed(FEED); },
+  xonly: () => { RUN = RUNS.xonly; setFeed(X_FEED); },
+  short: () => { RUN = RUNS.mixed; setFeed(FEED.slice(0, 4), { short: true }); },
+  loading: () => { RUN = RUNS.mixed; setLoading(); },
+  empty: () => { RUN = RUNS.mixed; setEmpty(); },
+  error: () => { RUN = RUNS.mixed; setError(); },
+};
+function showState(name) {
+  document.querySelectorAll(".seg[data-state]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.state === name)));
+  STATES[name]();
+  window.scrollTo({ top: 0 });
+}
+
+/* ── İlerleme (sonlu akış hissi) ──────────────────────────── */
+function updateProgress() {
+  const total = currentList.length;
+  if (!total) return;
+  const posts = [...main.querySelectorAll(".post")];
+  const done = document.getElementById("done");
+  const line = document.querySelector(".topbar").getBoundingClientRect().bottom + 40;
+  let idx = 0;
+  posts.forEach((p, k) => { if (p.getBoundingClientRect().top < line) idx = k + 1; });
+  const finished = done && done.getBoundingClientRect().top < window.innerHeight * 0.8;
+  if (finished) idx = total;
+  progressText.innerHTML = finished ? "<b>Bitti</b>" : `<b>${Math.max(1, idx)}</b> / ${total}`;
+  progressBar.style.width = `${(finished ? 1 : Math.max(1, idx) / total) * 100}%`;
+}
+let raf = 0;
+addEventListener("scroll", () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(updateProgress); }, { passive: true });
+addEventListener("resize", updateProgress);
+
+/* ── Tema ─────────────────────────────────────────────────── */
+const THEMES = [
+  { key: "system", label: "Sistem", icon: "monitor" },
+  { key: "light", label: "Açık", icon: "sun" },
+  { key: "dark", label: "Koyu", icon: "moon" },
+];
+let themeIdx = 0;
+const themeBtn = document.getElementById("theme-btn");
+function applyTheme() {
+  const t = THEMES[themeIdx];
+  if (t.key === "system") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t.key);
+  themeBtn.innerHTML = icon(t.icon);
+  const next = THEMES[(themeIdx + 1) % THEMES.length];
+  themeBtn.setAttribute("aria-label", `Tema: ${t.label}. Değiştir: ${next.label}`);
+  themeBtn.title = `Tema: ${t.label}`;
+}
+themeBtn.addEventListener("click", () => { themeIdx = (themeIdx + 1) % THEMES.length; applyTheme(); });
+
+/* ── Işık kutusu ──────────────────────────────────────────── */
+const lb = document.getElementById("lightbox");
+const lbImg = document.getElementById("lb-img");
+const lbCap = document.getElementById("lb-cap");
+const lbCount = document.getElementById("lb-count");
+const lbPrev = document.getElementById("lb-prev");
+const lbNext = document.getElementById("lb-next");
+document.getElementById("lb-close").innerHTML = icon("close");
+lbPrev.innerHTML = icon("left");
+lbNext.innerHTML = icon("right");
+let lbSet = [], lbIdx = 0;
+function lbShow() {
+  const it = lbSet[lbIdx];
+  lbImg.src = it.src; lbImg.alt = it.alt; lbCap.textContent = it.alt;
+  lbCount.textContent = lbSet.length > 1 ? `${lbIdx + 1} / ${lbSet.length}` : "";
+  lbPrev.hidden = lbNext.hidden = lbSet.length < 2;
+}
+function lbOpen(pid, idx) { lbSet = LIGHTBOX[pid]; lbIdx = idx; lbShow(); lb.showModal(); }
+lbPrev.addEventListener("click", () => { lbIdx = (lbIdx - 1 + lbSet.length) % lbSet.length; lbShow(); });
+lbNext.addEventListener("click", () => { lbIdx = (lbIdx + 1) % lbSet.length; lbShow(); });
+document.getElementById("lb-close").addEventListener("click", () => lb.close());
+lb.addEventListener("keydown", (e) => {
+  if (lbSet.length < 2) return;
+  if (e.key === "ArrowLeft") lbPrev.click();
+  if (e.key === "ArrowRight") lbNext.click();
+});
+lb.addEventListener("click", (e) => { if (e.target === lb || e.target.classList.contains("lightbox__img")) lb.close(); });
+
+/* ── Etkileşimler ─────────────────────────────────────────── */
+const toast = document.getElementById("toast");
+let toastTimer = 0;
+function say(msg) {
+  toast.textContent = msg; toast.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { toast.hidden = true; }, 2600);
+}
+function toggle(btn) {
+  const panel = document.getElementById(btn.getAttribute("aria-controls"));
+  const open = btn.getAttribute("aria-expanded") !== "true";
+  btn.setAttribute("aria-expanded", String(open));
+  return { panel, open };
+}
+
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  const seg = t.closest(".seg");
+  if (seg && seg.dataset.state) return showState(seg.dataset.state);
+  if (seg && seg.dataset.width) {
+    document.querySelectorAll(".seg[data-width]").forEach((b) => b.setAttribute("aria-pressed", String(b === seg)));
+    document.getElementById("stage").dataset.width = seg.dataset.width;
+    carRealign();
+    return updateProgress();
+  }
+  const more = t.closest("[data-more]");
+  if (more) {
+    const { panel, open } = toggle(more);
+    panel.classList.toggle("is-clamped", !open);
+    more.textContent = open ? "Daha az göster" : "Devamını oku";
+    return;
+  }
+  const v = t.closest(".verify__toggle, .why-btn, [data-alt]");
+  if (v) { const { panel, open } = toggle(v); panel.hidden = !open; return; }
+  const step = t.closest("[data-car-step]");
+  if (step) return carGo(step.closest("[data-car]"), Number(step.dataset.carStep), true);
+  const zoom = t.closest(".media__zoom");
+  if (zoom) return lbOpen(zoom.dataset.lb, Number(zoom.dataset.idx));
+  const play = t.closest(".video__play, [data-video]");
+  if (play) {
+    const box = play.closest(".video");
+    const playing = box.dataset.state !== "playing";
+    box.dataset.state = playing ? "playing" : "idle";
+    box.querySelector(".video__bar").hidden = !playing;
+    (playing ? box.querySelector("[data-video]") : box.querySelector(".video__play")).focus();
+    return;
+  }
+  const gifBtn = t.closest(".gif__toggle");
+  if (gifBtn) {
+    const box = gifBtn.closest(".gif"), img = box.querySelector("img");
+    const playing = box.dataset.playing !== "true";
+    box.dataset.playing = String(playing);
+    img.src = playing ? img.dataset.anim : img.dataset.still;
+    gifBtn.setAttribute("aria-pressed", String(playing));
+    gifBtn.innerHTML = icon(playing ? "pause" : "play");
+    return;
+  }
+  if (t.closest("[data-collect]")) { showState("loading"); return say("Maket: toplama başlar (eklenti + masaüstü)."); }
+  if (t.closest("[data-retry]")) { showState("loading"); return; }
+  const a = t.closest("a[href]");
+  if (a && a.hostname.endsWith("example.invalid")) {
+    e.preventDefault();
+    say(`Maket: ${a.hostname} açılırdı (sentetik bağlantı).`);
+  }
+});
+
+/* ── Carousel: ok düğmesi, kaydırma (dokunma/iz paneli) ve ışık kutusu ile ── */
+const reduceMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function carSync(car, idx, announce) {
+  const slides = car.querySelectorAll(".car__slide"), n = slides.length;
+  idx = Math.max(0, Math.min(n - 1, idx));
+  const changed = Number(car.dataset.idx) !== idx;
+  car.dataset.idx = String(idx);
+  slides.forEach((s, k) => { s.inert = k !== idx; });   // görünmeyen karenin düğmeleri Tab sırasına girmez
+  car.querySelector(".car__count").textContent = `${idx + 1}/${n}`;
+  car.nextElementSibling.querySelectorAll("i").forEach((d, k) => d.toggleAttribute("data-on", k === idx));
+  const prev = car.querySelector(".car__prev"), next = car.querySelector(".car__next");
+  const hadFocus = document.activeElement;
+  prev.hidden = idx === 0; next.hidden = idx === n - 1;
+  // Uçta gizlenen ok odaktaysa odak karşı oka geçer (odak kaybolmaz).
+  if (hadFocus === prev && prev.hidden) next.focus();
+  if (hadFocus === next && next.hidden) prev.focus();
+  if (announce && changed) car.querySelector("[data-car-live]").textContent = `Görsel ${idx + 1} / ${n}`;
+}
+function carGo(car, delta, announce) {
+  const track = car.querySelector(".car__track");
+  const idx = Number(car.dataset.idx) + delta;
+  track.scrollTo({ left: idx * track.clientWidth, behavior: reduceMotion() ? "auto" : "smooth" });
+  carSync(car, idx, announce);
+}
+document.addEventListener("scroll", (e) => {
+  const track = e.target.classList && e.target.classList.contains("car__track") ? e.target : null;
+  if (!track) return;
+  clearTimeout(track._t);
+  track._t = setTimeout(() => carSync(track.closest("[data-car]"), Math.round(track.scrollLeft / track.clientWidth), false), 90);
+}, true);
+// Sütun genişliği değişince geçerli kareye yeniden hizala.
+function carRealign() {
+  document.querySelectorAll("[data-car]").forEach((car) => {
+    const track = car.querySelector(".car__track");
+    track.scrollLeft = Number(car.dataset.idx) * track.clientWidth;
+  });
+}
+addEventListener("resize", carRealign);
+
+/* J/K: gönderiler arası; son gönderiden sonra "Bitti". */
+document.addEventListener("keydown", (e) => {
+  if (lb.open || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
+  const k = e.key.toLowerCase();
+  if (k !== "j" && k !== "k") return;
+  const items = [...main.querySelectorAll(".post"), document.getElementById("done")].filter(Boolean);
+  if (!items.length) return;
+  const cur = items.findIndex((el) => el.contains(document.activeElement));
+  const next = cur === -1 ? 0 : Math.min(items.length - 1, Math.max(0, cur + (k === "j" ? 1 : -1)));
+  items[next].focus({ preventScroll: true });
+  items[next].scrollIntoView({ block: "start" });
+  e.preventDefault();
+});
+
+/* ── Görselleri üret ve başlat ────────────────────────────── */
+for (const { post } of [...POSTS, ...IG_POSTS, ...GEN_ITEMS]) {
+  for (const m of post.media || []) {
+    const label = m.type === "video" ? (post.kind === "reel" ? "Reel" : "Video") : m.type === "gif" ? "GIF" : "Görsel";
+    m.src = ph({ w: m.w, h: m.h, hue: m.hue, label, kind: m.kind });
+    if (m.type === "gif") m.srcAnim = ph({ w: m.w, h: m.h, hue: m.hue, label, animated: true });
+  }
+  if (post.link) post.link.src = ph({ w: 1200, h: 628, hue: post.link.hue, label: "Bağlantı görseli" });
+  if (post.image) post.image.src = ph({ w: post.image.w, h: post.image.h, hue: post.image.hue, label: "Görsel" });
+}
+applyTheme();
+showState("feed");
+</script>
+</body>
+</html>
