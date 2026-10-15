@@ -37,6 +37,18 @@ describe("loadSettings", () => {
     });
   });
 
+  it("reads the stamp the host saved with the settings", async () => {
+    const stamp = { updatedAt: "2026-10-15T10:00:00.000Z", source: "desktop" };
+    const path = await file("stamped.json", JSON.stringify({ maxClickbait: 4, ...stamp }));
+    expect(await loadSettings(path)).toEqual({
+      settings: { ...defaults, maxClickbait: 4 },
+      found: true,
+      stamp,
+    });
+    const broken = await file("bad-stamp.json", JSON.stringify({ updatedAt: "yesterday" }));
+    expect((await loadSettings(broken)).stamp).toBeUndefined();
+  });
+
   it("resets only the invalid fields and says which", async () => {
     const path = await file(
       "partial.json",

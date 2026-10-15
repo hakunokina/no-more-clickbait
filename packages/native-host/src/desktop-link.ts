@@ -4,7 +4,17 @@ import { connect, createServer, type Server, type Socket } from "node:net";
 import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { z } from "zod";
-import { CollectionProgressSchema, CollectionStartResultSchema } from "@nmc/core";
+import {
+  CollectionProgressSchema,
+  CollectionStartResultSchema,
+  ManagedSettingsSchema,
+  SettingsStampSchema,
+} from "@nmc/core";
+import {
+  BrowserIdentitySchema,
+  UNKNOWN_BROWSER,
+  type BrowserIdentity,
+} from "./browser-identity.js";
 import { encodeMessage, MessageDecoder } from "./framing.js";
 
 /**
@@ -87,11 +97,29 @@ export type CollectionStartResultEvent = z.infer<typeof CollectionStartResultEve
 export const CollectionProgressEventSchema = CollectionProgressSchema;
 export type CollectionProgressEvent = z.infer<typeof CollectionProgressEventSchema>;
 
+/**
+ * The settings the extension holds, relayed when it reports them (on
+ * connecting, `origin: "sync"`) or answers a desktop push. `saved`:
+ * settings.json now holds them (false: it already held a later save).
+ */
+export const SettingsStateEventSchema = z.object({
+  type: z.literal("settings-state"),
+  origin: z.enum(["sync", "push-result"]),
+  settings: ManagedSettingsSchema,
+  stamp: SettingsStampSchema,
+  saved: z.boolean(),
+  /** push-result: whether the push was applied or the extension's own save was later. */
+  outcome: z.enum(["applied", "kept-newer"]).optional(),
+  modeBPermissionMissing: z.boolean().optional(),
+});
+export type SettingsStateEvent = z.infer<typeof SettingsStateEventSchema>;
+
 /** Host -> desktop events after the handshake. */
 export const HostEventSchema = z.discriminatedUnion("type", [
   CollectionCompleteEventSchema,
   CollectionStartResultEventSchema,
   CollectionProgressEventSchema,
+  SettingsStateEventSchema,
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 
@@ -102,6 +130,12 @@ export const DesktopCommandSchema = z.discriminatedUnion("type", [
     target: z.number().int().min(1).max(10_000).optional(),
   }),
   z.object({ type: z.literal("stop-collection") }),
+  /** Settings changed in the desktop app, for the extension to apply. */
+  z.object({
+    type: z.literal("settings-push"),
+    settings: ManagedSettingsSchema,
+    stamp: SettingsStampSchema,
+  }),
 ]);
 export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 
@@ -116,7 +150,12 @@ const WelcomeSchema = z.object({
   nonce: NonceSchema,
   proof: ProofSchema,
 });
-const AuthSchema = z.object({ type: z.literal("auth"), proof: ProofSchema });
+/** `browser`: where the host runs (hosts built before it send none). */
+const AuthSchema = z.object({
+  type: z.literal("auth"),
+  proof: ProofSchema,
+  browser: BrowserIdentitySchema.optional(),
+});
 const ReadySchema = z.object({ type: z.literal("ready") });
 
 export function newNonce(): string {
@@ -232,10 +271,16 @@ class FramedConnection {
   }
 }
 
+/** An authenticated host as the desktop sees it. */
+export interface LinkedHost {
+  /** Unknown (`other`) for hosts that did not say. */
+  browser: BrowserIdentity;
+}
+
 export interface LinkServerOptions {
   path: string;
   token: string;
-  onEvent(event: HostEvent): void;
+  onEvent(event: HostEvent, from: LinkedHost): void;
   /** Number of authenticated hosts changed. */
   onHostsChanged?(count: number): void;
   /** Peers that fail the handshake are dropped without this many ms. */
@@ -247,7 +292,7 @@ export class LinkServer {
   readonly #options: LinkServerOptions;
   #server: Server | null = null;
   /** Authenticated hosts, most recent last. */
-  readonly #hosts: FramedConnection[] = [];
+  readonly #hosts: { connection: FramedConnection; info: LinkedHost }[] = [];
 
   constructor(options: LinkServerOptions) {
     this.#options = options;
@@ -255,6 +300,11 @@ export class LinkServer {
 
   get hostCount(): number {
     return this.#hosts.length;
+  }
+
+  /** The connected hosts, most recent last. */
+  get hosts(): LinkedHost[] {
+    return this.#hosts.map((host) => host.info);
   }
 
   async listen(): Promise<void> {
@@ -273,14 +323,17 @@ export class LinkServer {
     });
   }
 
-  /** Sends a command to the most recently connected host. */
-  send(command: DesktopCommand): boolean {
-    const host = this.#hosts[this.#hosts.length - 1];
-    return host ? host.send(command) : false;
+  /**
+   * Sends a command to the most recently connected host — of those
+   * `accept` takes, when given (e.g. one browser's).
+   */
+  send(command: DesktopCommand, accept?: (host: LinkedHost) => boolean): boolean {
+    const host = this.#hosts.filter((candidate) => accept?.(candidate.info) ?? true).pop();
+    return host ? host.connection.send(command) : false;
   }
 
   close(): Promise<void> {
-    for (const host of [...this.#hosts]) host.close();
+    for (const host of [...this.#hosts]) host.connection.close();
     return new Promise((resolve) => {
       if (!this.#server) resolve();
       else this.#server.close(() => resolve());
@@ -292,6 +345,7 @@ export class LinkServer {
     const { token } = this.#options;
     const ownNonce = newNonce();
     let state: "hello" | "auth" | "ready" = "hello";
+    const info: LinkedHost = { browser: UNKNOWN_BROWSER };
     const timer = setTimeout(() => {
       if (state !== "ready") socket.destroy();
     }, this.#options.handshakeTimeoutMs ?? 5_000);
@@ -321,17 +375,18 @@ export class LinkServer {
           }
           state = "ready";
           clearTimeout(timer);
+          if (auth.data.browser) info.browser = auth.data.browser;
           connection.send({ type: "ready" });
-          this.#hosts.push(connection);
+          this.#hosts.push({ connection, info });
           this.#options.onHostsChanged?.(this.#hosts.length);
           return;
         }
         const event = HostEventSchema.safeParse(message);
-        if (event.success) this.#options.onEvent(event.data);
+        if (event.success) this.#options.onEvent(event.data, info);
       },
       () => {
         clearTimeout(timer);
-        const index = this.#hosts.indexOf(connection);
+        const index = this.#hosts.findIndex((host) => host.connection === connection);
         if (index >= 0) {
           this.#hosts.splice(index, 1);
           this.#options.onHostsChanged?.(this.#hosts.length);
@@ -346,6 +401,8 @@ export interface LinkClientOptions {
   tokenPath?: string;
   onCommand(command: DesktopCommand): void;
   onConnectionChanged?(connected: boolean): void;
+  /** Where this host runs, told to the desktop in the handshake. */
+  browser?: BrowserIdentity | Promise<BrowserIdentity>;
   /**
    * First delay between connection attempts while the desktop app is
    * closed; it doubles per failed attempt up to `maxRetryMs` and resets
@@ -425,6 +482,8 @@ export class LinkClient {
     if (this.#closed || this.#connection) return;
     const token = await readLinkToken(this.#options.tokenPath ?? linkTokenPath());
     if (!token || this.#closed) return this.#retry();
+    const browser = await this.#options.browser;
+    if (this.#closed || this.#connection) return;
     const socket = connect(this.#options.path ?? desktopPipePath());
     const ownNonce = newNonce();
     let state: "welcome" | "ready" | "open" = "welcome";
@@ -448,6 +507,7 @@ export class LinkClient {
           connection.send({
             type: "auth",
             proof: linkProof(token, "host", welcome.data.nonce),
+            ...(browser ? { browser } : {}),
           });
           state = "ready";
           return;

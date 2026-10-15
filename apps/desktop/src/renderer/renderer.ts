@@ -139,6 +139,7 @@ function guarded(button: HTMLButtonElement, action: () => Promise<unknown>): voi
 guarded(el<HTMLButtonElement>("primary"), () => ACTIONS[primaryAction]());
 guarded(el<HTMLButtonElement>("collect-link"), () => window.nmc.startCollection());
 el("open-reader").addEventListener("click", () => void window.nmc.openReader());
+el("open-settings").addEventListener("click", () => void window.nmc.openSettings());
 
 window.nmc.onStatus(render);
 void window.nmc.getStatus().then(render);
