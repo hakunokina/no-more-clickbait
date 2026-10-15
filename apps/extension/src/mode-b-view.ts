@@ -1,8 +1,16 @@
-import { ModeBRunSummarySchema, type ModeBRunSummary, type ModeBStrategy } from "@nmc/core";
+import {
+  ModeBPacingSchema,
+  ModeBRunSummarySchema,
+  type ModeBPacing,
+  type ModeBRunSummary,
+  type ModeBStrategy,
+} from "@nmc/core";
 import type { ModeBCommandMessage } from "./messages.js";
 import {
   describeStopReason,
+  loadModeBPacing,
   MODE_B_LAST_RUN_KEY,
+  MODE_B_PACING_KEY,
   MODE_B_PERMISSIONS,
   MODE_B_RUN_KEY,
 } from "./mode-b.js";
@@ -18,7 +26,12 @@ import { loadSettings } from "./settings.js";
 export const STRATEGY_LABEL: Record<ModeBStrategy, string> = {
   "minimized-window": "minimized window",
   "background-tab": "background tab",
-  "offscreen-window": "off-screen window",
+  "offscreen-window": "small window in the screen corner (visible)",
+};
+
+export const PACING_LABEL: Record<ModeBPacing, string> = {
+  response: "wait for X to answer each scroll",
+  fixed: "fixed fast timer (0.36–0.70 s)",
 };
 
 export interface ModeBControls {
@@ -49,25 +62,46 @@ function runningCount(value: unknown): { count: number; target: number } | null 
 export function lastRunLine(run: ModeBRunSummary): string {
   return (
     `Last run: ${run.uniquePostCount} / ${run.target} posts via ` +
-    `${STRATEGY_LABEL[run.strategy]} — ${describeStopReason(run.stopReason)}.`
+    `${STRATEGY_LABEL[run.strategy]} — ${describeStopReason(run.stopReason)}` +
+    `${run.error === undefined ? "" : ` (${run.error})`}.`
   );
 }
 
 /** Label/value rows for the options page's last-run summary. */
 export function lastRunRows(run: ModeBRunSummary): [string, string][] {
-  return [
-    ["Result", describeStopReason(run.stopReason)],
+  const rows: [string, string][] = [["Result", describeStopReason(run.stopReason)]];
+  if (run.error !== undefined) rows.push(["Error", `${run.stopReason}: ${run.error}`]);
+  rows.push(
     ["Hidden surface", STRATEGY_LABEL[run.strategy]],
+    ["Pacing", run.pacing === undefined ? "—" : PACING_LABEL[run.pacing]],
     [
       "Distinct posts",
       `${run.uniquePostCount} of ${run.target} (counted by the ${run.counter})`,
     ],
     ["Duration", `${(run.durationMs / 1000).toFixed(1)} s`],
     ["Scroll steps", `${run.scrollCount} (position moved in ${run.scrollMovedCount})`],
+    [
+      "Scrolls per minute",
+      run.scrollsPerMinute === undefined ? "—" : String(run.scrollsPerMinute),
+    ],
     ["Steps while page hidden", String(run.hiddenStepCount)],
-    ["Timeline responses", String(run.responseCount)],
+    [
+      "Timeline responses",
+      run.responseCount === 0 && run.stopReason !== "failed-to-open"
+        ? "0 — X never loaded the timeline in the run's tab"
+        : String(run.responseCount),
+    ],
+    [
+      "Steps that brought a new response (after the first)",
+      run.stepsWithNewResponse === undefined ? "—" : String(run.stepsWithNewResponse),
+    ],
+    [
+      "Mean wait for X's response",
+      run.avgResponseLatencyMs === undefined ? "—" : `${run.avgResponseLatencyMs} ms`,
+    ],
     ["Ended", new Date(run.endedAt).toLocaleString()],
-  ];
+  );
+  return rows;
 }
 
 function renderRows(target: HTMLElement, rows: [string, string][]): void {
@@ -82,8 +116,25 @@ function renderRows(target: HTMLElement, rows: [string, string][]): void {
   );
 }
 
+function bindPacing(select: HTMLSelectElement): void {
+  void loadModeBPacing().then((pacing) => {
+    select.value = pacing;
+  });
+  select.addEventListener("change", () => {
+    const pacing = ModeBPacingSchema.safeParse(select.value);
+    if (pacing.success) {
+      void chrome.storage.local
+        .set({ [MODE_B_PACING_KEY]: pacing.data })
+        .catch(() => undefined);
+    }
+  });
+}
+
 export function bindModeBControls({ button, status, lastRun }: ModeBControls): void {
   let running = false;
+  // Options page only: the pacing choice (saved on change, no Save needed).
+  const pacing = document.querySelector<HTMLSelectElement>("#mode-b-pacing");
+  if (pacing) bindPacing(pacing);
 
   const render = async (): Promise<void> => {
     const settings = await loadSettings();
@@ -99,7 +150,7 @@ export function bindModeBControls({ button, status, lastRun }: ModeBControls): v
       button.textContent = "Stop collecting";
       status.textContent = `Collecting in the background… ${current.count} / ${current.target} distinct posts.`;
     } else {
-      button.textContent = `Collect feed (${settings.modeBTarget})`;
+      button.textContent = `Collect feed (${settings.collectTarget})`;
       status.textContent = !settings.modeBEnabled
         ? "Mode B is off — turn it on in Options to collect automatically."
         : last.success

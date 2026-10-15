@@ -136,6 +136,26 @@ describe("Mode B run bridge message", () => {
     });
   });
 
+  it("carries the pacing, rate and error fields, which older summaries lack", () => {
+    const later = {
+      ...run,
+      stopReason: "failed-to-open",
+      pacing: "response",
+      scrollsPerMinute: 41.5,
+      stepsWithNewResponse: 5,
+      avgResponseLatencyMs: 820,
+      error: "Invalid value for bounds.",
+    };
+    expect(BridgeMessageSchema.parse({ type: "mode-b-run", run: later })).toEqual({
+      type: "mode-b-run",
+      run: later,
+    });
+    expect(
+      BridgeMessageSchema.safeParse({ type: "mode-b-run", run: { ...run, pacing: "warp" } })
+        .success,
+    ).toBe(false);
+  });
+
   it("rejects unknown stop reasons and strips fields beyond the counts", () => {
     expect(
       BridgeMessageSchema.safeParse({

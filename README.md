@@ -77,10 +77,14 @@ How a run behaves:
   background worker mid-run.
 - Browsers stop rendering pages nobody can see and slow their timers, and
   X may then load no further posts. The options page therefore offers
-  three hidden surfaces — a minimized window, a background tab, and a small
-  window pushed off-screen — and shows the numbers of the last run (posts,
-  scrolls, how often the page was hidden, why it stopped). With developer
-  capture on, the same counts are added to that capture's `summary.json`.
+  three surfaces — a minimized window, a background tab, and a small
+  window in the screen corner (browsers keep at least half of a window on
+  screen, so this one stays partly visible) — and two scroll paces (wait
+  for X to answer each scroll, or a fixed fast timer). It shows the numbers
+  of the last run (posts, scrolls per minute, responses, how often the page
+  was hidden, why it stopped and the browser's error, if any). With
+  developer capture on, the same counts are added to that capture's
+  `summary.json`.
 
 ## Layout
 
