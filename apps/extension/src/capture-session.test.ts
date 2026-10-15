@@ -106,4 +106,19 @@ describe("CaptureSession", () => {
     await area.set({ "nmc-capture-session": { filter: "nope" } });
     await expect(new CaptureSession(area).countPosts(response1)).resolves.toBe(4);
   });
+
+  it("ignores a stored state whose stats miss a counter (no NaN)", async () => {
+    const area = fakeArea();
+    await area.set({
+      "nmc-capture-session": {
+        notified: false,
+        filter: { seen: [["999", false]], stats: { seen: 1, kept: 1 } },
+      },
+    });
+    await expect(new CaptureSession(area).countPosts(response1)).resolves.toBe(4);
+    const stored = JSON.parse(area.data.get("nmc-capture-session") ?? "null") as {
+      filter: { stats: { dropped: { promoted: number } } };
+    };
+    expect(stored.filter.stats.dropped.promoted).toBe(1);
+  });
 });
