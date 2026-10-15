@@ -1,0 +1,23 @@
+{
+  "nmcRule": 1,
+  "id": "haber.example.invalid/gundem",
+  "name": "Kuzeykent Postası — Gündem",
+  "url": "https://haber.example.invalid/gundem",
+  "match": ["haber.example.invalid/gundem/*"],
+  "item": { "selector": "article.np-card", "exclude": [":has(.np-sponsor)"] },
+  "fields": {
+    "title": { "selector": "h2.np-title" },
+    "text": { "selector": "p.np-summary" },
+    "link": { "selector": "a.np-link", "attr": "href" },
+    "author": { "selector": "span.np-author" },
+    "time": { "selector": "time", "attr": "datetime" },
+    "image": { "selector": "img.np-thumb" }
+  },
+  "exclude": { "within": ["span.np-inline-promo"] },
+  "collect": { "method": "static" },
+  "pagination": { "type": "load-more", "selector": "button.np-more", "maxPages": 3 },
+  "health": { "minItems": 3 },
+  "origin": "manual",
+  "createdAt": "2026-10-15T11:20:00Z",
+  "updatedAt": "2026-10-15T11:20:00Z"
+}

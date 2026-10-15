@@ -67,12 +67,33 @@ function fnv1a(text: string, basis: number): number {
 /**
  * A stable id for a generic item whose source gives none: a hash of its
  * URL without the fragment (the same page via "#comments" is the same
- * item). Not a security hash — only stable and spread out.
+ * item). Not a security hash — only stable and spread out. Never
+ * throws: a string that does not parse as a URL is hashed as given
+ * (trimmed), so one malformed link cannot fail a whole batch.
  */
 export function genericItemIdFromUrl(url: string): string {
-  const parsed = new URL(url);
-  parsed.hash = "";
-  const href = parsed.href;
+  let href: string;
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    href = parsed.href;
+  } catch {
+    href = url.trim();
+  }
+  return `u${hash64(href)}`;
+}
+
+/**
+ * A stable id for a generic item with no link of its own (a custom rule
+ * card without one): a hash of its text. Weaker than a URL id — the
+ * same story with an edited summary is a new item.
+ */
+export function genericItemIdFromText(text: string): string {
+  return `t${hash64(text)}`;
+}
+
+/** Two 32-bit FNV-1a hashes with different bases, as 16 hex digits. */
+function hash64(text: string): string {
   const hex = (n: number): string => n.toString(16).padStart(8, "0");
-  return `u${hex(fnv1a(href, 0x811c9dc5))}${hex(fnv1a(href, 0x050c5d1f))}`;
+  return `${hex(fnv1a(text, 0x811c9dc5))}${hex(fnv1a(text, 0x050c5d1f))}`;
 }
