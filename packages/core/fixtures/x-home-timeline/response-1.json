@@ -1,0 +1,653 @@
+{
+  "data": {
+    "home": {
+      "home_timeline_urt": {
+        "instructions": [
+          {
+            "type": "TimelineClearCache"
+          },
+          {
+            "type": "TimelineAddEntries",
+            "entries": [
+              {
+                "entryId": "cursor-top-1",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineCursor",
+                  "__typename": "TimelineTimelineCursor",
+                  "value": "SYNTHETIC",
+                  "cursorType": "Top"
+                }
+              },
+              {
+                "entryId": "tweet-1000000000000000001",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1000000000000000001",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "id": "VXNlcjo1",
+                              "rest_id": "900000001",
+                              "core": {
+                                "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                "name": "Synthetic User 1",
+                                "screen_name": "synthetic_user_1"
+                              },
+                              "is_blue_verified": true,
+                              "verification": {
+                                "verified": false
+                              },
+                              "tweet_counts": {
+                                "tweets": 100,
+                                "media_tweets": 10
+                              }
+                            }
+                          }
+                        },
+                        "views": {
+                          "count": "1500",
+                          "state": "EnabledWithCount"
+                        },
+                        "is_translatable": false,
+                        "legacy": {
+                          "id_str": "1000000000000000001",
+                          "user_id_str": "900000001",
+                          "conversation_id_str": "1000000000000000001",
+                          "created_at": "Thu Jan 01 11:58:00 +0000 2026",
+                          "full_text": "Library opens a new reading room downtown &amp; extends hours https://short.example.invalid/l1",
+                          "lang": "en",
+                          "display_text_range": [0, 94],
+                          "entities": {
+                            "hashtags": [],
+                            "symbols": [],
+                            "user_mentions": [],
+                            "urls": [
+                              {
+                                "url": "https://short.example.invalid/l1",
+                                "expanded_url": "https://news.example.invalid/reading-room",
+                                "display_url": "news.example.invalid/reading-room",
+                                "indices": [62, 94]
+                              }
+                            ]
+                          },
+                          "favorite_count": 12,
+                          "retweet_count": 3,
+                          "reply_count": 4,
+                          "quote_count": 1,
+                          "bookmark_count": 0,
+                          "favorited": false,
+                          "retweeted": false,
+                          "bookmarked": false,
+                          "is_quote_status": false
+                        }
+                      }
+                    },
+                    "tweetDisplayType": "Tweet"
+                  },
+                  "clientEventInfo": {
+                    "component": "for_you_in_network"
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-1000000000000000002",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1000000000000000002",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "id": "VXNlcjo2",
+                              "rest_id": "900000002",
+                              "core": {
+                                "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                "name": "Synthetic User 2",
+                                "screen_name": "synthetic_user_2"
+                              },
+                              "is_blue_verified": false,
+                              "verification": {
+                                "verified": false
+                              },
+                              "tweet_counts": {
+                                "tweets": 100,
+                                "media_tweets": 10
+                              }
+                            }
+                          }
+                        },
+                        "views": {
+                          "count": "1500",
+                          "state": "EnabledWithCount"
+                        },
+                        "is_translatable": false,
+                        "legacy": {
+                          "id_str": "1000000000000000002",
+                          "user_id_str": "900000002",
+                          "conversation_id_str": "1000000000000000002",
+                          "created_at": "Thu Jan 01 11:58:00 +0000 2026",
+                          "full_text": "https://short.example.invalid/m1",
+                          "lang": "en",
+                          "display_text_range": [0, 32],
+                          "entities": {
+                            "urls": [],
+                            "media": [
+                              {
+                                "type": "photo",
+                                "url": "https://short.example.invalid/m1",
+                                "expanded_url": "https://x.example.invalid/photo/1",
+                                "display_url": "pic.example.invalid",
+                                "media_url_https": "https://media.example.invalid/1.jpg",
+                                "id_str": "70001",
+                                "media_key": "3_70001"
+                              }
+                            ]
+                          },
+                          "favorite_count": 12,
+                          "retweet_count": 3,
+                          "reply_count": 4,
+                          "quote_count": 1,
+                          "bookmark_count": 0,
+                          "favorited": false,
+                          "retweeted": false,
+                          "bookmarked": false,
+                          "is_quote_status": false,
+                          "extended_entities": {
+                            "media": [
+                              {
+                                "type": "photo",
+                                "url": "https://short.example.invalid/m1",
+                                "expanded_url": "https://x.example.invalid/photo/1",
+                                "display_url": "pic.example.invalid",
+                                "media_url_https": "https://media.example.invalid/1.jpg",
+                                "id_str": "70001",
+                                "media_key": "3_70001",
+                                "ext_alt_text": "A synthetic sunset"
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    },
+                    "tweetDisplayType": "Tweet"
+                  },
+                  "clientEventInfo": {
+                    "component": "for_you_in_network"
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-1000000000000000004",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "TweetWithVisibilityResults",
+                        "tweet": {
+                          "__typename": "Tweet",
+                          "rest_id": "1000000000000000004",
+                          "core": {
+                            "user_results": {
+                              "result": {
+                                "__typename": "User",
+                                "id": "VXNlcjo4",
+                                "rest_id": "900000004",
+                                "core": {
+                                  "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                  "name": "Synthetic User 4",
+                                  "screen_name": "synthetic_user_4"
+                                },
+                                "is_blue_verified": false,
+                                "verification": {
+                                  "verified": false
+                                },
+                                "tweet_counts": {
+                                  "tweets": 100,
+                                  "media_tweets": 10
+                                }
+                              }
+                            }
+                          },
+                          "views": {
+                            "count": "1500",
+                            "state": "EnabledWithCount"
+                          },
+                          "is_translatable": false,
+                          "quoted_status_result": {
+                            "result": {
+                              "__typename": "Tweet",
+                              "rest_id": "1000000000000000003",
+                              "core": {
+                                "user_results": {
+                                  "result": {
+                                    "__typename": "User",
+                                    "id": "VXNlcjo3",
+                                    "rest_id": "900000003",
+                                    "core": {
+                                      "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                      "name": "Synthetic User 3",
+                                      "screen_name": "synthetic_user_3"
+                                    },
+                                    "is_blue_verified": false,
+                                    "verification": {
+                                      "verified": false,
+                                      "verified_type": "Business"
+                                    },
+                                    "tweet_counts": {
+                                      "tweets": 100,
+                                      "media_tweets": 10
+                                    }
+                                  }
+                                }
+                              },
+                              "views": {
+                                "count": "1500",
+                                "state": "EnabledWithCount"
+                              },
+                              "is_translatable": false,
+                              "legacy": {
+                                "id_str": "1000000000000000003",
+                                "user_id_str": "900000003",
+                                "conversation_id_str": "1000000000000000003",
+                                "created_at": "Thu Jan 01 11:58:00 +0000 2026",
+                                "full_text": "Council approves the synthetic bridge budget.",
+                                "lang": "en",
+                                "display_text_range": [0, 45],
+                                "entities": {
+                                  "hashtags": [],
+                                  "symbols": [],
+                                  "user_mentions": [],
+                                  "urls": []
+                                },
+                                "favorite_count": 12,
+                                "retweet_count": 3,
+                                "reply_count": 4,
+                                "quote_count": 1,
+                                "bookmark_count": 0,
+                                "favorited": false,
+                                "retweeted": false,
+                                "bookmarked": false,
+                                "is_quote_status": false
+                              }
+                            }
+                          },
+                          "legacy": {
+                            "id_str": "1000000000000000004",
+                            "user_id_str": "900000004",
+                            "conversation_id_str": "1000000000000000004",
+                            "created_at": "Thu Jan 01 11:58:00 +0000 2026",
+                            "full_text": "Worth reading the whole thing https://short.example.invalid/q1",
+                            "lang": "en",
+                            "display_text_range": [0, 62],
+                            "entities": {
+                              "urls": [
+                                {
+                                  "url": "https://short.example.invalid/q1",
+                                  "expanded_url": "https://x.example.invalid/synthetic_user_3/status/1000000000000000003",
+                                  "display_url": "x.example.invalid/…"
+                                }
+                              ]
+                            },
+                            "favorite_count": 12,
+                            "retweet_count": 3,
+                            "reply_count": 4,
+                            "quote_count": 1,
+                            "bookmark_count": 0,
+                            "favorited": false,
+                            "retweeted": false,
+                            "bookmarked": false,
+                            "is_quote_status": true,
+                            "quoted_status_id_str": "1000000000000000003",
+                            "quoted_status_permalink": {
+                              "url": "https://short.example.invalid/q1",
+                              "expanded": "https://x.example.invalid/synthetic_user_3/status/1000000000000000003",
+                              "display": "x.example.invalid/…"
+                            }
+                          }
+                        },
+                        "limitedActionResults": {
+                          "limited_actions": []
+                        }
+                      }
+                    },
+                    "tweetDisplayType": "Tweet"
+                  },
+                  "clientEventInfo": {
+                    "component": "for_you_in_network"
+                  }
+                }
+              },
+              {
+                "entryId": "tweet-1000000000000000005",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1000000000000000005",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "id": "VXNlcjo5",
+                              "rest_id": "900000005",
+                              "core": {
+                                "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                "name": "Synthetic User 5",
+                                "screen_name": "synthetic_user_5"
+                              },
+                              "is_blue_verified": false,
+                              "verification": {
+                                "verified": false
+                              },
+                              "tweet_counts": {
+                                "tweets": 100,
+                                "media_tweets": 10
+                              }
+                            }
+                          }
+                        },
+                        "views": {
+                          "count": "1500",
+                          "state": "EnabledWithCount"
+                        },
+                        "is_translatable": false,
+                        "note_tweet": {
+                          "is_expandable": true,
+                          "note_tweet_results": {
+                            "result": {
+                              "id": "Tm90ZTox",
+                              "text": "A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener.",
+                              "entity_set": {
+                                "urls": [],
+                                "hashtags": [],
+                                "user_mentions": [],
+                                "symbols": []
+                              },
+                              "richtext": {
+                                "richtext_tags": []
+                              }
+                            }
+                          }
+                        },
+                        "legacy": {
+                          "id_str": "1000000000000000005",
+                          "user_id_str": "900000005",
+                          "conversation_id_str": "1000000000000000005",
+                          "created_at": "Thu Jan 01 11:58:00 +0000 2026",
+                          "full_text": "A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthetic thread opener. A long synthet…",
+                          "lang": "en",
+                          "display_text_range": [0, 271],
+                          "entities": {
+                            "hashtags": [],
+                            "symbols": [],
+                            "user_mentions": [],
+                            "urls": []
+                          },
+                          "favorite_count": 12,
+                          "retweet_count": 3,
+                          "reply_count": 4,
+                          "quote_count": 1,
+                          "bookmark_count": 0,
+                          "favorited": false,
+                          "retweeted": false,
+                          "bookmarked": false,
+                          "is_quote_status": false
+                        }
+                      }
+                    },
+                    "tweetDisplayType": "Tweet"
+                  },
+                  "clientEventInfo": {
+                    "component": "for_you_in_network"
+                  }
+                }
+              },
+              {
+                "entryId": "promoted-tweet-1000000000000000006-1a2b",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "Tweet",
+                        "rest_id": "1000000000000000006",
+                        "core": {
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "id": "VXNlcjo6",
+                              "rest_id": "900000006",
+                              "core": {
+                                "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                "name": "Synthetic User 6",
+                                "screen_name": "synthetic_user_6"
+                              },
+                              "is_blue_verified": false,
+                              "verification": {
+                                "verified": false
+                              },
+                              "tweet_counts": {
+                                "tweets": 100,
+                                "media_tweets": 10
+                              }
+                            }
+                          }
+                        },
+                        "views": {
+                          "count": "1500",
+                          "state": "EnabledWithCount"
+                        },
+                        "is_translatable": false,
+                        "legacy": {
+                          "id_str": "1000000000000000006",
+                          "user_id_str": "900000006",
+                          "conversation_id_str": "1000000000000000006",
+                          "created_at": "Thu Jan 01 11:58:00 +0000 2026",
+                          "full_text": "Buy the synthetic gadget today!",
+                          "lang": "en",
+                          "display_text_range": [0, 31],
+                          "entities": {
+                            "hashtags": [],
+                            "symbols": [],
+                            "user_mentions": [],
+                            "urls": []
+                          },
+                          "favorite_count": 12,
+                          "retweet_count": 3,
+                          "reply_count": 4,
+                          "quote_count": 1,
+                          "bookmark_count": 0,
+                          "favorited": false,
+                          "retweeted": false,
+                          "bookmarked": false,
+                          "is_quote_status": false
+                        }
+                      }
+                    },
+                    "tweetDisplayType": "Tweet",
+                    "promotedMetadata": {
+                      "advertiser_results": {
+                        "result": {
+                          "__typename": "User",
+                          "id": "VXNlcjo6",
+                          "rest_id": "900000006",
+                          "core": {
+                            "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                            "name": "Synthetic User 6",
+                            "screen_name": "synthetic_user_6"
+                          },
+                          "is_blue_verified": false,
+                          "verification": {
+                            "verified": false
+                          },
+                          "tweet_counts": {
+                            "tweets": 100,
+                            "media_tweets": 10
+                          }
+                        }
+                      },
+                      "disclosureType": "NoDisclosure",
+                      "impressionId": "synthetic"
+                    }
+                  },
+                  "clientEventInfo": {
+                    "component": "for_you_promoted"
+                  }
+                }
+              },
+              {
+                "entryId": "who-to-follow-1",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineModule",
+                  "__typename": "TimelineTimelineModule",
+                  "displayType": "Vertical",
+                  "header": {
+                    "text": "Who to follow",
+                    "sticky": false,
+                    "displayType": "Classic"
+                  },
+                  "items": [
+                    {
+                      "entryId": "who-to-follow-1-user-1",
+                      "item": {
+                        "itemContent": {
+                          "itemType": "TimelineUser",
+                          "__typename": "TimelineUser",
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "id": "VXNlcjo11",
+                              "rest_id": "9000000011",
+                              "core": {
+                                "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                "name": "Synthetic User 11",
+                                "screen_name": "synthetic_user_11"
+                              },
+                              "is_blue_verified": false,
+                              "verification": {
+                                "verified": false
+                              },
+                              "tweet_counts": {
+                                "tweets": 100,
+                                "media_tweets": 10
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "entryId": "who-to-follow-1-user-2",
+                      "item": {
+                        "itemContent": {
+                          "itemType": "TimelineUser",
+                          "__typename": "TimelineUser",
+                          "user_results": {
+                            "result": {
+                              "__typename": "User",
+                              "id": "VXNlcjo12",
+                              "rest_id": "9000000012",
+                              "core": {
+                                "created_at": "Mon Jan 01 00:00:00 +0000 2018",
+                                "name": "Synthetic User 12",
+                                "screen_name": "synthetic_user_12"
+                              },
+                              "is_blue_verified": false,
+                              "verification": {
+                                "verified": false
+                              },
+                              "tweet_counts": {
+                                "tweets": 100,
+                                "media_tweets": 10
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "entryId": "tweet-1000000000000000099",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineItem",
+                  "__typename": "TimelineTimelineItem",
+                  "itemContent": {
+                    "itemType": "TimelineTweet",
+                    "__typename": "TimelineTweet",
+                    "tweet_results": {
+                      "result": {
+                        "__typename": "TweetTombstone",
+                        "tombstone": {
+                          "__typename": "TextTombstone",
+                          "text": {
+                            "text": "This post is unavailable."
+                          }
+                        }
+                      }
+                    },
+                    "tweetDisplayType": "Tweet"
+                  },
+                  "clientEventInfo": {
+                    "component": "for_you_in_network"
+                  }
+                }
+              },
+              {
+                "entryId": "cursor-bottom-1",
+                "sortIndex": "1",
+                "content": {
+                  "entryType": "TimelineTimelineCursor",
+                  "__typename": "TimelineTimelineCursor",
+                  "value": "SYNTHETIC",
+                  "cursorType": "Bottom"
+                }
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "scribeConfig": {
+            "page": "for_you"
+          }
+        }
+      }
+    }
+  }
+}

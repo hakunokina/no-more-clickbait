@@ -31,11 +31,36 @@ export const PostSchema = z.object({
       likes: z.number().nonnegative().optional(),
       reposts: z.number().nonnegative().optional(),
       replies: z.number().nonnegative().optional(),
+      quotes: z.number().nonnegative().optional(),
       views: z.number().nonnegative().optional(),
     })
     .optional(),
   /** True when the platform marked the post as an ad/promotion. */
   promoted: z.boolean().default(false),
+  /** Platform verification badge of the author, when the platform reports one. */
+  authorVerified: z.boolean().optional(),
+  /** Platform-detected language code, e.g. "en" ("und" when undetermined). */
+  lang: z.string().optional(),
+  /**
+   * Set when this post reached the feed as someone's repost: the post
+   * itself (id, author, text, metrics) is the ORIGINAL; this is the
+   * handle of the account that reposted it.
+   */
+  repostedBy: z.string().min(1).optional(),
+  /** The post this one quotes, when the platform delivered it. */
+  quoted: z
+    .object({
+      id: z.string().min(1),
+      authorHandle: z.string().min(1),
+      text: z.string(),
+    })
+    .optional(),
+  /**
+   * True when the post has no text of its own (nor quoted text) and
+   * only media: it cannot be judged from text. The hard filter keeps it
+   * but counts it; downstream stages decide how to present it.
+   */
+  mediaOnly: z.boolean().optional(),
 });
 export type Post = z.infer<typeof PostSchema>;
 

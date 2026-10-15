@@ -1,6 +1,7 @@
 import {
   bridgeMessageByteLength,
   MAX_BRIDGE_MESSAGE_BYTES,
+  parseHomeTimeline,
   type BridgeMessage,
   type BridgeReply,
   type CaptureStats,
@@ -8,7 +9,6 @@ import {
   type Settings,
 } from "@nmc/core";
 import { isWorkerCaptureMessage, type WorkerCaptureMessage } from "./messages.js";
-import { parseHomeTimeline } from "./parse-home-timeline.js";
 import { loadSettings } from "./settings.js";
 
 /**
@@ -143,8 +143,9 @@ async function handleCapture(message: WorkerCaptureMessage): Promise<void> {
   }
 
   const posts = parseHomeTimeline(payload);
-  if (posts.length > 0 && !settings?.devCaptureEnabled) {
-    capturedPostCount += posts.length;
+  const organicCount = posts.filter((post) => !post.promoted).length;
+  if (organicCount > 0 && !settings?.devCaptureEnabled) {
+    capturedPostCount += organicCount;
     await updateBadge(capturedPostCount);
   }
   if (posts.length === 0) return;
