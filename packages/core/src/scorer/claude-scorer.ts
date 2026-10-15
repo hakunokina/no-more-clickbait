@@ -178,9 +178,10 @@ function unscoredEntry(postId: string): ScoreEntry {
  * check-worthy flag flipping (smoke test, 10 synthetic posts).
  * isolateUserSettings: the user's CLAUDE.md, hooks and other personal
  * settings stay out of the call (privacy + the same judgement on every
- * machine); with the Scorer's own system prompt replacing the CLI's
- * agent prompt, the fixed per-call overhead fell from 2211 to 624
- * input tokens (trivial call, claude 2.1.300, OAuth login).
+ * machine). Fixed per-call overhead (trivial call, claude 2.1.300,
+ * OAuth login): ≈4.67k input tokens with the CLI's agent prompt →
+ * 2211 with the Scorer's own system prompt → 624 with
+ * isolateUserSettings on top.
  */
 export const CLAUDE_SCORER_CLI_DEFAULTS = {
   model: "claude-opus-5-5",

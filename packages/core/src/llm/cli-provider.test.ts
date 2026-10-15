@@ -155,6 +155,28 @@ describe("createClaudeCliProvider (fake process)", () => {
     await expect(provider.complete({ prompt: "x" })).rejects.toBeInstanceOf(
       CliNotAuthenticatedError,
     );
+    await expect(provider.complete({ prompt: "x" })).rejects.not.toThrow(/settings\.json/);
+  });
+
+  it("hints at settings.json credentials when isolateUserSettings is on and login fails", async () => {
+    const { spawnFn } = fakeSpawn(() => ({
+      stderr: "Not logged in. Please run /login",
+      exitCode: 1,
+    }));
+    const provider = createClaudeCliProvider({ spawnFn, isolateUserSettings: true });
+    await expect(provider.complete({ prompt: "x" })).rejects.toThrow(
+      /isolateUserSettings.*settings\.json.*apiKeyHelper/,
+    );
+  });
+
+  it("never lets a completion persist a session transcript", async () => {
+    const { spawnFn, calls } = fakeSpawn(() => ({ stdout: okJson }));
+    await createClaudeCliProvider({ spawnFn }).complete({ prompt: "x" });
+    await createClaudeCliProvider({ spawnFn, outputFormat: "stream-json" }).complete({
+      prompt: "x",
+    });
+    expect(calls[0]?.args).toContain("--no-session-persistence");
+    expect(calls[1]?.args).toContain("--no-session-persistence");
   });
 
   it("checkAvailable reports not-authenticated when the auth check fails", async () => {
@@ -241,6 +263,7 @@ describe("createClaudeCliProvider (fake process)", () => {
       ["--system-prompt-file", "p.txt"],
       ["--setting-sources", "user"],
       ["--settings", "{}"],
+      ["--no-session-persistence=false"],
     ]) {
       expect(() => createClaudeCliProvider({ spawnFn, extraArgs })).toThrow(/extraArgs/);
     }
