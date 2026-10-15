@@ -11,7 +11,8 @@
     "start": "electron ."
   },
   "dependencies": {
-    "@nmc/core": "workspace:*"
+    "@nmc/core": "workspace:*",
+    "@nmc/native-host": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
