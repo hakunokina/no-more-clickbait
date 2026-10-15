@@ -6,7 +6,10 @@ import {
   type BrowserFamily,
   type BrowserIdentity,
 } from "@nmc/native-host";
+import type { BrowserChoice } from "../shared/settings-status.js";
 import type { InstalledBrowser } from "./windows-browsers.js";
+
+export type { BrowserChoice };
 
 /**
  * The user's "Browser for collecting" choice: the system default (the
@@ -14,8 +17,6 @@ import type { InstalledBrowser } from "./windows-browsers.js";
  * settings.json belongs to the host, and this choice never travels to
  * the extension.
  */
-
-export type BrowserChoice = "default" | BrowserFamily;
 
 export function browserChoicePath(env: NodeJS.ProcessEnv = process.env): string {
   return join(desktopDataDir(env), "browser-choice.json");

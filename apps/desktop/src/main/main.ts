@@ -10,6 +10,7 @@ import {
 } from "electron";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { ManagedSettingsSchema, type ManagedSettings } from "@nmc/core";
 import { createClaudeCliProvider, type LlmAvailability } from "@nmc/core/llm";
 import {
   desktopPipePath,
@@ -17,16 +18,37 @@ import {
   pruneSessions,
   sessionsRoot,
   writeLinkToken,
+  type DesktopCommand,
 } from "@nmc/native-host";
 import { renderTimeline } from "@nmc/timeline-renderer";
+import type { BrowserChoice, SettingsStatus } from "../shared/settings-status.js";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
 import { READER_PAGE_ARG } from "../preload/reader-bridge.js";
+import {
+  browserLabel,
+  hostMatchesBrowser,
+  loadBrowserChoice,
+  parseBrowserChoice,
+  resolveCollectBrowser,
+  saveBrowserChoice,
+  type CollectBrowserResolution,
+} from "./browser-choice.js";
 import { createClaudeStages } from "./claude-stages.js";
+import { ensureCollectBrowser } from "./ensure-browser.js";
 import { ipcAllowed } from "./ipc-policy.js";
 import { PipelineRunner } from "./pipeline-runner.js";
 import { ReadingWindow } from "./reading-window.js";
 import { SessionController } from "./session-controller.js";
 import { loadDesktopSettings } from "./settings-file.js";
+import { SettingsManager } from "./settings-manager.js";
+import {
+  defaultBrowserFamily,
+  installedBrowsers,
+  launchDetached,
+  regExeReader,
+  waitForConnection,
+  type InstalledBrowser,
+} from "./windows-browsers.js";
 
 /**
  * Desktop shell: lives in the system tray with a compact "token monitor"
@@ -63,9 +85,87 @@ if (!app.requestSingleInstanceLock()) {
 app.setAppUserModelId("io.github.hakunokina.no-more-clickbait");
 
 let monitor: BrowserWindow | null = null;
+let settingsWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let link: LinkServer | null = null;
 let lastStage: RunStage = "idle";
+
+// "Browser for collecting": the saved choice resolved against this PC
+// (system default + installed browsers) at start-up and on change.
+let browserChoice: BrowserChoice = "default";
+let systemDefaultBrowser: InstalledBrowser["family"] | null = null;
+let installed: InstalledBrowser[] = [];
+let collectBrowser: CollectBrowserResolution | null = null;
+
+/** The browser collections and settings go to, when one resolved. */
+function resolvedBrowser(): InstalledBrowser | null {
+  return collectBrowser?.ok ? collectBrowser.browser : null;
+}
+
+/** A host of the resolved browser is linked (any host, when none resolved). */
+function collectBrowserConnected(): boolean {
+  if (!link) return false;
+  const browser = resolvedBrowser();
+  return browser
+    ? link.hosts.some((host) => hostMatchesBrowser(host.browser, browser))
+    : link.hostCount > 0;
+}
+
+/** Link sends, narrowed to the resolved browser's host when there is one. */
+function sendToCollectBrowser(command: DesktopCommand): boolean {
+  if (!link) return false;
+  const browser = resolvedBrowser();
+  return browser
+    ? link.send(command, (host) => hostMatchesBrowser(host.browser, browser))
+    : link.send(command);
+}
+
+const settingsManager = new SettingsManager({
+  sendPush: (settings, stamp) => sendToCollectBrowser({ type: "settings-push", settings, stamp }),
+  onState: () => broadcastSettings(),
+});
+
+function settingsStatus(): SettingsStatus {
+  const state = settingsManager.state;
+  const resolved = resolvedBrowser();
+  return {
+    settings: state.settings,
+    stamp: state.stamp,
+    pending: state.pending,
+    browserConnected: state.browserConnected,
+    modeBPermissionMissing: state.modeBPermissionMissing,
+    choice: browserChoice,
+    browsers: installed.map((browser) => ({
+      family: browser.family,
+      label: browserLabel(browser.family),
+      systemDefault: browser.family === systemDefaultBrowser,
+    })),
+    collectBrowserLabel: resolved ? browserLabel(resolved.family) : null,
+    collectBrowserProblem:
+      collectBrowser && !collectBrowser.ok ? collectBrowser.reason : null,
+  };
+}
+
+function broadcastSettings(): void {
+  const status = settingsStatus();
+  for (const contents of [monitor?.webContents, settingsWindow?.webContents]) {
+    if (contents && !contents.isDestroyed()) contents.send("nmc:settings-status", status);
+  }
+}
+
+/** Re-reads the default/installed browsers and re-resolves the choice. */
+async function refreshBrowsers(): Promise<void> {
+  if (process.platform === "win32") {
+    const reader = regExeReader();
+    [systemDefaultBrowser, installed] = await Promise.all([
+      defaultBrowserFamily(reader).catch(() => null),
+      installedBrowsers(reader).catch(() => [] as InstalledBrowser[]),
+    ]);
+  }
+  collectBrowser = resolveCollectBrowser(browserChoice, systemDefaultBrowser, installed);
+  settingsManager.setBrowserConnected(collectBrowserConnected());
+  broadcastSettings();
+}
 
 const reader = new ReadingWindow({
   preload: join(here, "reader-preload.cjs"),
@@ -80,7 +180,7 @@ const controller = new SessionController({
   loadSettings: () => loadDesktopSettings(undefined, log),
   // Buttons in the page ("Yeni akış topla") are handled by the preload.
   renderTimeline: (doc) => renderTimeline(doc, { actions: true }),
-  sendToHost: (command) => link?.send(command) ?? false,
+  sendToHost: (command) => sendToCollectBrowser(command),
   onStatus: broadcast,
   onAwaitingConfirmation: ({ uniquePostCount }) => {
     notify(
@@ -174,13 +274,74 @@ function showMonitor(): void {
   monitor.focus();
 }
 
+function createSettingsWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 560,
+    height: 760,
+    minWidth: 420,
+    minHeight: 480,
+    show: false,
+    title: "No More Clickbait — Settings",
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+    },
+  });
+
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  win.webContents.on("will-navigate", (event) => event.preventDefault());
+  win.on("closed", () => {
+    if (settingsWindow === win) settingsWindow = null;
+  });
+
+  void win.loadFile(join(rendererDir, "settings.html"));
+  return win;
+}
+
+function showSettings(): void {
+  if (!settingsWindow || settingsWindow.isDestroyed()) {
+    settingsWindow = createSettingsWindow();
+    settingsWindow.once("ready-to-show", () => {
+      settingsWindow?.show();
+      broadcastSettings();
+    });
+    return;
+  }
+  settingsWindow.show();
+  settingsWindow.focus();
+  broadcastSettings();
+}
+
 function toggleMonitor(): void {
   if (monitor && !monitor.isDestroyed() && monitor.isVisible()) monitor.hide();
   else showMonitor();
 }
 
-function startCollection(): Promise<void> {
+async function startCollection(): Promise<void> {
   reader.expectTimeline();
+  // The chosen browser must be up with its extension linked; an
+  // unresolvable choice keeps the older any-host behaviour via the
+  // controller's own refusal when nobody answers.
+  if (collectBrowser) {
+    const ensured = await ensureCollectBrowser({
+      resolution: collectBrowser,
+      isConnected: (browser) =>
+        link?.hosts.some((host) => hostMatchesBrowser(host.browser, browser)) ?? false,
+      launch: launchDetached,
+      waitForConnection: (check) => waitForConnection(check),
+    });
+    if (!ensured.ok) {
+      log(`collection not started: ${ensured.reason}`);
+      notify("collection not started", ensured.reason, showMonitor);
+      return;
+    }
+    if (ensured.launched) settingsManager.setBrowserConnected(collectBrowserConnected());
+  }
   return controller.startCollection();
 }
 
@@ -196,6 +357,7 @@ function createTray(): void {
       { label: "Collect new timeline", click: () => void startCollection() },
       { label: "Open reading window", click: () => void openReader() },
       { label: "Show status", click: showMonitor },
+      { label: "Settings…", click: showSettings },
       { type: "separator" },
       { label: "Quit", click: () => app.quit() },
     ]),
@@ -207,7 +369,7 @@ function createTray(): void {
 function callerAllowed(channel: string, event: IpcMainInvokeEvent): boolean {
   const sender = event.sender;
   const window =
-    sender === monitor?.webContents
+    sender === monitor?.webContents || sender === settingsWindow?.webContents
       ? "monitor"
       : sender === reader.webContents
         ? "reader"
@@ -237,6 +399,26 @@ handle("nmc:build-timeline", () => {
   return controller.buildPending();
 });
 handle("nmc:open-reader", openReader);
+handle("nmc:get-settings-status", () => settingsStatus());
+handle("nmc:open-settings", showSettings);
+
+function handleArg<T>(channel: string, fn: (arg: unknown) => T | Promise<T>): void {
+  ipcMain.handle(channel, (event, arg: unknown) => {
+    if (!callerAllowed(channel, event)) throw new Error("unexpected IPC sender");
+    return fn(arg);
+  });
+}
+
+// Settings cross the bridge unvalidated; core's schema is the gate.
+handleArg("nmc:update-settings", (arg) => {
+  const settings: ManagedSettings = ManagedSettingsSchema.parse(arg);
+  return settingsManager.change(settings);
+});
+handleArg("nmc:set-browser-choice", async (arg) => {
+  browserChoice = parseBrowserChoice({ choice: arg });
+  await saveBrowserChoice(browserChoice);
+  await refreshBrowsers();
+});
 
 async function startLink(): Promise<void> {
   try {
@@ -244,8 +426,23 @@ async function startLink(): Promise<void> {
     link = new LinkServer({
       path: desktopPipePath(),
       token,
-      onEvent: (event) => controller.handleHostEvent(event),
-      onHostsChanged: (hosts) => controller.setLink({ hosts }),
+      onEvent: (event, from) => {
+        if (event.type === "settings-state") {
+          // Only the collecting browser's extension owns the settings.
+          const browser = resolvedBrowser();
+          if (!browser || hostMatchesBrowser(from.browser, browser)) {
+            void settingsManager
+              .handleSettingsState(event)
+              .catch((error: unknown) => log(`settings state: ${String(error)}`));
+          }
+          return;
+        }
+        controller.handleHostEvent(event);
+      },
+      onHostsChanged: (hosts) => {
+        controller.setLink({ hosts });
+        settingsManager.setBrowserConnected(collectBrowserConnected());
+      },
     });
     await link.listen();
     controller.setLink({ listening: true, error: null });
@@ -266,6 +463,11 @@ void app.whenReady().then(async () => {
   monitor = createMonitor();
   monitor.once("ready-to-show", () => monitor?.show());
   await pruneSessions(root).catch(() => undefined);
+  browserChoice = await loadBrowserChoice();
+  await settingsManager
+    .init()
+    .catch((error: unknown) => log(`settings: ${String(error)}`));
+  await refreshBrowsers().catch((error: unknown) => log(`browsers: ${String(error)}`));
   await startLink();
   // A collection may have finished while the app was closed.
   await controller
