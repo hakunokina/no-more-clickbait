@@ -51,8 +51,11 @@ describe("extractItems — news page", () => {
       text: "Belediye meclisi ihaleyi iptal etti.",
       url: "https://haber.example.invalid/gundem/kopru-ihalesi#yorumlar",
       domain: "haber.example.invalid",
+      kind: "link",
+      lang: "tr",
       author: "Ayşe Yılmaz",
       publishedAt: "2026-10-15T05:30:00.000Z",
+      // alt="" is decorative: no alt text.
       image: { url: "https://haber.example.invalid/img/kopru.jpg" },
       promoted: false,
     });
@@ -70,6 +73,7 @@ describe("extractItems — news page", () => {
     expect(live?.url).toBe("https://haber.example.invalid/gundem");
     expect(live?.id).toMatch(/^t[0-9a-f]{16}$/);
     expect(live?.publishedAt).toBeUndefined();
+    expect(live?.kind).toBe("text");
   });
 
   it("counts what it dropped and what each field covered", () => {
@@ -203,6 +207,32 @@ describe("extractItems — URLs and fallbacks", () => {
     expect(withoutTracking("https://a.example.invalid/p?id=7")).toBe(
       "https://a.example.invalid/p?id=7",
     );
+  });
+
+  it("reads the card's language, the page icon and an image's alt text", () => {
+    const doc = new DOMParser().parseFromString(
+      `<html lang="tr"><head><link rel="shortcut icon" href="/fav.png"></head><body>
+        <article><h2><a href="/a">Bir</a></h2><img src="/a.jpg" alt="  Köprü  çizimi "></article>
+        <article lang="en"><h2><a href="/b">Two</a></h2><div><img src="/b.jpg"></div></article>
+        <article lang="??"><h2>Üç</h2></article>
+      </body></html>`,
+      "text/html",
+    );
+    const site = rule({
+      item: { selector: "article" },
+      fields: { title: { selector: "h2" }, image: { selector: "img" } },
+      exclude: { within: [] },
+    });
+    const { items } = extractItems(doc, site);
+    expect(
+      items.map((item) => [item.lang, item.kind, item.image?.altText, item.siteIconUrl]),
+    ).toEqual([
+      ["tr", "link", "Köprü çizimi", "https://haber.example.invalid/fav.png"],
+      ["en", "link", undefined, "https://haber.example.invalid/fav.png"],
+      // A malformed tag is dropped (not inherited from the page); no link → text.
+      [undefined, "text", undefined, "https://haber.example.invalid/fav.png"],
+    ]);
+    for (const item of items) expect(GenericItemSchema.parse(item)).toEqual(item);
   });
 
   it("returns nothing for a feed-only rule", () => {

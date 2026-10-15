@@ -33,6 +33,7 @@ describe("parseFeed — RSS 2.0", () => {
       text: "Belediye meclisi ihaleyi iptal etti.",
       url: "https://haber.example.invalid/gundem/kopru-ihalesi",
       domain: "haber.example.invalid",
+      kind: "link",
       author: "Ayşe Yılmaz",
       publishedAt: "2026-10-15T05:30:00.000Z",
       image: { url: "https://haber.example.invalid/img/kopru.jpg" },
@@ -137,6 +138,57 @@ describe("parseFeed — Atom and RSS 1.0", () => {
         parseFeed(`<rss version="2.0"><channel>${item(guid)}</channel></rss>`, options),
       ).toEqual([]);
     }
+  });
+});
+
+describe("parseFeed — card fields", () => {
+  const options = { sourceLabel: "custom:F", feedUrl: "https://f.example.invalid/rss.xml" };
+  const rss = (channel: string): string =>
+    `<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/" xmlns:dc="http://purl.org/dc/elements/1.1/"><channel>${channel}</channel></rss>`;
+  const entry = (extra: string, n = 1): string =>
+    `<item><title>T${n}</title><link>https://f.example.invalid/${n}</link>${extra}</item>`;
+
+  it("takes the channel language, an item's dc:language over it, and drops a malformed tag", () => {
+    const items = parseFeed(
+      rss(
+        `<language>tr-TR</language>${entry("")}${entry("<dc:language>en</dc:language>", 2)}${entry("<dc:language>not a tag!</dc:language>", 3)}`,
+      ),
+      options,
+    );
+    expect(items.map((item) => item.lang)).toEqual(["tr-TR", "en", "tr-TR"]);
+    expect(parseFeed(rss(entry("")), options)[0]?.lang).toBeUndefined();
+  });
+
+  it("reads Atom xml:lang from the entry, else the feed", () => {
+    const atom = `<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="de"><entry><title>A</title><link href="https://f.example.invalid/a"/></entry><entry xml:lang="fr"><title>B</title><link href="https://f.example.invalid/b"/></entry></feed>`;
+    expect(parseFeed(atom, options).map((item) => item.lang)).toEqual(["de", "fr"]);
+  });
+
+  it("marks entries as links, or video with a video enclosure", () => {
+    const items = parseFeed(
+      rss(
+        `${entry("")}${entry('<enclosure url="https://f.example.invalid/v.mp4" type="video/mp4" length="1"/>', 2)}${entry('<media:group><media:content url="https://f.example.invalid/v.mp4" medium="video"/></media:group>', 3)}`,
+      ),
+      options,
+    );
+    expect(items.map((item) => item.kind)).toEqual(["link", "video", "video"]);
+  });
+
+  it("carries the image's own alt text: img alt, media:content's media:description", () => {
+    const items = parseFeed(
+      rss(
+        `${entry('<description>&lt;img src="/i.jpg" alt="Köprü &amp;amp; nehir"&gt; Metin</description>')}${entry('<media:content url="https://f.example.invalid/m.jpg" medium="image"><media:description>Gün batımı</media:description></media:content>', 2)}${entry('<description>&lt;img src="/d.jpg" alt=""&gt;</description>', 3)}${entry('<media:thumbnail url="https://f.example.invalid/t.jpg"/><description>Haber özeti</description>', 4)}`,
+      ),
+      options,
+    );
+    expect(items.map((item) => item.image)).toEqual([
+      { url: "https://f.example.invalid/i.jpg", altText: "Köprü & nehir" },
+      { url: "https://f.example.invalid/m.jpg", altText: "Gün batımı" },
+      { url: "https://f.example.invalid/d.jpg" },
+      // The entry's description is not the image's alt text.
+      { url: "https://f.example.invalid/t.jpg" },
+    ]);
+    for (const item of items) expect(GenericItemSchema.parse(item)).toEqual(item);
   });
 });
 
