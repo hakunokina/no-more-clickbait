@@ -1,4 +1,4 @@
-import { UNSTAMPED, type BridgeReply } from "@nmc/core";
+import { UNSTAMPED, type BridgeReply, type CaptureSource } from "@nmc/core";
 import { identifyBrowser } from "./browser-identity.js";
 import { CaptureStore } from "./capture-store.js";
 import { LinkClient } from "./desktop-link.js";
@@ -27,14 +27,24 @@ import { saveSettingsFile } from "./settings-store.js";
  *   file holds a later save, and relayed to the desktop.
  * - Raw developer captures go through the CaptureStore (capture-store.ts):
  *   outside the repo, per-session folders with a counts/times-only
- *   summary.json (`NMC_INBOX_DIR` moves them).
+ *   summary.json (`NMC_INBOX_DIR` moves them). Each source (X, Reddit)
+ *   has its own store and folder.
  * - The browser closes stdin and stdout together when the port closes.
  *   Messages already received are still handled (their files written,
  *   the desktop told); only the replies have nowhere to go. A write to
  *   the closed stdout fails with EPIPE, which must not kill the process
  *   before that work is done.
  */
-const captureStore = new CaptureStore();
+const captureStores = new Map<CaptureSource, CaptureStore>();
+
+function captureStore(source: CaptureSource = "x"): CaptureStore {
+  let store = captureStores.get(source);
+  if (!store) {
+    store = new CaptureStore(undefined, undefined, source);
+    captureStores.set(source, store);
+  }
+  return store;
+}
 const sessionStore = new PostSessionStore();
 let link: LinkClient | null = null;
 let browserGone = false;
@@ -109,10 +119,12 @@ function dispatch(raw: string): void {
     onCollectionProgress: (progress) => {
       link?.send(progress);
     },
-    onRawCapture: async (capture) => ({ sequence: await captureStore.store(capture) }),
-    onOversizedCapture: (capture) => captureStore.recordOversized(capture),
-    captureStats: () => captureStore.stats,
-    onModeBRun: (run) => captureStore.recordModeBRun(run),
+    onRawCapture: async (capture) => ({
+      sequence: await captureStore(capture.source).store(capture),
+    }),
+    onOversizedCapture: (capture) => captureStore(capture.source).recordOversized(capture),
+    captureStats: (source) => captureStore(source).stats,
+    onModeBRun: (run) => captureStore().recordModeBRun(run),
     onSettingsSync: async (settings, stamp) => {
       const file = await saveSettingsFile(settings, stamp);
       link?.send({

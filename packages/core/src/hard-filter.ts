@@ -1,12 +1,15 @@
+import { feedItemKey, isMediaOnly, isXPost } from "./feed-item.js";
 import type { HardFilter } from "./pipeline.js";
-import type { Post } from "./schemas.js";
+import type { FeedItem } from "./schemas.js";
 
 /**
  * The code-only hard filter: drops what needs no judgement and counts
  * why. It is stateful across one run — `keep` is called once per post
  * in feed order, across every captured response, so a post repeated by
  * an overlapping response (or the same original reposted again) is
- * dropped after its first appearance.
+ * dropped after its first appearance. Items of every source share one
+ * run; repeats are told apart by `feedItemKey` (source + id), and only X
+ * has reposts.
  *
  * Media-only posts (no text of their own) cannot be judged from text,
  * but they are KEPT and counted as flagged (owner's decision); the
@@ -16,7 +19,7 @@ import type { Post } from "./schemas.js";
 export type HardFilterDropReason =
   /** Ads: the platform marked the post as promoted. */
   | "promoted"
-  /** The same post id was already seen in this run. */
+  /** The same item (source + id) was already seen in this run. */
   | "duplicate"
   /** The same original was already seen, at least once via a repost. */
   | "duplicate-repost";
@@ -35,7 +38,7 @@ export interface HardFilterStats {
  * holding it — e.g. an MV3 service worker that the browser restarts.
  */
 export interface HardFilterState {
-  /** Kept post ids → whether that kept appearance was a repost. */
+  /** Kept item keys (`feedItemKey`) → whether that kept appearance was a repost. */
   seen: [id: string, asRepost: boolean][];
   stats: HardFilterStats;
 }
@@ -52,7 +55,7 @@ function copyStats(stats: HardFilterStats): HardFilterStats {
 }
 
 export function createHardFilter(resume?: HardFilterState): CountingHardFilter {
-  /** Post id → whether its kept appearance was a repost. */
+  /** Item key → whether its kept appearance was a repost. */
   const seenIds = new Map<string, boolean>(resume?.seen);
   const stats: HardFilterStats = resume
     ? copyStats(resume.stats)
@@ -69,17 +72,18 @@ export function createHardFilter(resume?: HardFilterState): CountingHardFilter {
   };
 
   return {
-    keep(post: Post): boolean {
+    keep(item: FeedItem): boolean {
       stats.seen += 1;
-      if (post.promoted) return drop("promoted");
-      const isRepost = post.repostedBy !== undefined;
-      const seenAsRepost = seenIds.get(post.id);
+      if (item.promoted) return drop("promoted");
+      const isRepost = isXPost(item) && item.repostedBy !== undefined;
+      const key = feedItemKey(item);
+      const seenAsRepost = seenIds.get(key);
       if (seenAsRepost !== undefined) {
         return drop(seenAsRepost || isRepost ? "duplicate-repost" : "duplicate");
       }
-      seenIds.set(post.id, isRepost);
+      seenIds.set(key, isRepost);
       stats.kept += 1;
-      if (post.mediaOnly) stats.flagged.mediaOnly += 1;
+      if (isMediaOnly(item)) stats.flagged.mediaOnly += 1;
       return true;
     },
     get stats(): HardFilterStats {

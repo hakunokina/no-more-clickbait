@@ -5,6 +5,7 @@ import {
   MAX_BRIDGE_MESSAGE_BYTES,
   parseHomeTimeline,
   type BridgeMessage,
+  type CaptureSource,
   type CaptureStats,
   type CollectionComplete,
   type CollectionStartResult,
@@ -17,6 +18,7 @@ import { CaptureSession } from "./capture-session.js";
 import {
   isModeBCommandMessage,
   isWorkerCaptureMessage,
+  isWorkerRedditCaptureMessage,
   type WorkerCaptureMessage,
 } from "./messages.js";
 import {
@@ -68,6 +70,11 @@ import {
  * whose summary.json also gets the run's counts. The count is the
  * host's with developer capture on, the worker's own otherwise; the run
  * summary says which (`counter`).
+ *
+ * Reddit (developer capture only, no parsing yet): raw bodies and DOM
+ * snapshots go to the host as `source: "reddit"`, into their own
+ * folder; their counts stay in that folder's summary.json and never
+ * touch the badge, Mode B or the X target.
  */
 
 export { NATIVE_HOST_NAME };
@@ -198,6 +205,8 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
     if (reply.type === "capture-rejected") {
       console.error(`[nmc] developer capture refused: ${reply.message}`);
     }
+    // Only X's counts drive the badge, Mode B and the target.
+    if ((reply.source ?? "x") !== "x") return;
     await reflectCaptureStats(reply.stats, replyGeneration);
   } else if (reply.type === "error") {
     console.error(`[nmc] native host error: ${reply.message}`);
@@ -237,10 +246,14 @@ async function reflectCaptureStats(
  * refused with a small counter message and an explicit error in the
  * service-worker console (mirrored in the session summary).
  */
-function forwardDevCapture(message: WorkerCaptureMessage): void {
+function forwardDevCapture(
+  message: { operation: string; bodyText: string },
+  source?: CaptureSource,
+): void {
   const capturedAt = new Date().toISOString();
   const capture: BridgeMessage = {
     type: "raw-capture",
+    ...(source ? { source } : {}),
     operation: message.operation,
     capturedAt,
     bodyText: message.bodyText,
@@ -253,6 +266,7 @@ function forwardDevCapture(message: WorkerCaptureMessage): void {
     );
     sendToDesktop({
       type: "capture-oversized",
+      ...(source ? { source } : {}),
       operation: message.operation,
       capturedAt,
       byteLength: framedBytes,
@@ -486,6 +500,17 @@ chrome.runtime.onMessage.addListener(
       // Only the extension's own pages (not content scripts) may start or stop a run.
       if (sender.id !== chrome.runtime.id || sender.tab) return;
       runCommand(message.command === "start" ? startModeB : () => modeB.stop("cancelled"));
+      return;
+    }
+    if (isWorkerRedditCaptureMessage(message)) {
+      const { operation, bodyText } = message;
+      void loadSettings()
+        .then((settings) => {
+          if (settings.devCaptureEnabled) forwardDevCapture({ operation, bodyText }, "reddit");
+        })
+        .catch((error: unknown) => {
+          console.error(`[nmc] Reddit capture handling failed: ${String(error)}`);
+        });
       return;
     }
     if (!isWorkerCaptureMessage(message)) return;

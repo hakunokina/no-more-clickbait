@@ -5,8 +5,9 @@ import {
   type Settings,
   type SettingsStamp,
 } from "@nmc/core";
+import { SETTINGS_STORAGE_KEY } from "./settings-key.js";
 
-export const SETTINGS_STORAGE_KEY = "nmc-settings";
+export { SETTINGS_STORAGE_KEY };
 /** When and where the settings were last saved (Options page or desktop app). */
 export const SETTINGS_STAMP_KEY = "nmc-settings-stamp";
 

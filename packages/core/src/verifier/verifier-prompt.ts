@@ -1,4 +1,5 @@
-import type { Post } from "../schemas.js";
+import { isInstagramPost, isXPost } from "../feed-item.js";
+import type { FeedItem, GenericItem, InstagramPost, Post } from "../schemas.js";
 
 /**
  * The per-claim verification prompt. Two untrusted inputs reach the
@@ -34,14 +35,60 @@ function sanitizeField(value: string): string {
 
 /** Links the post points at: often the very article the claim comes from. */
 function postLinks(post: Post): string[] {
-  const links = new Set<string>();
-  for (const match of post.text.matchAll(/https?:\/\/[^\s<>"']+/g)) links.add(match[0]);
-  for (const media of post.media) if (media.type === "link") links.add(media.url);
+  const links = post.media.filter((media) => media.type === "link").map((media) => media.url);
+  return linksOf(post.text, links);
+}
+
+/** `leading`, the links in `text`, then `urls`; deduped, capped, sanitized. */
+function linksOf(
+  text: string,
+  urls: readonly string[],
+  leading: readonly string[] = [],
+): string[] {
+  const links = new Set<string>(leading);
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/g)) links.add(match[0]);
+  for (const url of urls) links.add(url);
   return [...links].slice(0, MAX_LINKS).map(sanitizeField);
 }
 
+/** Instagram post block lines: the caption is the text. */
+function instagramLines(post: InstagramPost): string[] {
+  const lines = [
+    "kaynak: instagram",
+    `yazar: @${sanitizeField(post.authorHandle)}`,
+    `tarih: ${post.publishedAt.slice(0, 10)}`,
+    `metin: ${cap(sanitizeField(post.caption), MAX_TEXT_CHARS) || "-"}`,
+  ];
+  const links = linksOf(post.caption, []);
+  if (links.length > 0) lines.push(`bağlantılar: ${links.join(" ")}`);
+  return lines;
+}
+
+/** Generic item block lines: the title carries the claim as often as the text. */
+function genericLines(item: GenericItem): string[] {
+  const origin = [item.sourceLabel, item.community].map((part) => sanitizeField(part ?? ""));
+  const lines = [`kaynak: ${origin.filter(Boolean).join(" ")}`];
+  if (item.author?.trim()) lines.push(`yazar: ${sanitizeField(item.author)}`);
+  if (item.publishedAt) lines.push(`tarih: ${item.publishedAt.slice(0, 10)}`);
+  if (item.title?.trim())
+    lines.push(`başlık: ${cap(sanitizeField(item.title), MAX_QUOTED_CHARS)}`);
+  lines.push(`metin: ${cap(sanitizeField(item.text ?? ""), MAX_TEXT_CHARS) || "-"}`);
+  // The item's own URL first: it is the page the claim comes from.
+  lines.push(`bağlantılar: ${linksOf(item.text ?? "", [], [item.url]).join(" ")}`);
+  return lines;
+}
+
 /** The user message: today's date and the delimited, sanitized post block. */
-export function buildVerifierPrompt(post: Post, claim: string, today: string): string {
+export function buildVerifierPrompt(post: FeedItem, claim: string, today: string): string {
+  if (!isXPost(post)) {
+    return [
+      `bugün: ${today}`,
+      VERIFY_DATA_BEGIN,
+      `iddia: ${cap(sanitizeField(claim), MAX_CLAIM_CHARS)}`,
+      ...(isInstagramPost(post) ? instagramLines(post) : genericLines(post)),
+      VERIFY_DATA_END,
+    ].join("\n");
+  }
   const lines = [
     `bugün: ${today}`,
     VERIFY_DATA_BEGIN,

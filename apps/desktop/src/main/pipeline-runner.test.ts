@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SettingsSchema,
+  type FeedItem,
   type Post,
   type ScoreEntry,
   type Settings,
@@ -63,7 +64,7 @@ function verification(
 
 interface FakeOptions {
   availability?: LlmAvailability;
-  scores?: (posts: readonly Post[]) => ScoreEntry[];
+  scores?: (posts: readonly FeedItem[]) => ScoreEntry[];
   scoreError?: unknown;
   verify?: (post: Post, claim: string) => Promise<VerificationResult>;
   hangScorer?: boolean;

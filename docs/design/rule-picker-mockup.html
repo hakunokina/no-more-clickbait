@@ -1,0 +1,1558 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'">
+<title>Kural seçici — maket</title>
+<!--
+  No More Clickbait — özel site kuralı: canlı sayfa seçicisi + kural yönetimi maketi.
+  Tamamen SENTETİK: site, haberler, kişiler ve alan adları (example.invalid)
+  uydurmadır; görseller gömülü SVG. Dış kaynak yüklenmez.
+  Kararlar, kural şeması ve uygulama notları: rule-picker.md
+-->
+<style>
+/* ── NMC token'ları (timeline-mockup ile aynı) ─────────────────── */
+:root {
+  color-scheme: light;
+  --bg: #ffffff; --surface: #f5f7f8; --surface-2: #eceff1; --text: #0f1419; --muted: #536471;
+  --border: #d5dde2; --accent: #0b57d0; --on-accent: #ffffff; --focus: #0b57d0; --media-bg: #e3e8eb;
+  --ok: #176934; --ok-bg: #e7f4eb; --warn: #8a4b00; --warn-bg: #fdf1e0; --info: #3f4f5e; --info-bg: #edf1f4;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --r-media: 16px; --r-pill: 999px; --r-box: 12px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --fs-body: .9375rem; --fs-meta: .875rem; --fs-small: .8125rem; --lh-body: 1.45;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116; --surface: #161b22; --surface-2: #1e252e; --text: #e7e9ea; --muted: #9aa5b1;
+  --border: #2f3640; --accent: #8ab4f8; --on-accent: #0e1116; --focus: #8ab4f8; --media-bg: #1b2129;
+  --ok: #72d39c; --ok-bg: #12261b; --warn: #f2b45a; --warn-bg: #2b1f0d; --info: #b8c3ce; --info-bg: #1e252e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1116; --surface: #161b22; --surface-2: #1e252e; --text: #e7e9ea; --muted: #9aa5b1;
+    --border: #2f3640; --accent: #8ab4f8; --on-accent: #0e1116; --focus: #8ab4f8; --media-bg: #1b2129;
+    --ok: #72d39c; --ok-bg: #12261b; --warn: #f2b45a; --warn-bg: #2b1f0d; --info: #b8c3ce; --info-bg: #1e252e;
+  }
+}
+* { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs-body)/var(--lh-body) var(--font); }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+[hidden] { display: none !important; }
+code { font-family: var(--mono); font-size: .8125rem; }
+
+/* Maket denetimleri (üründe yok) */
+.mock { border-bottom: 2px dashed var(--border); background: var(--surface-2); padding: var(--s2) var(--s4); display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5); align-items: center; font-size: var(--fs-small); position: relative; z-index: 3; }
+.mock__tag { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.mock__group { display: flex; align-items: center; gap: var(--s1); flex-wrap: wrap; }
+.mock__group > span { color: var(--muted); margin-right: var(--s1); }
+.seg { border: 1px solid var(--border); background: var(--bg); border-radius: var(--r-pill); padding: 4px 10px; min-height: 28px; cursor: pointer; }
+.seg[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+.mock__hint { color: var(--muted); }
+kbd { font: inherit; font-size: .75rem; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: var(--bg); }
+
+/* Ortak düğmeler */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: var(--s2); min-height: 44px; padding: 0 var(--s5); border-radius: var(--r-pill); border: 1px solid transparent; font-weight: 700; cursor: pointer; text-decoration: none; }
+.btn--primary { background: var(--text); color: var(--bg); }
+.btn--primary:hover { opacity: .9; }
+.btn--ghost { background: transparent; border-color: var(--border); color: var(--text); }
+.btn--ghost:hover { background: var(--surface); }
+.btn--sm { min-height: 36px; padding: 0 var(--s4); font-size: var(--fs-meta); }
+.btn--danger { color: var(--warn); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.icon-btn { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--bg); cursor: pointer; flex: none; }
+.icon-btn:hover { background: var(--surface); }
+
+/* ── Options · Siteler ─────────────────────────────────────────── */
+.opt { container: opt / inline-size; max-width: 760px; margin: 0 auto; padding: var(--s5) var(--s4) var(--s7); }
+.opt__top { display: flex; align-items: center; gap: var(--s3); margin-bottom: var(--s5); }
+.opt__top > div { flex: 1; min-width: 0; }
+.opt__brand { font-size: var(--fs-small); color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+.opt h1 { font-size: 1.375rem; margin: 0; line-height: 1.25; }
+.opt__tabs { display: flex; gap: var(--s1); border-bottom: 1px solid var(--border); margin-bottom: var(--s5); overflow-x: auto; }
+.opt__tabs span { padding: var(--s2) var(--s3); color: var(--muted); font-size: var(--fs-meta); border-bottom: 2px solid transparent; white-space: nowrap; }
+.opt__tabs [aria-current="page"] { color: var(--text); font-weight: 700; border-bottom-color: var(--text); }
+.opt h2 { font-size: 1.125rem; margin: 0 0 var(--s1); }
+.lead { color: var(--muted); margin: 0 0 var(--s4); }
+.toolbar { display: flex; gap: var(--s2); flex-wrap: wrap; margin-bottom: var(--s4); }
+
+.addform { border: 1px solid var(--border); border-radius: var(--r-box); padding: var(--s4); margin-bottom: var(--s5); background: var(--surface); }
+.addform h3 { margin: 0 0 var(--s3); font-size: 1rem; }
+.field { margin-bottom: var(--s4); }
+.field > label, .field > .label { display: block; font-weight: 600; margin-bottom: var(--s1); font-size: var(--fs-meta); }
+.input { width: 100%; min-height: 44px; padding: 0 var(--s3); border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+.input[aria-invalid="true"] { border: 2px solid var(--warn); }
+.hint { color: var(--muted); font-size: var(--fs-small); margin: var(--s1) 0 0; }
+.err { color: var(--warn); font-size: var(--fs-small); margin: var(--s1) 0 0; display: flex; gap: var(--s1); align-items: flex-start; }
+.err svg.i { width: 16px; height: 16px; margin-top: 1px; }
+.patterns { border: 0; margin: 0 0 var(--s4); padding: 0; }
+.patterns legend { font-weight: 600; font-size: var(--fs-meta); margin-bottom: var(--s1); padding: 0; }
+.pat { display: grid; grid-template-columns: 20px 1fr; gap: var(--s2); align-items: start; padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: 8px; background: var(--bg); margin-bottom: var(--s1); cursor: pointer; }
+.pat:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.pat input { margin: 3px 0 0; width: 16px; height: 16px; accent-color: var(--accent); }
+.pat code { overflow-wrap: anywhere; }
+.pat small { display: block; color: var(--muted); font-size: var(--fs-small); }
+.pat .rec { color: var(--ok); font-weight: 600; font-size: var(--fs-small); }
+.permnote { display: flex; gap: var(--s2); align-items: flex-start; background: var(--info-bg); color: var(--info); border-radius: 8px; padding: var(--s2) var(--s3); font-size: var(--fs-small); margin: 0 0 var(--s4); }
+.btn-row { display: flex; gap: var(--s2); flex-wrap: wrap; }
+
+.rules { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--r-box); }
+.rule { padding: var(--s3) var(--s4); }
+.rule + .rule { border-top: 1px solid var(--border); }
+.rule.is-new { background: color-mix(in srgb, var(--ok-bg) 60%, transparent); }
+.rule__row { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; gap: var(--s3); align-items: center; }
+.site-ava { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; color: #fff; font-weight: 700; user-select: none; }
+.rule__name { font-weight: 700; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rule__pat { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.rule__status { display: flex; align-items: center; flex-wrap: wrap; gap: var(--s1) var(--s2); margin-top: 2px; font-size: var(--fs-small); color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px 1px 6px; border-radius: var(--r-pill); font-weight: 700; font-size: .75rem; line-height: 1.6; }
+.chip svg.i { width: 14px; height: 14px; stroke-width: 2.4; }
+.chip--ok { background: var(--ok-bg); color: var(--ok); }
+.chip--warn { background: var(--warn-bg); color: var(--warn); }
+.chip--info { background: var(--info-bg); color: var(--info); }
+.rule.is-off .site-ava, .rule.is-off .rule__name, .rule.is-off .rule__status { opacity: .55; }
+.rule__acts { display: flex; align-items: center; gap: var(--s1); }
+.switch { display: inline-flex; align-items: center; gap: var(--s2); cursor: pointer; font-size: var(--fs-small); color: var(--muted); min-height: 36px; padding-right: var(--s1); }
+.switch input { appearance: none; width: 36px; height: 20px; border-radius: 10px; background: var(--border); position: relative; margin: 0; cursor: pointer; flex: none; }
+.switch input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: left .15s; box-shadow: 0 1px 2px rgb(0 0 0 / .3); }
+.switch input:checked { background: var(--ok); }
+.switch input:checked::after { left: 18px; }
+.rule__band { margin: var(--s3) 0 0 calc(40px + var(--s3)); display: flex; gap: var(--s2) var(--s3); align-items: center; flex-wrap: wrap; background: var(--warn-bg); color: var(--warn); border-radius: 8px; padding: var(--s2) var(--s3); font-size: var(--fs-small); }
+.rule__band p { margin: 0; flex: 1 1 220px; }
+.rule__band strong { color: var(--warn); }
+.rule__band--info { background: var(--info-bg); color: var(--info); }
+.rule__band .btn--sm { min-height: 32px; background: var(--bg); }
+.empty { text-align: center; padding: var(--s7) var(--s4); border: 1px dashed var(--border); border-radius: var(--r-box); }
+.empty__icon { width: 56px; height: 56px; border-radius: 50%; margin: 0 auto var(--s3); display: grid; place-items: center; background: var(--surface-2); color: var(--muted); }
+.empty__icon svg.i { width: 28px; height: 28px; }
+.empty h3 { margin: 0 0 var(--s1); font-size: 1.0625rem; }
+.empty p { margin: 0 auto var(--s4); color: var(--muted); max-width: 420px; }
+.opt__foot { color: var(--muted); font-size: var(--fs-small); margin-top: var(--s4); }
+
+@container opt (max-width: 560px) {
+  .rule { padding: var(--s3); }
+  .rule__row { grid-template-columns: 40px minmax(0, 1fr); }
+  .rule__acts { grid-column: 1 / -1; flex-wrap: wrap; }
+  .rule__band { margin-left: 0; }
+  .switch span { display: none; }
+}
+
+/* Options diyalogları */
+dialog.dlg { border: 1px solid var(--border); border-radius: var(--r-box); padding: 0; width: min(560px, calc(100vw - 32px)); background: var(--bg); color: var(--text); }
+dialog.dlg::backdrop { background: rgb(0 0 0 / .5); }
+.dlg__in { padding: var(--s4); }
+.dlg h2 { margin: 0 0 var(--s2); font-size: 1.125rem; }
+.dlg p { margin: 0 0 var(--s3); color: var(--muted); font-size: var(--fs-meta); }
+.dlg textarea { width: 100%; min-height: 220px; font: .8125rem/1.45 var(--mono); padding: var(--s2) var(--s3); border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--text); resize: vertical; }
+.dlg__res { font-size: var(--fs-small); margin: var(--s2) 0 var(--s3); padding: var(--s2) var(--s3); border-radius: 8px; }
+.dlg__res--ok { background: var(--ok-bg); color: var(--ok); }
+.dlg__res--err { background: var(--warn-bg); color: var(--warn); }
+.dlg__res ul { margin: var(--s1) 0 0; padding-left: 1.2em; }
+.dlg__foot { display: flex; gap: var(--s2); justify-content: flex-end; flex-wrap: wrap; margin-top: var(--s3); }
+
+/* Bildirim (Geri al destekli) */
+.toast { position: fixed; left: 50%; bottom: var(--s5); transform: translateX(-50%); z-index: 2147483646; background: var(--text); color: var(--bg); padding: var(--s2) var(--s2) var(--s2) var(--s4); border-radius: var(--r-pill); font-size: var(--fs-meta); max-width: calc(100vw - 32px); display: flex; align-items: center; gap: var(--s3); min-height: 40px; }
+.toast button { border: 0; background: none; color: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; min-height: 32px; padding: 0 var(--s2); }
+.toast button:focus-visible { outline-color: var(--bg); }
+
+/* ── Canlı sayfa: sahte adres çubuğu (maket) ───────────────────── */
+.addr { display: flex; align-items: center; gap: var(--s2); padding: var(--s2) var(--s4); background: var(--surface); border-bottom: 1px solid var(--border); font-size: var(--fs-small); color: var(--muted); }
+.addr__url { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-pill); padding: 4px 12px; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.addr__note { white-space: nowrap; }
+@media (max-width: 640px) { .addr__note { display: none; } }
+
+/* ── SENTETİK YABANCI SİTE ("Kuzeykent Postası") ──────────────────
+   Bilerek NMC'den farklı ve "düşmanca": serif yazı, kendi --accent/--bg
+   değişkenleri, tüm düğmelerde büyük harf, harf aralığı. NMC katmanı
+   shadow DOM'da olduğu için bunlardan etkilenmemeli (bkz. md, Yalıtım). */
+.site {
+  --accent: #c8102e; --bg: #fbf8f3; --text: #1d1b19; --border: #e3dccf;
+  background: #fbf8f3; color: #1d1b19; font: 16px/1.5 Georgia, "Times New Roman", serif;
+  letter-spacing: .01em; padding-bottom: 60vh;
+}
+.site button { text-transform: uppercase; letter-spacing: .08em; }
+.site a { color: inherit; }
+.np-top { border-bottom: 3px double #1d1b19; background: #fff; }
+.np-top__in { max-width: 1080px; margin: 0 auto; padding: 14px 20px; display: flex; align-items: baseline; gap: 24px; flex-wrap: wrap; }
+.np-logo { font-size: 30px; font-weight: 700; letter-spacing: -.01em; }
+.np-logo span { color: #c8102e; }
+.np-nav { display: flex; gap: 16px; font: 600 13px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .06em; flex-wrap: wrap; }
+.np-nav a { text-decoration: none; padding: 6px 0; }
+.np-nav a[aria-current] { color: #c8102e; border-bottom: 2px solid #c8102e; }
+.np-ad { max-width: 1080px; margin: 16px auto 0; padding: 0 20px; }
+.np-ad__box { height: 90px; border: 1px solid #d8cfbf; background: repeating-linear-gradient(45deg, #f1ebe0 0 10px, #ece4d6 10px 20px); display: grid; place-items: center; font: 700 12px/1 system-ui, sans-serif; color: #7a6f60; letter-spacing: .12em; }
+.np-wrap { max-width: 1080px; margin: 0 auto; padding: 20px; display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 32px; }
+.np-h { font: 700 13px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .1em; color: #c8102e; margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px solid #e3dccf; }
+.np-list { display: grid; gap: 20px; }
+.np-card { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; padding-bottom: 20px; border-bottom: 1px solid #e3dccf; background: #fbf8f3; }
+.np-media { display: block; }
+.np-thumb { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; background: #e9e1d3; }
+.np-kicker, .np-sponsor { font: 700 11px/1 system-ui, sans-serif; text-transform: uppercase; letter-spacing: .1em; color: #c8102e; }
+.np-sponsor { color: #7a6f60; background: #efe7d9; padding: 3px 6px; display: inline-block; }
+.np-title { font-size: 22px; line-height: 1.2; margin: 6px 0 6px; }
+.np-title a { text-decoration: none; }
+.np-title a:hover { text-decoration: underline; }
+.np-summary { margin: 0 0 8px; color: #3b3732; }
+.np-inline-promo { display: inline-block; margin-left: 4px; font: 600 13px/1.3 system-ui, sans-serif; color: #c8102e; }
+.np-meta { font: 13px/1.4 system-ui, sans-serif; color: #6b645a; }
+.np-newsletter { border: 2px solid #1d1b19; padding: 16px; background: #fff; }
+.np-newsletter h3 { margin: 0 0 6px; }
+.np-newsletter p { margin: 0 0 10px; }
+.np-newsletter button, .np-more { border: 0; background: #1d1b19; color: #fff; padding: 10px 16px; font: 700 12px/1 system-ui, sans-serif; cursor: pointer; }
+.np-more { display: block; margin: 24px auto 0; background: #c8102e; }
+.np-aside ol { margin: 0; padding-left: 1.4em; display: grid; gap: 10px; }
+.np-aside li a { text-decoration: none; font-weight: 700; }
+.np-aside .np-box { border-top: 3px solid #1d1b19; padding-top: 12px; margin-bottom: 24px; }
+@media (max-width: 820px) {
+  .np-wrap { grid-template-columns: minmax(0, 1fr); }
+  .np-card { grid-template-columns: 120px minmax(0, 1fr); gap: 12px; }
+  .np-title { font-size: 18px; }
+}
+@media (max-width: 480px) {
+  .np-card { grid-template-columns: minmax(0, 1fr); }
+  .np-logo { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+
+<div class="mock" role="region" aria-label="Maket denetimleri">
+  <span class="mock__tag">Maket · üründe yok</span>
+  <div class="mock__group" role="group" aria-label="Ekran">
+    <span>Ekran</span>
+    <button class="seg" data-screen="options" aria-pressed="true">Ayarlar · Siteler</button>
+    <button class="seg" data-screen="page" aria-pressed="false">Canlı sayfa + seçici</button>
+  </div>
+  <div class="mock__group" role="group" aria-label="Site listesi">
+    <span>Liste</span>
+    <button class="seg" data-list="full" aria-pressed="true">Dolu</button>
+    <button class="seg" data-list="empty" aria-pressed="false">Boş</button>
+  </div>
+  <div class="mock__group" role="group" aria-label="Claude yanıtı">
+    <span>Claude</span>
+    <button class="seg" data-claude="ok" aria-pressed="true">Öneri gelir</button>
+    <button class="seg" data-claude="error" aria-pressed="false">Hata</button>
+  </div>
+  <span class="mock__hint">Seçicide: <kbd>↑</kbd>/<kbd>↓</kbd> geniş/dar · <kbd>←</kbd>/<kbd>→</kbd> kardeş · <kbd>Enter</kbd> rol · <kbd>1</kbd>–<kbd>8</kbd> rol kısayolu · <kbd>Esc</kbd> çık</span>
+</div>
+
+<!-- ═══ EKRAN 1 · Options → Siteler ═══════════════════════════ -->
+<div class="opt" id="scr-options">
+  <header class="opt__top">
+    <div>
+      <div class="opt__brand">No More Clickbait</div>
+      <h1>Ayarlar</h1>
+    </div>
+    <button class="icon-btn" id="theme-btn" type="button"></button>
+  </header>
+  <nav class="opt__tabs" aria-label="Ayar bölümleri (maket)">
+    <span>Hat ve doğrulama</span><span>Toplama</span><span aria-current="page">Siteler</span><span>Geliştirici</span>
+  </nav>
+  <main>
+    <section aria-labelledby="sites-h">
+      <h2 id="sites-h">Siteler</h2>
+      <p class="lead">X ana akışının yanında başka siteleri de okut. Her site için bir kez sayfada neyin "içerik" olduğunu seçersin; NMC sonra o sayfayı da toplar, clickbait'i eler ve okuma penceresine ekler.</p>
+      <div class="toolbar">
+        <button class="btn btn--primary btn--sm" type="button" id="add-btn" aria-expanded="false" aria-controls="addform"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Site ekle</button>
+        <button class="btn btn--ghost btn--sm" type="button" id="import-btn">İçe aktar</button>
+      </div>
+
+      <form class="addform" id="addform" hidden novalidate aria-labelledby="add-h">
+        <h3 id="add-h">Site ekle</h3>
+        <div class="field">
+          <label for="url-in">Sayfa adresi</label>
+          <input class="input" id="url-in" type="url" inputmode="url" autocomplete="url" spellcheck="false" value="https://haber.example.invalid/gundem" aria-describedby="url-hint url-err">
+          <p class="hint" id="url-hint">İçeriklerin listelendiği sayfa: bir haber sitesinin bölümü, bir blogun ana sayfası, bir forumun konu listesi.</p>
+          <p class="err" id="url-err" hidden></p>
+        </div>
+        <fieldset class="patterns" id="patterns" aria-describedby="pat-hint">
+          <legend>Kural hangi sayfalarda geçerli?</legend>
+          <div id="pat-list"></div>
+          <p class="hint" id="pat-hint">Toplama her zaman yukarıdaki adresten yapılır. Kalıp; sonraki sayfaların ve aynı düzendeki alt sayfaların da bu kuralla okunmasını sağlar.</p>
+        </fieldset>
+        <p class="permnote" id="perm-note"><svg class="i" viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg><span></span></p>
+        <div class="btn-row">
+          <button class="btn btn--primary" type="submit">İzin ver ve sayfayı aç</button>
+          <button class="btn btn--ghost" type="button" id="add-cancel">Vazgeç</button>
+        </div>
+      </form>
+
+      <div id="rules-wrap"></div>
+      <p class="opt__foot">Kurallar yalnız bu tarayıcıda saklanır. Bir kural yalnız sayfa seçicileri içerir; kod çalıştırmaz, kişisel veri taşımaz — dışa aktarıp paylaşabilirsin.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ═══ EKRAN 2 · Canlı sayfa (yabancı site) + NMC üst katmanı ═══ -->
+<div id="scr-page" hidden>
+  <div class="addr" aria-hidden="true">
+    <svg class="i" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+    <span class="addr__url">https://haber.example.invalid/gundem</span>
+    <span class="addr__note">Gerçek sekme — NMC yalnız üst katman ekler</span>
+  </div>
+  <div class="site" id="site">
+    <header class="np-top"><div class="np-top__in">
+      <div class="np-logo">Kuzeykent <span>Postası</span></div>
+      <nav class="np-nav" aria-label="Site menüsü"><a href="https://haber.example.invalid/gundem" aria-current="page">Gündem</a><a href="https://haber.example.invalid/ekonomi">Ekonomi</a><a href="https://haber.example.invalid/spor">Spor</a><a href="https://haber.example.invalid/kultur">Kültür</a></nav>
+    </div></header>
+    <div class="np-ad"><div class="np-ad__box">REKLAM · 970×90</div></div>
+    <div class="np-wrap">
+      <main class="np-main">
+        <h1 class="np-h">Gündem</h1>
+        <div class="np-list" id="np-list"></div>
+        <button class="np-more" type="button">Daha fazla haber yükle</button>
+      </main>
+      <aside class="np-aside">
+        <div class="np-box"><h2 class="np-h">En çok okunanlar</h2>
+          <ol><li><a href="https://haber.example.invalid/a/1">Sahil yolunda yeni düzenleme</a></li><li><a href="https://haber.example.invalid/a/2">Kütüphane saatleri uzuyor mu?</a></li><li><a href="https://haber.example.invalid/a/3">Barajlarda son durum</a></li><li><a href="https://haber.example.invalid/a/4">Liseler arası münazara finali</a></li></ol>
+        </div>
+        <div class="np-newsletter"><h3>Sabah bülteni</h3><p>Günün özeti her sabah 7'de e-postanda.</p><button type="button">Abone ol</button></div>
+      </aside>
+    </div>
+    <!-- NMC'nin shadow host'u. Üründe documentElement'e eklenir; burada sitenin
+         düşmanca stilinin (değişkenler, kalıtılan yazı tipi) içinde durması,
+         yalıtımın çalıştığını göstermek için bilinçli. -->
+    <div id="nmc-host"></div>
+  </div>
+</div>
+
+<!-- Options diyalogları -->
+<dialog class="dlg" id="dlg-export" aria-labelledby="exp-h">
+  <div class="dlg__in">
+    <h2 id="exp-h">Kuralı dışa aktar</h2>
+    <p>Bu JSON yalnız sayfa seçicilerini içerir; çekim geçmişi ve kişisel veri yok. Paylaşabilirsin.</p>
+    <textarea id="exp-text" readonly aria-label="Kural JSON"></textarea>
+    <div class="dlg__foot">
+      <button class="btn btn--ghost btn--sm" type="button" data-close>Kapat</button>
+      <button class="btn btn--ghost btn--sm" type="button" id="exp-dl">Dosya olarak indir</button>
+      <button class="btn btn--primary btn--sm" type="button" id="exp-copy">Kopyala</button>
+    </div>
+  </div>
+</dialog>
+<dialog class="dlg" id="dlg-import" aria-labelledby="imp-h">
+  <form class="dlg__in" id="imp-form" novalidate>
+    <h2 id="imp-h">Kural içe aktar</h2>
+    <p>Başkasının paylaştığı kural JSON'unu yapıştır ya da dosya seç. İçe aktarılan kural kod çalıştırmaz; eklemek için o siteye erişim izni istenir ve kural ilk kez sınanır.</p>
+    <textarea id="imp-text" aria-label="Kural JSON" aria-describedby="imp-res" spellcheck="false" placeholder='{ "nmcRule": 1, … }'></textarea>
+    <div id="imp-res" class="dlg__res" role="status" hidden></div>
+    <div class="dlg__foot">
+      <button class="btn btn--ghost btn--sm" type="button" id="imp-sample">Örnek yapıştır</button>
+      <button class="btn btn--ghost btn--sm" type="button" id="imp-file">Dosya seç…</button>
+      <button class="btn btn--ghost btn--sm" type="button" data-close>Vazgeç</button>
+      <button class="btn btn--primary btn--sm" type="submit">Denetle ve ekle</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden><span id="toast-msg"></span><button type="button" id="toast-undo" hidden>Geri al</button></div>
+
+<script>
+"use strict";
+
+/* ── İkonlar ──────────────────────────────────────────────── */
+const ICON = {
+  check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
+  alert: '<path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4M12 17v.01"/>',
+  question: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.6 2.6 0 0 1 5 .8c0 1.8-2.5 2.2-2.5 3.7M12 17v.01"/>',
+  minus: '<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/>',
+  monitor: '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  close: '<path d="M6 6l12 12M18 6 6 18"/>',
+  external: '<path d="M14 5h5v5M19 5l-8 8M18 14v5H5V6h5"/>',
+  refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  download: '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  left: '<path d="M15 5l-7 7 7 7"/>',
+  right: '<path d="M9 5l7 7-7 7"/>',
+  sparkle: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
+  pointer: '<path d="M5 3l14 7-6 2-2 6z"/>',
+  collapse: '<path d="M6 9l6 6 6-6"/>',
+  dock: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 15h8v5"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
+  ban: '<circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/>',
+};
+const icon = (n, extra = "") => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true" ${extra}>${ICON[n]}</svg>`;
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+/* ── Tema (ürünün parçası; shadow host'a da yansır) ───────── */
+const THEMES = [{ key: "system", label: "Sistem", icon: "monitor" }, { key: "light", label: "Açık", icon: "sun" }, { key: "dark", label: "Koyu", icon: "moon" }];
+let themeIdx = 0;
+function applyTheme() {
+  const t = THEMES[themeIdx], next = THEMES[(themeIdx + 1) % THEMES.length];
+  for (const el of [document.documentElement, document.getElementById("nmc-host")]) {
+    if (t.key === "system") el.removeAttribute("data-theme"); else el.setAttribute("data-theme", t.key);
+  }
+  for (const b of [document.getElementById("theme-btn"), shadow && shadow.getElementById("p-theme")].filter(Boolean)) {
+    b.innerHTML = icon(t.icon);
+    b.setAttribute("aria-label", `Tema: ${t.label}. Değiştir: ${next.label}`);
+    b.title = `Tema: ${t.label}`;
+  }
+}
+function cycleTheme() { themeIdx = (themeIdx + 1) % THEMES.length; applyTheme(); }
+
+/* ── Bildirim ─────────────────────────────────────────────── */
+const toastEl = document.getElementById("toast"), toastMsg = document.getElementById("toast-msg"), toastUndo = document.getElementById("toast-undo");
+let toastTimer = 0, undoFn = null;
+function say(msg, undo = null, label = "Geri al") {
+  toastMsg.textContent = msg; toastEl.hidden = false; undoFn = undo; toastUndo.hidden = !undo; toastUndo.textContent = label;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { toastEl.hidden = true; undoFn = null; }, undo ? 8000 : 2800);
+}
+toastUndo.addEventListener("click", () => { const f = undoFn; toastEl.hidden = true; undoFn = null; if (f) f(); });
+toastEl.addEventListener("mouseenter", () => clearTimeout(toastTimer));
+toastEl.addEventListener("focusin", () => clearTimeout(toastTimer));
+
+/* ═══ OPTIONS · SİTELER ══════════════════════════════════════ */
+const NOW = "2026-10-15T14:20:00+03:00";
+const fmtWhen = (iso) => {
+  const d = new Date(iso), n = new Date(NOW);
+  const t = d.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+  return d.toDateString() === n.toDateString() ? `bugün ${t}` : `${d.toLocaleDateString("tr-TR", { day: "numeric", month: "long" })} ${t}`;
+};
+const RULES_FULL = [
+  { id: "r1", name: "Kuzeykent Postası — Gündem", url: "https://haber.example.invalid/gundem", pattern: "haber.example.invalid/gundem/*", hue: 352, on: true,
+    health: "ok", last: { at: NOW, items: 18 }, typical: 18 },
+  { id: "r2", name: "Atölye Günlüğü", url: "https://blog.example.invalid/", pattern: "blog.example.invalid/*", hue: 30, on: true,
+    health: "weak", last: { at: NOW, items: 2 }, typical: 12, minItems: 4 },
+  { id: "r3", name: "Mahalle Forumu — Duyurular", url: "https://forum.example.invalid/duyurular", pattern: "forum.example.invalid/duyurular", hue: 200, on: true,
+    health: "broken", last: { at: NOW, items: 0 }, lastGood: { at: "2026-10-12T09:05:00+03:00", items: 25 }, fails: 3 },
+  { id: "r4", name: "Bilim Bülteni", url: "https://bulten.example.invalid/sayilar", pattern: "bulten.example.invalid/sayilar/*", hue: 140, on: true,
+    health: "noperm", last: { at: "2026-10-14T20:10:00+03:00", items: 9 } },
+  { id: "r5", name: "Şehir Kitaplığı Etkinlikleri", url: "https://kitaplik.example.invalid/etkinlik", pattern: "kitaplik.example.invalid/etkinlik", hue: 270, on: false,
+    health: "ok", last: { at: "2026-10-09T08:00:00+03:00", items: 7 } },
+];
+let rules = RULES_FULL.map((r) => ({ ...r }));
+let newRuleId = null;
+
+function siteAva(r) { return `<span class="site-ava" style="background:hsl(${r.hue} 45% 36%)" aria-hidden="true">${esc(r.name[0].toLocaleUpperCase("tr-TR"))}</span>`; }
+
+function statusHtml(r) {
+  if (!r.on) return `<span class="chip chip--info">${icon("minus")}Kapalı</span><span>Toplamaya katılmıyor · son çekim ${fmtWhen(r.last.at)}</span>`;
+  switch (r.health) {
+    case "ok": return `<span class="chip chip--ok">${icon("check")}Çalışıyor</span><span>Son çekim ${fmtWhen(r.last.at)} · ${r.last.items} öğe</span>`;
+    case "weak": return `<span class="chip chip--warn">${icon("alert")}Az öğe</span><span>Son çekim ${fmtWhen(r.last.at)} · ${r.last.items} öğe (genelde ${r.typical})</span>`;
+    case "broken": return `<span class="chip chip--warn">${icon("alert")}Kural bozuldu</span><span>Son ${r.fails} çekimde 0 öğe · son başarılı ${fmtWhen(r.lastGood.at)}</span>`;
+    case "noperm": return `<span class="chip chip--info">${icon("question")}İzin gerekiyor</span><span>Son çekim ${fmtWhen(r.last.at)} · ${r.last.items} öğe</span>`;
+    case "new": return `<span class="chip chip--ok">${icon("check")}Kaydedildi</span><span>Kayıtta ${r.last.items} öğe bulundu · ilk çekim bir sonraki toplamada</span>`;
+  }
+  return "";
+}
+function bandHtml(r) {
+  if (!r.on) return "";
+  if (r.health === "broken") return `<div class="rule__band"><p><strong>0 öğe geldi.</strong> Site düzenini değiştirmiş olabilir; kural ${r.lastGood.items} öğe bulan seçicilerle duruyor. Sayfayı açıp yeniden seçmen gerekiyor.</p><button class="btn btn--ghost btn--sm" type="button" data-act="repick" data-id="${r.id}">${icon("pointer")}Yeniden seç</button></div>`;
+  if (r.health === "weak") return `<div class="rule__band"><p>Sağlık eşiği ${r.minItems} öğe; son çekim altında kaldı. Sayfada gerçekten az içerik olabilir ya da seçiciler kısmen kırılmış olabilir.</p><button class="btn btn--ghost btn--sm" type="button" data-act="repick" data-id="${r.id}">${icon("pointer")}Sayfada kontrol et</button></div>`;
+  if (r.health === "noperm") return `<div class="rule__band rule__band--info"><p>Bu siteye erişim izni tarayıcıda geri alınmış. İzin verilene kadar toplanmaz; kural silinmedi.</p><button class="btn btn--ghost btn--sm" type="button" data-act="perm" data-id="${r.id}">İzin ver</button></div>`;
+  return "";
+}
+function renderRules() {
+  const wrap = document.getElementById("rules-wrap");
+  if (!rules.length) {
+    wrap.innerHTML = `<div class="empty">
+      <div class="empty__icon" aria-hidden="true">${icon("globe")}</div>
+      <h3>Henüz site yok</h3>
+      <p>X dışında okumak istediğin bir haber sitesi, blog ya da forum ekle. Sayfayı açıp neyin içerik olduğunu bir kez seçmen yeter — istersen Claude önerir.</p>
+      <div class="btn-row" style="justify-content:center"><button class="btn btn--primary" type="button" data-act="add">Site ekle</button><button class="btn btn--ghost" type="button" data-act="import">Kural içe aktar</button></div>
+    </div>`;
+    return;
+  }
+  wrap.innerHTML = `<ul class="rules" aria-label="Siteler, ${rules.length} kural">${rules.map((r) => `
+    <li class="rule${r.on ? "" : " is-off"}${r.id === newRuleId ? " is-new" : ""}" id="rule-${r.id}" aria-labelledby="rn-${r.id}">
+      <div class="rule__row">
+        ${siteAva(r)}
+        <div style="min-width:0">
+          <p class="rule__name" id="rn-${r.id}">${esc(r.name)}</p>
+          <code class="rule__pat" title="${esc(r.pattern)}">${esc(r.pattern)}</code>
+          <div class="rule__status">${statusHtml(r)}</div>
+        </div>
+        <div class="rule__acts">
+          <label class="switch"><input type="checkbox" data-act="toggle" data-id="${r.id}" ${r.on ? "checked" : ""} aria-describedby="rn-${r.id}"><span>Etkin</span></label>
+          <button class="icon-btn" type="button" data-act="repick" data-id="${r.id}" aria-label="${esc(r.name)}: sayfada yeniden seç" title="Yeniden seç">${icon("pointer")}</button>
+          <button class="icon-btn" type="button" data-act="export" data-id="${r.id}" aria-label="${esc(r.name)}: dışa aktar" title="Dışa aktar">${icon("download")}</button>
+          <button class="icon-btn" type="button" data-act="delete" data-id="${r.id}" aria-label="${esc(r.name)}: sil" title="Sil">${icon("trash")}</button>
+        </div>
+      </div>
+      ${bandHtml(r)}
+    </li>`).join("")}</ul>`;
+}
+
+/* Site ekle formu: URL doğrulama + kalıp önerisi */
+const addBtn = document.getElementById("add-btn"), addForm = document.getElementById("addform");
+const urlIn = document.getElementById("url-in"), urlErr = document.getElementById("url-err");
+const patSet = document.getElementById("patterns"), patList = document.getElementById("pat-list"), permNote = document.getElementById("perm-note");
+let parsedUrl = null;
+
+function parseUrl(raw) {
+  const v = raw.trim();
+  if (!v) return { err: "Bir sayfa adresi gir." };
+  let u;
+  try { u = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(v) ? v : "https://" + v); } catch { return { err: "Bu bir web adresine benzemiyor. Örnek: haber.example.invalid/gundem" }; }
+  if (!/^https?:$/.test(u.protocol)) return { err: "Yalnız http(s) adresleri eklenebilir." };
+  if (/(^|\.)(x|twitter)\.com$/.test(u.hostname)) return { err: "X zaten ana akıştan toplanıyor; buraya başka siteler eklenir." };
+  if (u.protocol === "http:") return { u, warn: true };
+  return { u };
+}
+function patternsFor(u) {
+  const host = u.hostname, path = u.pathname.replace(/\/+$/, "");
+  const out = [];
+  if (path) {
+    out.push({ v: host + path, t: "Yalnız bu sayfa", d: "Sonraki sayfalar ve alt bölümler bu kuralla okunmaz." });
+    out.push({ v: host + path + "/*", t: "Bu bölüm ve alt sayfaları", d: "“Sonraki sayfa” ve aynı düzendeki alt sayfalar da okunur.", rec: true });
+  }
+  out.push({ v: host + "/*", t: "Tüm site", d: "Sitenin her sayfası aynı düzendeyse uygun; değilse kural bazı sayfalarda 0 öğe bulur.", rec: !path });
+  return out;
+}
+function validateUrl(showErr) {
+  const r = parseUrl(urlIn.value);
+  parsedUrl = r.u || null;
+  const dup = r.u && rules.find((x) => x.url.replace(/\/$/, "") === r.u.href.replace(/\/$/, ""));
+  const msg = r.err || (dup ? `Bu sayfa için zaten bir kural var: “${dup.name}”. Listeden “Yeniden seç” ile düzenleyebilirsin.` : "");
+  urlErr.hidden = !(showErr && msg);
+  urlErr.innerHTML = msg ? icon("alert") + `<span>${esc(msg)}</span>` : "";
+  urlIn.setAttribute("aria-invalid", String(Boolean(showErr && msg)));
+  const ok = r.u && !dup;
+  patSet.hidden = permNote.hidden = !ok;
+  if (ok) {
+    patList.innerHTML = patternsFor(r.u).map((p, k, all) => `<label class="pat"><input type="radio" name="pat" value="${esc(p.v)}" ${p.rec || (all.length === 1 && k === 0) ? "checked" : ""}>
+      <span><code>${esc(p.v)}</code> ${p.rec ? '<span class="rec">· önerilen</span>' : ""}<small>${esc(p.t)} — ${esc(p.d)}</small></span></label>`).join("");
+    permNote.querySelector("span").innerHTML = `Devam edince tarayıcı, NMC'nin <strong>${esc(r.u.hostname)}</strong> sitesini okumasına izin isteyecek. İzin yalnız bu site için; NMC başka sitelere erişemez.${r.warn ? " <strong>Adres şifresiz (http).</strong>" : ""}`;
+  }
+  return ok;
+}
+urlIn.addEventListener("input", () => validateUrl(urlIn.getAttribute("aria-invalid") === "true"));
+urlIn.addEventListener("blur", () => validateUrl(true));
+function openAdd(open) {
+  addForm.hidden = !open; addBtn.setAttribute("aria-expanded", String(open));
+  if (open) { validateUrl(false); urlIn.focus(); urlIn.select(); } else addBtn.focus();
+}
+addBtn.addEventListener("click", () => openAdd(addForm.hidden));
+document.getElementById("add-cancel").addEventListener("click", () => openAdd(false));
+addForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  if (!validateUrl(true)) { urlIn.focus(); return; }
+  const pat = addForm.querySelector('input[name="pat"]:checked').value;
+  pending = { url: parsedUrl.href, pattern: pat, host: parsedUrl.hostname, repickOf: null };
+  say(`Maket: tarayıcının izin penceresi açılırdı (${parsedUrl.hostname}).`);
+  openAdd(false);
+  setScreen("page");
+});
+
+/* Liste eylemleri */
+document.getElementById("rules-wrap").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const r = rules.find((x) => x.id === b.dataset.id);
+  switch (b.dataset.act) {
+    case "add": return openAdd(true);
+    case "import": return openImport();
+    case "repick":
+      pending = { url: r.url, pattern: r.pattern, host: new URL(r.url).hostname, repickOf: r.id };
+      if (r.id !== "r1") say("Maket: bu kuralın sayfası açılırdı; maket örnek sayfayı açıyor.");
+      return setScreen("page");
+    case "perm": r.health = "ok"; renderRules(); say(`Maket: izin verildi; “${r.name}” bir sonraki toplamada okunur.`); return document.querySelector(`#rule-${r.id} [data-act="repick"]`).focus();
+    case "export": return openExport(r);
+    case "delete": {
+      const idx = rules.indexOf(r);
+      rules.splice(idx, 1); renderRules();
+      const nextFocus = document.querySelector(".rule [data-act='delete']") || document.getElementById("add-btn");
+      nextFocus.focus();
+      return say(`“${r.name}” silindi.`, () => { rules.splice(idx, 0, r); renderRules(); document.querySelector(`#rule-${r.id} [data-act="delete"]`).focus(); });
+    }
+  }
+});
+document.getElementById("rules-wrap").addEventListener("change", (e) => {
+  const t = e.target; if (t.dataset.act !== "toggle") return;
+  const r = rules.find((x) => x.id === t.dataset.id); r.on = t.checked;
+  renderRules(); document.querySelector(`#rule-${r.id} [data-act="toggle"]`).focus();
+});
+
+/* Dışa / içe aktar */
+function ruleJson(r) {
+  if (r.json) return r.json;
+  const host = new URL(r.url).hostname;
+  return {
+    nmcRule: 1, id: `${host}${new URL(r.url).pathname.replace(/\/$/, "")}`, name: r.name,
+    url: r.url, match: [r.pattern],
+    item: { selector: "article.post-row" },
+    fields: { title: { selector: "h2 a" }, link: { selector: "h2 a", attr: "href" }, text: { selector: ".excerpt" }, time: { selector: "time", attr: "datetime" } },
+    exclude: { items: [], within: [] },
+    pagination: { type: "next-link", selector: "a[rel=next]", maxPages: 2 },
+    fetch: { mode: "static" },
+    health: { minItems: r.minItems ?? 3 },
+    meta: { createdWith: "manual", createdAt: "2026-10-01T10:00:00Z", app: "nmc-extension/0.2.0" },
+  };
+}
+const dlgExport = document.getElementById("dlg-export"), dlgImport = document.getElementById("dlg-import");
+function openExport(r) { document.getElementById("exp-text").value = JSON.stringify(ruleJson(r), null, 2); dlgExport.showModal(); }
+document.getElementById("exp-copy").addEventListener("click", () => say("Maket: JSON panoya kopyalanırdı."));
+document.getElementById("exp-dl").addEventListener("click", () => say("Maket: nmc-rule-….json indirilirdi."));
+document.querySelectorAll("dialog [data-close]").forEach((b) => b.addEventListener("click", () => b.closest("dialog").close()));
+const impText = document.getElementById("imp-text"), impRes = document.getElementById("imp-res");
+function openImport() { impText.value = ""; impRes.hidden = true; dlgImport.showModal(); }
+document.getElementById("import-btn").addEventListener("click", openImport);
+document.getElementById("imp-sample").addEventListener("click", () => { impText.value = JSON.stringify({ ...ruleJson(RULES_FULL[2]), name: "Mahalle Forumu — Duyurular (paylaşılan)", url: "https://forum2.example.invalid/duyurular", id: "forum2.example.invalid/duyurular", match: ["forum2.example.invalid/duyurular"] }, null, 2); impRes.hidden = true; impText.focus(); });
+document.getElementById("imp-file").addEventListener("click", () => say("Maket: dosya seçici açılırdı (yalnız .json, en fazla 64 KB)."));
+document.getElementById("imp-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const errs = [];
+  let j = null;
+  try { j = JSON.parse(impText.value); } catch { errs.push("Geçerli bir JSON değil."); }
+  if (j) {
+    if (j.nmcRule !== 1) errs.push("“nmcRule: 1” alanı yok ya da bu sürüm desteklenmiyor.");
+    try { const u = new URL(j.url); if (!/^https?:$/.test(u.protocol)) errs.push("“url” http(s) olmalı."); } catch { errs.push("“url” geçerli bir adres değil."); }
+    if (!j.item || !j.item.selector) errs.push("“item.selector” (içerik kartı seçicisi) eksik.");
+    if (!j.fields || !(j.fields.title || j.fields.text)) errs.push("En az “fields.title” ya da “fields.text” gerekli.");
+    if (j.match && j.url && !j.match.every((m) => m.split("/")[0] === new URL(j.url).hostname)) errs.push("“match” kalıpları “url” ile aynı alan adında olmalı.");
+    if (j.url && rules.some((r) => r.url === j.url)) errs.push("Bu adres için zaten bir kural var.");
+  }
+  impRes.hidden = false;
+  if (errs.length) {
+    impRes.className = "dlg__res dlg__res--err";
+    impRes.innerHTML = `<strong>Eklenemedi:</strong><ul>${errs.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+    impText.setAttribute("aria-invalid", "true"); impText.focus();
+    return;
+  }
+  impText.removeAttribute("aria-invalid");
+  const host = new URL(j.url).hostname;
+  const r = { id: "imp" + Date.now(), name: j.name || host, url: j.url, pattern: (j.match || [host + "/*"])[0], hue: 180, on: true, health: "new", last: { at: NOW, items: 25 }, json: j };
+  rules.unshift(r); newRuleId = r.id; renderRules(); dlgImport.close();
+  say(`Maket: ${host} için izin istenir, kural sayfada sınanır (25 öğe) ve eklenir.`);
+  document.querySelector(`#rule-${r.id} [data-act="repick"]`).focus();
+});
+
+/* ═══ SENTETİK SAYFA İÇERİĞİ ══════════════════════════════════ */
+function ph(w, h, hue, label) {
+  const a = `hsl(${hue} 40% 62%)`, b = `hsl(${(hue + 40) % 360} 36% 32%)`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="${w}" height="${h}" fill="url(#g)"/><circle cx="${w * .72}" cy="${h * .3}" r="${h * .1}" fill="#fff" fill-opacity=".8"/><path d="M0 ${h * .78} L${w * .25} ${h * .5} L${w * .45} ${h * .7} L${w * .65} ${h * .45} L${w} ${h * .8} V${h} H0z" fill="${b}" fill-opacity=".85"/><text x="${w * .05}" y="${h * .14}" font-family="system-ui,sans-serif" font-size="${h / 12}" fill="#fff" fill-opacity=".9">${label} · sentetik</text></svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}
+const hAgo = (h) => new Date(Date.parse(NOW) - h * 3600e3).toISOString();
+const relTr = (iso) => { const m = Math.round((Date.parse(NOW) - Date.parse(iso)) / 60e3); return m < 60 ? `${m} dakika önce` : m < 1440 ? `${Math.round(m / 60)} saat önce` : new Date(iso).toLocaleDateString("tr-TR", { day: "numeric", month: "long" }); };
+const ARTICLES = [
+  { k: "Şehir", t: "Kuzeykent'te şebeke yenilemesi için ilk ihale tarihi açıklandı", s: "Su idaresi, kayıpların en yüksek olduğu üç mahallede boru hatlarının 2027 baharına kadar değiştirileceğini duyurdu.", a: "Selin Aydoğan", h: 1.2, hue: 200 },
+  { k: "Ulaşım", t: "Sahil bisiklet yolunun son 6 kilometresi neden hâlâ kapalı?", s: "Belediye, köprü altı bölümündeki zemin sorununun kasım sonunda çözüleceğini söylüyor; esnaf ise tabelaların yetersiz olduğundan şikâyetçi.", a: "Mert Karaca", h: 2.5, hue: 30, promo: true },
+  { sp: true, t: "Bu yöntemi öğrenen herkes faturasında şaşırıyor", s: "Uzmanların önerdiği basit ev düzeni enerji tüketimini yarıya indiriyor olabilir.", a: "Marka İçeriği", h: 3, hue: 90 },
+  { k: "Eğitim", t: "Kütüphaneler sınav döneminde gece 11'e kadar açık kalacak", s: "Üç merkez kütüphane, ocak ayı boyunca uzatılmış çalışma saatleriyle hizmet verecek; kimlikle giriş yapılacak.", a: "Ece Tunç", h: 4, hue: 260 },
+  { k: "Kültür", t: "Eski hal binası kasımda yeniden açılıyor: ilk sergi kent arşivinden", s: "1930'lardan kalma fotoğraf ve haritaların yer aldığı sergi ücretsiz olacak.", a: null, h: 6, hue: 340 },
+  { k: "Çevre", t: "Barajlarda doluluk %38: geçen yılın 11 puan altında", s: "Haftalık rapora göre eylül yağışı ortalamanın biraz altında kaldı; asıl fark tüketim tarafında.", a: "Selin Aydoğan", h: 8, hue: 180, promo: true },
+  { sp: true, t: "Kuzeykent'te ev fiyatları için son fırsat mı?", s: "Yeni projede ön satış başladı; ilk 50 daireye özel ödeme planı.", a: "Sponsorlu içerik", h: 9, hue: 50 },
+  { k: "Spor", t: "Liseler arası kürek yarışında finalistler belli oldu", s: "Pazar sabahı baraj gölünde yapılacak final için yol kapanmaları 06.00'da başlayacak.", a: "Burak Esen", h: 11, hue: 120, noImg: true },
+  { k: "Sağlık", t: "Aile hekimliklerinde randevu sistemi yenilendi", s: "Yeni sistemde aynı gün randevu kontenjanı artırıldı; telefonla randevu hattı ise kaldırılmadı.", a: "Zeynep Ulaş", h: 14, hue: 300 },
+  { k: "Şehir", t: "Gece otobüs hatları iki yeni güzergâhla genişliyor", s: "N4 ve N7 hatları kasım başından itibaren üniversite kampüsüne kadar uzatılacak.", a: "Mert Karaca", h: 19, hue: 220 },
+];
+const slug = (s) => s.toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "-").slice(0, 40);
+document.getElementById("np-list").innerHTML = ARTICLES.map((x, i) => {
+  const href = `https://haber.example.invalid/gundem/${slug(x.t)}-${4100 + i}`;
+  return `<article class="np-card">
+    ${x.noImg ? "" : `<a class="np-media" href="${href}" tabindex="-1"><img class="np-thumb" src="${ph(400, 300, x.hue, x.sp ? "Reklam görseli" : "Haber görseli")}" alt="" width="400" height="300"></a>`}
+    <div class="np-body">
+      ${x.sp ? `<span class="np-sponsor">Sponsorlu</span>` : `<span class="np-kicker">${x.k}</span>`}
+      <h2 class="np-title"><a class="np-link" href="${href}">${esc(x.t)}</a></h2>
+      <p class="np-summary">${esc(x.s)}${x.promo ? ` <span class="np-inline-promo">Abone olun, devamını okuyun →</span>` : ""}</p>
+      <div class="np-meta">${x.a ? `<span class="np-author">${esc(x.a)}</span> · ` : ""}<time datetime="${hAgo(x.h)}">${relTr(hAgo(x.h))}</time></div>
+    </div>
+  </article>`;
+}).join("") + `<section class="np-newsletter"><h3>Bu haberleri sabah e-postanda oku</h3><p>Kuzeykent Postası bülteni ücretsiz.</p><button type="button">Abone ol</button></section>`;
+
+/* ═══ NMC ÜST KATMANI (shadow DOM) ═══════════════════════════ */
+const host = document.getElementById("nmc-host");
+const shadow = host.attachShadow({ mode: "open" }); // üründe "closed"
+const siteRoot = document.getElementById("site");
+
+const ROLES = [
+  { key: "card",   k: "K", name: "İçerik kartı", short: "Kart",     color: "#0b57d0", help: "Tekrar eden haber/yazı kutusu" },
+  { key: "title",  k: "B", name: "Başlık",       short: "Başlık",   color: "#6b2fbf" },
+  { key: "text",   k: "M", name: "Metin",        short: "Metin",    color: "#176934", help: "Özet ya da gövde" },
+  { key: "link",   k: "L", name: "Bağlantı",     short: "Bağlantı", color: "#0b6e79", help: "Öğenin kendi sayfası" },
+  { key: "author", k: "Y", name: "Yazar",        short: "Yazar",    color: "#8a4b00" },
+  { key: "time",   k: "Z", name: "Zaman",        short: "Zaman",    color: "#a1306b" },
+  { key: "image",  k: "G", name: "Görsel",       short: "Görsel",   color: "#3f4f5e" },
+  { key: "cut",    k: "⊘", name: "Çıkar",        short: "Çıkar",    color: "#b3261e", help: "Reklam, abonelik çağrısı vb." },
+];
+const FIELD_KEYS = ["title", "text", "link", "author", "time", "image"];
+const roleOf = (k) => ROLES.find((r) => r.key === k);
+
+let pending = { url: "https://haber.example.invalid/gundem", pattern: "haber.example.invalid/gundem/*", host: "haber.example.invalid", repickOf: null };
+let claudeMode = "ok";
+const S = {
+  mode: "start",        // start | claude-wait | claude-result | claude-error | pick | preview | saved | confirm-exit
+  source: "manual",
+  card: null,           // "article.np-card"
+  fields: {},           // role -> göreli seçici
+  notThis: new Set(),   // "bu değil" ile tek tek dışlanan kart öğeleri
+  excludeHas: null,     // genelleştirilmiş dışlama: kartta bu sınıf varsa dışla
+  excludeHasLabel: "",
+  strip: [],            // kart içinden çıkarılan parçalar (göreli seçici)
+  outside: [],          // kart dışında "Çıkar" denen öğeler (yalnız görsel geri bildirim)
+  hover: null, cursor: null, pop: null,
+  side: "right", min: false, prevMode: null, claudeTimer: 0, dirty: false,
+};
+
+/* Seçici yardımcıları — maket sınıfları anlamlı; üründe kararlı öznitelik
+   önceliği ve hash'li sınıf ayıklaması gerekir (md: Genelleştirme). */
+const desc = (el) => el.tagName.toLowerCase() + [...el.classList].filter((c) => !c.startsWith("nmc")).map((c) => "." + c).join("");
+const inSite = (el) => el && el !== siteRoot && siteRoot.contains(el) && !host.contains(el) && el !== host;
+const allCards = () => S.card ? [...siteRoot.querySelectorAll(S.card)] : [];
+function isExcludedCard(c) { return S.notThis.has(c) || (S.excludeHas && c.querySelector("." + S.excludeHas)); }
+const keptCards = () => allCards().filter((c) => !isExcludedCard(c));
+function fieldEl(card, key) {
+  const sel = S.fields[key]; if (!sel) return null;
+  return card.matches(sel) ? card : card.querySelector(sel);
+}
+function inferCard(el) {
+  for (let a = el; a && a !== siteRoot; a = a.parentElement) {
+    const d = desc(a);
+    const sibs = a.parentElement ? [...a.parentElement.children].filter((c) => c.matches(d)).length : 0;
+    if (sibs >= 3) return d;
+  }
+  return null;
+}
+function similarCount(el) {
+  const d = desc(el);
+  const c = S.card && el.closest(S.card);
+  if (c && c !== el) return keptCards().filter((k) => k.querySelector(d)).length;
+  return siteRoot.querySelectorAll(d).length;
+}
+
+/* ── Shadow içeriği: stil ─────────────────────────────────── */
+const TOKENS_LIGHT = `--bg:#ffffff;--surface:#f5f7f8;--surface-2:#eceff1;--text:#0f1419;--muted:#536471;--border:#d5dde2;--accent:#0b57d0;--on-accent:#fff;--focus:#0b57d0;--media-bg:#e3e8eb;--ok:#176934;--ok-bg:#e7f4eb;--warn:#8a4b00;--warn-bg:#fdf1e0;--info:#3f4f5e;--info-bg:#edf1f4;color-scheme:light;`;
+const TOKENS_DARK = `--bg:#0e1116;--surface:#161b22;--surface-2:#1e252e;--text:#e7e9ea;--muted:#9aa5b1;--border:#2f3640;--accent:#8ab4f8;--on-accent:#0e1116;--focus:#8ab4f8;--media-bg:#1b2129;--ok:#72d39c;--ok-bg:#12261b;--warn:#f2b45a;--warn-bg:#2b1f0d;--info:#b8c3ce;--info-bg:#1e252e;color-scheme:dark;`;
+shadow.innerHTML = `<style>
+/* all:initial kalıtılan özellikleri (yazı tipi, harf aralığı, renk) sıfırlar
+   ama CSS değişkenlerini SIFIRLAMAZ: her token :host'ta yeniden tanımlanır. */
+:host { all: initial; ${TOKENS_LIGHT}
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s5:24px;--r-pill:999px;--r-box:12px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --fs-body:15px; --fs-meta:14px; --fs-small:13px; }
+:host([data-theme="dark"]) { ${TOKENS_DARK} }
+@media (prefers-color-scheme: dark) { :host(:not([data-theme="light"])) { ${TOKENS_DARK} } }
+* { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+button, input, select { font: inherit; color: inherit; letter-spacing: normal; text-transform: none; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+svg.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+[hidden] { display: none !important; }
+code { font-family: var(--mono); font-size: 12.5px; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Vurgu katmanı: sayfanın üstünde, tıklamayı geçirir. Renkler temadan
+   bağımsız: bilinmeyen sayfa zeminine karşı çift halka (renk + beyaz + koyu). */
+.layer { position: fixed; inset: 0; pointer-events: none; z-index: 2147483640; font: 600 11px/1 var(--font); }
+.box { position: absolute; border: 2px solid var(--c); box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgb(15 20 25 / .85); border-radius: 3px; background: color-mix(in srgb, var(--c) 7%, transparent); }
+.box--match { border-style: dashed; background: transparent; }
+.box--hover { border-width: 3px; background: color-mix(in srgb, var(--c) 12%, transparent); }
+.box--cursor { border-width: 3px; border-style: solid; box-shadow: 0 0 0 2px #fff, 0 0 0 5px rgb(15 20 25 / .9); }
+.box--field { border-width: 2px; background: transparent; box-shadow: 0 0 0 1px #fff; }
+.box--veil { border: 2px solid #b3261e; background: repeating-linear-gradient(135deg, rgb(251 248 243 / .78) 0 8px, rgb(179 38 30 / .22) 8px 10px); box-shadow: 0 0 0 1px #fff; }
+.box--veil::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; border-top: 2px solid #b3261e; transform: rotate(-4deg); }
+.box--not { border: 2px dashed #536471; background: rgb(251 248 243 / .7); box-shadow: 0 0 0 1px #fff; }
+.tag { position: absolute; left: -2px; top: -22px; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px; border-radius: 4px 4px 4px 0; background: var(--c); color: #fff; white-space: nowrap; box-shadow: 0 0 0 1px #fff; }
+.tag--in { top: 2px; left: 2px; border-radius: 3px; }
+.tag b { font-weight: 800; }
+.tag--letter { padding: 0 5px; }
+.tag code { font-size: 11px; font-weight: 500; color: #fff; }
+
+/* Panel: sağ alt köşe; NMC token'larıyla, temaya uyar. */
+.panel { position: fixed; right: 16px; bottom: 16px; width: 360px; max-height: min(78vh, 720px); z-index: 2147483645;
+  display: flex; flex-direction: column; background: var(--bg); color: var(--text); font: var(--fs-body)/1.45 var(--font);
+  border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 12px 40px rgb(0 0 0 / .28), 0 2px 6px rgb(0 0 0 / .18); overflow: hidden; }
+.panel[data-side="left"] { right: auto; left: 16px; }
+.p-head { display: flex; align-items: center; gap: var(--s2); padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--border); }
+.p-logo { width: 28px; height: 28px; border-radius: 8px; background: var(--text); color: var(--bg); display: grid; place-items: center; font: 800 11px/1 var(--font); letter-spacing: .02em; flex: none; }
+.p-titles { flex: 1; min-width: 0; }
+.p-brand { font-size: var(--fs-small); font-weight: 700; }
+.p-site { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); }
+.hbtn { width: 32px; height: 32px; border-radius: 50%; border: 0; background: none; display: grid; place-items: center; cursor: pointer; color: var(--muted); flex: none; }
+.hbtn:hover { background: var(--surface); color: var(--text); }
+.hbtn svg.i { width: 17px; height: 17px; }
+.p-body { padding: 14px; overflow-y: auto; flex: 1; min-height: 0; }
+.p-foot { padding: 10px 14px 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+.p-body h2 { font-size: 17px; line-height: 1.3; margin: 0 0 6px; }
+.p-body p { margin: 0 0 10px; }
+.muted { color: var(--muted); font-size: var(--fs-small); }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: var(--r-pill); border: 1px solid transparent; font-weight: 700; cursor: pointer; width: 100%; }
+.btn--primary { background: var(--text); color: var(--bg); }
+.btn--primary:hover { opacity: .9; }
+.btn--ghost { background: transparent; border-color: var(--border); }
+.btn--ghost:hover { background: var(--surface); }
+.btn[disabled] { opacity: .45; cursor: not-allowed; }
+.btn--inline { width: auto; min-height: 36px; padding: 0 14px; font-size: var(--fs-meta); }
+.linkbtn { border: 0; background: none; color: var(--accent); cursor: pointer; padding: 4px 0; min-height: 28px; font-size: var(--fs-meta); text-decoration: underline; text-underline-offset: 2px; }
+.choice { display: grid; gap: 10px; margin: 12px 0 4px; }
+.choice .btn { justify-content: flex-start; height: auto; min-height: 56px; padding: 10px 16px; text-align: left; border-radius: 14px; }
+.choice .btn small { display: block; font-weight: 400; font-size: 12.5px; opacity: .85; }
+.privacy { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--info); background: var(--info-bg); border-radius: 8px; padding: 8px 10px; margin: 0; }
+.privacy svg.i { width: 16px; height: 16px; margin-top: 1px; }
+
+/* İmleç kutusu: klavyeyle seçimin odak noktası */
+.cursorbox { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; margin: 0 0 12px; background: var(--surface); cursor: default; }
+.cursorbox:focus-visible { outline-offset: 1px; }
+.cursorbox__row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cursorbox__row code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cursorbox__cnt { font-size: 12px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cursorbox__keys { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.kb { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--r-pill); background: var(--bg); cursor: pointer; font-size: 12px; }
+.kb svg.i { width: 14px; height: 14px; }
+.kb:hover { background: var(--surface-2); }
+
+.roles { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: 10px; }
+.roles li { display: grid; grid-template-columns: 24px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 6px 6px 6px 10px; min-height: 40px; }
+.roles li + li { border-top: 1px solid var(--border); }
+.badge { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; background: var(--c); color: #fff; font: 800 11.5px/1 var(--font); }
+.roles .r-name { font-size: var(--fs-meta); font-weight: 600; }
+.roles .r-val { display: block; font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+.roles .r-val.ok, .roles .ok { color: var(--ok); }
+.roles .r-val.warn, .roles .warn { color: var(--warn); }
+.roles li.is-empty .r-name { color: var(--muted); font-weight: 400; }
+.roles li.is-empty .badge { background: transparent; color: var(--muted); box-shadow: inset 0 0 0 1.5px var(--border); }
+.rm { width: 28px; height: 28px; border: 0; background: none; border-radius: 50%; cursor: pointer; color: var(--muted); display: grid; place-items: center; }
+.rm:hover { background: var(--surface); color: var(--text); }
+.rm svg.i { width: 15px; height: 15px; }
+.note { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; border-radius: 8px; padding: 8px 10px; margin: 10px 0 0; }
+.note svg.i { width: 16px; height: 16px; margin-top: 1px; }
+.note--warn { background: var(--warn-bg); color: var(--warn); }
+.note--ok { background: var(--ok-bg); color: var(--ok); }
+.note--info { background: var(--info-bg); color: var(--info); }
+.note p { margin: 0; }
+.note .linkbtn { color: inherit; font-size: 12.5px; min-height: 24px; padding: 0; }
+
+.steps { list-style: none; margin: 8px 0 12px; padding: 0; }
+.steps li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; padding: 6px 0; align-items: start; font-size: var(--fs-meta); }
+.steps small { display: block; color: var(--muted); font-size: 12px; }
+.st-done { color: var(--ok); } .st-wait { color: var(--muted); }
+.spinner { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .9s linear infinite; margin-top: 1px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+details { font-size: 12.5px; margin: 0 0 10px; }
+summary { cursor: pointer; color: var(--muted); min-height: 28px; display: flex; align-items: center; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface); border-radius: 8px; padding: 8px 10px; margin: 6px 0 0; font: 11.5px/1.5 var(--mono); color: var(--text); }
+.claude-note { border-left: 3px solid var(--accent); padding: 4px 0 4px 10px; margin: 10px 0; font-size: var(--fs-meta); }
+.claude-note b { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 2px; }
+
+/* Küçültülmüş panel */
+.pill { position: fixed; right: 16px; bottom: 16px; z-index: 2147483645; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px 0 8px; border-radius: var(--r-pill); border: 1px solid var(--border); background: var(--bg); color: var(--text); font: 700 var(--fs-meta)/1 var(--font); box-shadow: 0 8px 24px rgb(0 0 0 / .25); cursor: pointer; }
+.pill[data-side="left"] { right: auto; left: 16px; }
+.pill .p-logo { width: 28px; height: 28px; }
+
+/* Rol açılır penceresi (non-modal dialog; menü değil: oklar geniş/dar için serbest) */
+.pop { position: fixed; z-index: 2147483646; width: 288px; background: var(--bg); color: var(--text); font: var(--fs-meta)/1.4 var(--font);
+  border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 12px 32px rgb(0 0 0 / .3); padding: 10px; }
+.pop__head { display: flex; align-items: baseline; gap: 8px; margin: 0 2px 8px; min-width: 0; }
+.pop__head code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.pop__head span { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.pop__nav { display: flex; gap: 4px; margin-bottom: 8px; flex-wrap: wrap; }
+.pop__roles { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.rbtn { display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--bg); cursor: pointer; text-align: left; }
+.rbtn:hover { background: var(--surface); }
+.rbtn[aria-pressed="true"] { border-color: var(--c); box-shadow: inset 0 0 0 1px var(--c); }
+.rbtn .badge { width: 20px; height: 20px; font-size: 11px; }
+.rbtn kbd { margin-left: auto; font: 11px/1 var(--mono); color: var(--muted); }
+.rbtn--cut { grid-column: 1 / -1; }
+.pop__extra { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.pop__msg { font-size: 12.5px; color: var(--warn); background: var(--warn-bg); border-radius: 8px; padding: 6px 8px; margin: 8px 0 0; }
+
+/* Önizleme çekmecesi: okuma penceresi kartıyla aynı görünüm */
+.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(440px, 100vw); z-index: 2147483645; display: flex; flex-direction: column;
+  background: var(--bg); color: var(--text); font: var(--fs-body)/1.45 var(--font); border-left: 1px solid var(--border); box-shadow: -12px 0 40px rgb(0 0 0 / .25); }
+.drawer[data-side="left"] { right: auto; left: 0; border-left: 0; border-right: 1px solid var(--border); }
+.d-sum { margin: 0; padding: 10px 16px; font-size: var(--fs-meta); color: var(--muted); border-bottom: 1px solid var(--border); }
+.d-sum b { color: var(--text); }
+.d-body { flex: 1; overflow-y: auto; min-height: 0; }
+.post { padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.post__grid { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; }
+.avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 14px; }
+.post__head { display: flex; align-items: center; flex-wrap: wrap; gap: 0 4px; line-height: 1.3; }
+.post__name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.post__handle, .post__time, .post__dot { color: var(--muted); font-size: var(--fs-meta); }
+.post__title { margin: 2px 0 0; font-weight: 700; }
+.post__text { margin: 2px 0 0; overflow-wrap: anywhere; }
+.post__missing { color: var(--muted); font-size: 12.5px; font-style: italic; }
+.media { margin-top: 12px; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: var(--media-bg); }
+.media img { display: block; width: 100%; height: auto; }
+.post__foot { display: flex; justify-content: flex-end; margin-top: 8px; }
+.open { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-meta); font-weight: 600; color: var(--accent); text-decoration: none; min-height: 28px; }
+.open svg.i { width: 15px; height: 15px; }
+.d-more { padding: 10px 16px; color: var(--muted); font-size: var(--fs-small); text-align: center; border-bottom: 1px solid var(--border); }
+.d-form { padding: 16px; display: grid; gap: 14px; }
+.d-form h3 { margin: 0; font-size: 15px; }
+.f label, .f .lbl { display: block; font-weight: 600; font-size: var(--fs-meta); margin-bottom: 4px; }
+.f input, .f select { width: 100%; min-height: 40px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); padding: 0 10px; }
+.f input[type="number"] { width: 96px; }
+.f .muted { margin: 4px 0 0; }
+.f .row { display: flex; gap: 8px; align-items: center; }
+.readonly { font-family: var(--mono); font-size: 12.5px; padding: 8px 10px; background: var(--surface); border-radius: 8px; overflow-wrap: anywhere; }
+.d-foot { padding: 12px 16px 16px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.done-icon { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--ok-bg); color: var(--ok); margin: 4px 0 10px; }
+.done-icon svg.i { width: 26px; height: 26px; stroke-width: 2.5; }
+.err-icon { background: var(--warn-bg); color: var(--warn); }
+
+/* Dar ekran: panel alt sayfa, çekmece tam ekran */
+@media (max-width: 520px) {
+  .panel, .panel[data-side="left"] { left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 56vh; }
+  .pill, .pill[data-side="left"] { right: 8px; left: auto; bottom: 8px; }
+  .pop { left: 8px !important; right: 8px; width: auto; top: auto !important; bottom: 8px; max-height: 70vh; overflow-y: auto; }
+  .drawer, .drawer[data-side="left"] { width: 100vw; left: 0; right: 0; border: 0; }
+}
+</style>
+<div class="layer" id="layer" aria-hidden="true"></div>
+<section class="panel" id="panel" aria-labelledby="p-brand" data-side="right"></section>
+<button class="pill" id="pill" type="button" hidden></button>
+<div class="pop" id="pop" role="dialog" aria-labelledby="pop-h" hidden></div>
+<aside class="drawer" id="drawer" aria-labelledby="d-h" hidden></aside>
+<div class="sr-only" id="live" aria-live="polite"></div>`;
+
+const $ = (id) => shadow.getElementById(id);
+const layer = $("layer"), panel = $("panel"), pill = $("pill"), pop = $("pop"), drawer = $("drawer"), live = $("live");
+function announce(msg) { live.textContent = ""; setTimeout(() => { live.textContent = msg; }, 30); }
+
+/* ── Vurgu katmanı ────────────────────────────────────────── */
+function box(el, cls, color, tagHtml = "") {
+  const r = el.getBoundingClientRect();
+  if (r.bottom < 0 || r.top > innerHeight || r.width === 0) return "";
+  return `<div class="box ${cls}" style="--c:${color};left:${r.left - 2}px;top:${r.top - 2}px;width:${r.width + 4}px;height:${r.height + 4}px">${tagHtml}</div>`;
+}
+function paint() {
+  if (host.hidden || document.getElementById("scr-page").hidden) { layer.innerHTML = ""; return; }
+  let h = "";
+  const showSel = ["pick", "claude-result", "preview", "confirm-exit"].includes(S.mode);
+  if (showSel) {
+    const all = allCards(), kept = keptCards();
+    all.forEach((c) => {
+      if (S.notThis.has(c)) h += box(c, "box--not", "#536471", `<span class="tag tag--in" style="--c:#3f4f5e">${icon("close")}Bu değil</span>`);
+      else if (S.excludeHas && c.querySelector("." + S.excludeHas)) h += box(c, "box--veil", "#b3261e", `<span class="tag tag--in" style="--c:#b3261e"><b>⊘</b> Çıkarıldı · ${esc(S.excludeHasLabel)}</span>`);
+    });
+    kept.forEach((c, i) => {
+      const first = i === 0;
+      h += box(c, first ? "" : "box--match", roleOf("card").color, first ? `<span class="tag" style="--c:${roleOf("card").color}"><b>K</b> İçerik kartı · ${kept.length} benzer</span>` : `<span class="tag tag--letter" style="--c:${roleOf("card").color}"><b>${i + 1}</b></span>`);
+      for (const key of FIELD_KEYS) {
+        const f = fieldEl(c, key); if (!f || f === c) continue;
+        const r = roleOf(key);
+        h += box(f, "box--field", r.color, first ? `<span class="tag tag--in" style="--c:${r.color}"><b>${r.k}</b> ${r.short}</span>` : `<span class="tag tag--in tag--letter" style="--c:${r.color}"><b>${r.k}</b></span>`);
+      }
+      for (const sel of S.strip) c.querySelectorAll(sel).forEach((x) => { h += box(x, "box--veil", "#b3261e", first ? `<span class="tag tag--in" style="--c:#b3261e"><b>⊘</b> Çıkar</span>` : ""); });
+    });
+    for (const el of S.outside) h += box(el, "box--veil", "#b3261e", `<span class="tag tag--in" style="--c:#b3261e"><b>⊘</b> Çıkar</span>`);
+  }
+  if (S.mode === "pick") {
+    const target = S.pop || S.cursor || S.hover;
+    if (target && inSite(target)) {
+      const cnt = similarCount(target);
+      h += box(target, S.cursor === target || S.pop === target ? "box--cursor" : "box--hover", "#0b57d0", `<span class="tag" style="--c:#0f1419"><code>${esc(desc(target))}</code>${cnt > 1 ? ` · ${cnt}` : ""}</span>`);
+    }
+  }
+  layer.innerHTML = h;
+}
+let raf = 0;
+const repaint = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(paint); };
+addEventListener("scroll", repaint, { passive: true });
+addEventListener("resize", repaint);
+
+/* ── Panel içerikleri ─────────────────────────────────────── */
+function head() {
+  return `<header class="p-head">
+    <span class="p-logo" aria-hidden="true">NMC</span>
+    <div class="p-titles"><div class="p-brand" id="p-brand">${pending.repickOf ? "Kuralı yeniden seç" : "Yeni site kuralı"}</div><div class="p-site" title="${esc(pending.pattern)}">${esc(pending.pattern)}</div></div>
+    <button class="hbtn" type="button" id="p-side" aria-label="Paneli ${S.side === "right" ? "sola" : "sağa"} taşı" title="Paneli ${S.side === "right" ? "sola" : "sağa"} taşı">${icon("dock", S.side === "left" ? 'style="transform:scaleX(-1)"' : "")}</button>
+    <button class="hbtn" type="button" id="p-theme"></button>
+    <button class="hbtn" type="button" id="p-min" aria-label="Paneli küçült" title="Küçült">${icon("collapse")}</button>
+    <button class="hbtn" type="button" id="p-close" aria-label="Seçiciden çık (Esc)" title="Çık (Esc)">${icon("close")}</button>
+  </header>`;
+}
+const privacy = `<p class="privacy">${icon("question")}<span>Claude'a sayfanın <strong>metinsiz iskeleti</strong> gider: etiketler, sınıf adları, tekrar sayıları. Metin, bağlantı adresi, çerez ya da form değeri gitmez. Çağrı bilgisayarındaki <code>claude</code> ile yapılır.</span></p>`;
+
+function viewStart() {
+  return `<div class="p-body">
+    ${pending.repickOf ? `<p class="note note--warn" style="margin:0 0 12px">${icon("alert")}<span>Eski kural bu sayfada eşleşmiyor: kart seçicisi <code>article.post-row</code> 0 öğe buluyor. Site düzeni değişmiş; yeniden seç.</span></p>` : ""}
+    <h2>Bu sayfada neyi okumak istiyorsun?</h2>
+    <p class="muted">Haber/yazı kartlarını ve içlerindeki başlık, metin, bağlantıyı bir kez işaretle. NMC sonraki toplamalarda bu sayfayı aynı kuralla okur.</p>
+    <div class="choice">
+      <button class="btn btn--primary" type="button" data-p="claude">${icon("sparkle")}<span>Claude'dan öner<small>~20 sn · sonra düzeltebilirsin</small></span></button>
+      <button class="btn btn--ghost" type="button" data-p="manual">${icon("pointer")}<span>Kendim seç<small>Sayfada tıkla, rolünü seç</small></span></button>
+    </div>
+  </div>
+  <div class="p-foot">${privacy}</div>`;
+}
+const SKELETON = `main.np-main
+  h1.np-h {t:6}
+  div.np-list
+    article.np-card ×10
+      a.np-media > img.np-thumb [400×300]   (×9)
+      div.np-body
+        span.np-kicker {t:5..7}             (×8)
+        span.np-sponsor {t:9}               (×2)
+        h2.np-title > a.np-link [href:/gundem/…] {t:44..66}
+        p.np-summary {t:72..140}
+          span.np-inline-promo {t:28}       (×2)
+        div.np-meta > span.np-author? time[datetime]
+    section.np-newsletter {t:62} > button
+  button.np-more {t:23}
+aside.np-aside …  (2 alt blok, 4 a)`;
+function viewClaudeWait() {
+  return `<div class="p-body" aria-busy="true">
+    <h2>Claude sayfayı inceliyor</h2>
+    <ol class="steps">
+      <li><span class="st-done">${icon("check")}</span><span>İskelet çıkarıldı<small>412 öğe · metin yok · 5,8 KB</small></span></li>
+      <li aria-current="step"><span class="spinner" aria-hidden="true"></span><span>Yerel Claude kural öneriyor<small>Genelde 10–30 sn</small></span></li>
+      <li><span class="st-wait">${icon("minus")}</span><span>Öneri bu sayfada sınanacak</span></li>
+    </ol>
+    <details><summary>Claude'a giden iskelet</summary><pre>${esc(SKELETON)}</pre><p class="muted" style="margin-top:6px">{t:n} = metin uzunluğu (karakter); metnin kendisi gitmez.</p></details>
+  </div>
+  <div class="p-foot"><button class="btn btn--ghost" type="button" data-p="cancel">İptal</button></div>`;
+}
+function viewClaudeError() {
+  return `<div class="p-body" role="alert">
+    <div class="done-icon err-icon" aria-hidden="true">${icon("alert")}</div>
+    <h2>Claude öneremedi</h2>
+    <p class="muted">Bilgisayarındaki <code>claude</code> 60 saniye içinde yanıt vermedi. Sayfaya bir şey olmadı; kendin seçebilir ya da yeniden deneyebilirsin.</p>
+    <details><summary>Teknik ayrıntı</summary><pre>rule-suggest: claude CLI zaman aşımı (60 sn)
+giriş ≈ 2,1 bin token (iskelet) · çıkış: yok</pre></details>
+  </div>
+  <div class="p-foot">
+    <button class="btn btn--primary" type="button" data-p="claude">${icon("refresh")}Tekrar dene</button>
+    <button class="btn btn--ghost" type="button" data-p="manual">Kendim seç</button>
+  </div>`;
+}
+function coverage(key) {
+  const kept = keptCards(); if (!S.fields[key] || !kept.length) return null;
+  return { n: kept.filter((c) => fieldEl(c, key)).length, of: kept.length };
+}
+function rolesList(editable) {
+  const kept = keptCards(), all = allCards();
+  const rows = ROLES.filter((r) => r.key !== "cut").map((r) => {
+    let val = "—", cls = "", filled = false;
+    if (r.key === "card" && S.card) {
+      filled = true;
+      const ex = all.length - kept.length;
+      val = `<code>${esc(S.card)}</code> · <span class="ok">${kept.length} kart</span>${ex ? ` · ${ex} dışlandı` : ""}`;
+    } else if (S.fields[r.key]) {
+      filled = true;
+      const c = coverage(r.key);
+      cls = c && c.n === c.of ? "ok" : "warn";
+      val = `<code>${esc(S.fields[r.key])}</code>${c ? ` · ${c.n}/${c.of}` : ""}`;
+    } else if (r.key === "card") val = "Önce bunu seç";
+    else if (["title", "text"].includes(r.key) && !S.fields.title && !S.fields.text) val = "Başlık ya da metinden biri gerekli";
+    else if (r.key === "link") val = "Önerilir";
+    else val = "İsteğe bağlı";
+    return `<li class="${filled ? "" : "is-empty"}"><span class="badge" style="--c:${r.color}" aria-hidden="true">${r.k}</span>
+      <span class="r-name">${r.name}<span class="r-val ${cls}">${val}</span></span>
+      ${filled && editable ? `<button class="rm" type="button" data-clear="${r.key}" aria-label="${r.name} seçimini kaldır">${icon("close")}</button>` : "<span></span>"}</li>`;
+  });
+  const cutN = S.strip.length + S.outside.length + (S.excludeHas ? 1 : 0) + S.notThis.size;
+  const cutParts = [];
+  if (S.excludeHas) cutParts.push(`“${esc(S.excludeHasLabel)}” içeren kartlar`);
+  if (S.notThis.size) cutParts.push(`<span class="warn">${S.notThis.size} kart yalnız bu sayfada (kurala yazılamaz)</span>`);
+  if (S.strip.length) cutParts.push(S.strip.map((s) => `<code>${esc(s)}</code>`).join(", "));
+  if (S.outside.length) cutParts.push(`${S.outside.length} kart dışı öğe`);
+  rows.push(`<li class="${cutN ? "" : "is-empty"}"><span class="badge" style="--c:#b3261e" aria-hidden="true">⊘</span>
+    <span class="r-name">Çıkarılanlar<span class="r-val">${cutN ? cutParts.join(" · ") : "Reklam, abonelik çağrısı… — rolü “Çıkar” seç"}</span></span>
+    ${cutN && editable ? `<button class="rm" type="button" data-clear="cut" aria-label="Tüm çıkarmaları kaldır">${icon("close")}</button>` : "<span></span>"}</li>`);
+  return `<ul class="roles" aria-label="Kural alanları">${rows.join("")}</ul>`;
+}
+const ready = () => Boolean(S.card && keptCards().length && (S.fields.title || S.fields.text));
+function viewClaudeResult() {
+  return `<div class="p-body">
+    <h2>Claude'un önerisi</h2>
+    <p class="muted">Sayfada aynı vurgu diliyle gösterildi. Doğruysa kabul et; değilse düzelt.</p>
+    ${rolesList(false)}
+    <div class="claude-note"><b>Claude'un notu</b>“Sponsorlu” etiketli 2 kart reklam görünüyor, çıkardım. Özetlerin sonundaki abonelik çağrısını metinden ayırdım. Kenar çubuğundaki “En çok okunanlar” listesi tekrar ettiği için kart sayılmadı.</div>
+    <p class="note note--ok">${icon("check")}<span>Öneri bu sayfada sınandı: 9 seçicinin 9'u eşleşti, ${keptCards().length} kart.</span></p>
+  </div>
+  <div class="p-foot">
+    <button class="btn btn--primary" type="button" data-p="preview">Kabul et ve önizle</button>
+    <button class="btn btn--ghost" type="button" data-p="fix">Düzelt</button>
+  </div>`;
+}
+function viewPick() {
+  const t = S.cursor;
+  const kept = keptCards();
+  const linkMissing = S.card && (S.fields.title || S.fields.text) && !S.fields.link;
+  return `<div class="p-body">
+    <p class="muted" style="margin-bottom:10px">${S.card ? "Kartın içinden başlık, metin, bağlantı… seç. Yanlış eşleşen kartta “Bu değil” de." : "Sayfada bir haber/yazı kutusuna tıkla ve <b>İçerik kartı</b> de. Başlığa tıklarsan kartı ben bulurum."}</p>
+    <div class="cursorbox" id="cursorbox" tabindex="0" role="group" aria-roledescription="klavye imleci" aria-label="Klavye imleci${t ? ": " + esc(desc(t)) : ""}" aria-describedby="cb-keys">
+      <div class="cursorbox__row">${icon("pointer")}<code>${t ? esc(desc(t)) : "Ok tuşlarıyla sayfada gezin"}</code>${t ? `<span class="cursorbox__cnt">${similarCount(t)} benzer</span>` : ""}</div>
+      <div class="cursorbox__keys" id="cb-keys">
+        <button class="kb" type="button" data-nav="up" tabindex="-1">${icon("up")}Daha geniş</button>
+        <button class="kb" type="button" data-nav="down" tabindex="-1">${icon("down")}Daha dar</button>
+        <button class="kb" type="button" data-nav="open" tabindex="-1">Enter · Rol seç</button>
+      </div>
+    </div>
+    ${rolesList(true)}
+    ${linkMissing ? `<p class="note note--warn">${icon("alert")}<span>Bağlantı seçilmedi: öğeler okuma penceresinden sitede açılamaz, tekrarlar yalnız metinden ayıklanır.</span></p>` : ""}
+    ${S.source === "claude" ? `<p class="note note--info">${icon("sparkle")}<span>Claude'un önerisini düzeltiyorsun. <button class="linkbtn" type="button" data-p="reset">Baştan kendim seç</button></span></p>` : ""}
+    ${S.source === "existing" ? `<p class="note note--ok">${icon("check")}<span>Mevcut kural yüklendi: 9 seçicinin 9'u bu sayfada hâlâ eşleşiyor. Değiştirmek istediğin öğeye tıkla. <button class="linkbtn" type="button" data-p="reset">Baştan seç</button></span></p>` : ""}
+  </div>
+  <div class="p-foot">
+    <button class="btn btn--primary" type="button" data-p="preview" ${ready() ? "" : "disabled"} aria-describedby="pv-why">Önizle${ready() ? ` (${Math.min(5, kept.length)} / ${kept.length})` : ""}</button>
+    <span class="sr-only" id="pv-why">${ready() ? "" : "Önizleme için içerik kartı ve başlık ya da metin gerekli."}</span>
+    ${S.source !== "manual" ? "" : `<button class="linkbtn" type="button" data-p="claude" style="align-self:center">${S.card ? "Claude'a sor: kalanı önersin" : "Claude'dan öner"}</button>`}
+  </div>`;
+}
+function viewSaved() {
+  const n = keptCards().length;
+  return `<div class="p-body" role="status">
+    <div class="done-icon" aria-hidden="true">${icon("check")}</div>
+    <h2>Kural kaydedildi</h2>
+    <p class="muted">Bu sayfada ${n} öğe bulundu. NMC bir sonraki toplamada <code>${esc(pending.host)}</code> sitesini de okur; öğeler aynı hattan geçer (clickbait eleme → sıralama → doğrulama).</p>
+  </div>
+  <div class="p-foot">
+    <button class="btn btn--primary" type="button" data-p="to-options">Ayarlara dön</button>
+    <button class="btn btn--ghost" type="button" data-p="close">Sayfada kal (katmanı kapat)</button>
+  </div>`;
+}
+function viewConfirmExit() {
+  return `<div class="p-body" role="alertdialog" aria-labelledby="ce-h" aria-describedby="ce-d">
+    <h2 id="ce-h">Seçiciden çıkılsın mı?</h2>
+    <p class="muted" id="ce-d">Seçimlerin kaydedilmedi. Çıkarsan bu sayfa için kural oluşmaz.</p>
+  </div>
+  <div class="p-foot">
+    <button class="btn btn--primary" type="button" data-p="resume">Seçmeye devam et</button>
+    <button class="btn btn--ghost" type="button" data-p="close">Kaydetmeden çık</button>
+  </div>`;
+}
+const VIEWS = { start: viewStart, "claude-wait": viewClaudeWait, "claude-error": viewClaudeError, "claude-result": viewClaudeResult, pick: viewPick, preview: viewPick, saved: viewSaved, "confirm-exit": viewConfirmExit };
+
+function render(focusSel) {
+  panel.dataset.side = pill.dataset.side = drawer.dataset.side = S.side;
+  panel.innerHTML = head() + VIEWS[S.mode]();
+  panel.hidden = S.min || S.mode === "preview";
+  const kept = keptCards().length;
+  pill.hidden = !S.min || S.mode === "preview";
+  pill.innerHTML = `<span class="p-logo" aria-hidden="true">NMC</span>${S.card ? `${kept} kart` : "Kural seçici"} · aç`;
+  pill.setAttribute("aria-label", `NMC kural panelini aç${S.card ? `, ${kept} kart seçili` : ""}`);
+  applyTheme();
+  if (S.mode === "preview") renderDrawer(); else drawer.hidden = true;
+  if (focusSel) { const f = shadow.querySelector(focusSel); if (f) f.focus(); }
+  repaint();
+}
+
+/* ── Önizleme ─────────────────────────────────────────────── */
+function textOf(el) {
+  if (!el) return "";
+  const c = el.cloneNode(true);
+  for (const s of S.strip) c.querySelectorAll(s).forEach((x) => x.remove());
+  return c.textContent.replace(/\s+/g, " ").trim();
+}
+function extract(card) {
+  const linkEl = fieldEl(card, "link"), timeEl = fieldEl(card, "time"), imgEl = fieldEl(card, "image");
+  return {
+    title: textOf(fieldEl(card, "title")), text: textOf(fieldEl(card, "text")), author: textOf(fieldEl(card, "author")),
+    link: linkEl ? (linkEl.getAttribute("href") || linkEl.querySelector("a")?.getAttribute("href")) : null,
+    time: timeEl ? (timeEl.getAttribute("datetime") || textOf(timeEl)) : null,
+    image: imgEl ? (imgEl.tagName === "IMG" ? imgEl : imgEl.querySelector("img")) : null,
+  };
+}
+function rel(iso) {
+  const t = Date.parse(iso); if (Number.isNaN(t)) return null;
+  const m = Math.round((Date.parse(NOW) - t) / 60e3);
+  return m < 60 ? `${m} dk` : m < 1440 ? `${Math.round(m / 60)} sa` : new Date(t).toLocaleDateString("tr-TR", { day: "numeric", month: "short" });
+}
+/* Öğeler sunucu HTML'inde de varsa ilk sayfa sekmesiz alınır; düğme/kaydırma
+   ise gerçek bir sayfa ister (gizli pencere). Kayıtta fetch.mode buna göre. */
+function fetchNote(pg) {
+  return pg === "button" || pg === "scroll"
+    ? `<p class="note note--info" style="margin:0">${icon("question")}<span>${pg === "button" ? "Düğmeye basmak" : "Kaydırmak"} için sayfa gizli bir pencerede açılır (X'teki B modu gibi); ilk sayfa yine sekmesiz alınır. Yalnız ilk sayfa yetiyorsa sayfalamayı kapat.</span></p>`
+    : `<p class="note note--ok" style="margin:0">${icon("check")}<span>Öğeler sayfanın HTML'inde de var: toplama sekme açmadan, arka planda yapılır.</span></p>`;
+}
+function renderDrawer() {
+  const kept = keptCards(), items = kept.map(extract), show = items.slice(0, 5);
+  const miss = (k) => items.filter((x) => S.fields[k] && !x[k]).length;
+  const gaps = [["author", "yazar"], ["image", "görsel"], ["time", "zaman"]].map(([k, l]) => [miss(k), l]).filter(([n]) => n);
+  const siteName = "Kuzeykent Postası";
+  drawer.innerHTML = `<header class="p-head">
+      <span class="p-logo" aria-hidden="true">NMC</span>
+      <div class="p-titles"><div class="p-brand" id="d-h">Önizleme</div><div class="p-site">${esc(pending.pattern)}</div></div>
+      <button class="hbtn" type="button" data-p="back" aria-label="Seçime dön">${icon("left")}</button>
+    </header>
+    <p class="d-sum"><b>${kept.length} öğe</b> bulundu · ilk ${show.length} gösteriliyor${allCards().length - kept.length ? ` · ${allCards().length - kept.length} kart çıkarıldı` : ""}${gaps.length ? ` · ${gaps.map(([n, l]) => `${n} öğede ${l} yok`).join(", ")}` : ""}</p>
+    <div class="d-body">
+      <div role="feed" aria-label="Önizleme, ${show.length} öğe">${show.map((x, i) => {
+        const name = x.author || siteName, when = x.time && rel(x.time);
+        return `<article class="post" tabindex="0" aria-posinset="${i + 1}" aria-setsize="${kept.length}" aria-label="${esc(x.title || x.text.slice(0, 60))}">
+          <div class="post__grid">
+            <span class="avatar" style="background:hsl(352 45% 36%)" aria-hidden="true">${esc(name[0].toLocaleUpperCase("tr-TR"))}</span>
+            <div style="min-width:0">
+              <div class="post__head"><span class="post__name">${esc(name)}</span><span class="post__handle">${esc(pending.host)}</span>${when ? `<span class="post__dot" aria-hidden="true">·</span><time class="post__time" datetime="${esc(x.time)}">${when}</time>` : ""}</div>
+              ${x.title ? `<p class="post__title" lang="tr">${esc(x.title)}</p>` : ""}
+              ${x.text ? `<p class="post__text" lang="tr">${esc(x.text)}</p>` : ""}
+              ${!x.title && !x.text ? `<p class="post__missing">Bu öğede metin bulunamadı — akışa girmez.</p>` : ""}
+              ${x.image ? `<div class="media"><img src="${x.image.src}" alt="${esc(x.image.alt)}" width="400" height="300"></div>` : ""}
+              <div class="post__foot">${x.link ? `<a class="open" href="${esc(x.link)}" data-ext>Sitede aç${icon("external")}<span class="sr-only"> (yeni sekmede)</span></a>` : `<span class="post__missing">bağlantı yok</span>`}</div>
+            </div>
+          </div>
+        </article>`;
+      }).join("")}</div>
+      ${kept.length > 5 ? `<p class="d-more">+ ${kept.length - 5} öğe daha · puanlama ve eleme toplamada yapılır, burada yalnız çıkarılan veri görünür.</p>` : ""}
+      <form class="d-form" id="d-form" novalidate>
+        <h3>Kural</h3>
+        <div class="f"><label for="f-name">Ad</label><input id="f-name" value="${esc(siteName)} — Gündem" autocomplete="off"></div>
+        <div class="f"><span class="lbl">Adres ve kalıp</span><div class="readonly">${esc(pending.url)}<br>${esc(pending.pattern)}</div></div>
+        <div class="f"><label for="f-page">Daha fazla öğe</label>
+          <select id="f-page" aria-describedby="f-page-h">
+            <option value="button" selected>“Daha fazla haber yükle” düğmesine bas (algılandı)</option>
+            <option value="scroll">Sayfayı aşağı kaydır</option>
+            <option value="next-link">“Sonraki sayfa” bağlantısını izle</option>
+            <option value="none">Yalnız ilk sayfa</option>
+          </select>
+          <p class="muted" id="f-page-h">Düğme: <code>button.np-more</code>. Toplama bunu en fazla aşağıdaki sayıda tekrarlar.</p></div>
+        <div class="f"><label for="f-max">En fazla sayfa / yükleme</label><div class="row"><input id="f-max" type="number" min="1" max="10" value="3" inputmode="numeric"><span class="muted">≈ ${kept.length * 3} öğeye kadar</span></div></div>
+        <div class="f"><label for="f-min">Sağlık eşiği</label><div class="row"><input id="f-min" type="number" min="1" max="${kept.length}" value="${Math.max(3, Math.round(kept.length * .4))}" inputmode="numeric" aria-describedby="f-min-h"><span class="muted">öğe</span></div>
+          <p class="muted" id="f-min-h">Bir çekimde bundan az gelirse “Az öğe”, hiç gelmezse “Kural bozuldu” uyarısı. Bu sayfada şu an ${kept.length}.</p></div>
+        <div class="f"><span class="lbl">Çekim yöntemi</span><div id="f-fetch">${fetchNote("button")}</div></div>
+      </form>
+    </div>
+    <footer class="d-foot">
+      <button class="btn btn--ghost" type="button" data-p="back">Seçime dön</button>
+      <button class="btn btn--primary" type="button" data-p="save">Kaydet</button>
+    </footer>`;
+  drawer.hidden = false;
+}
+
+/* ── Rol açılır penceresi ─────────────────────────────────── */
+let popAnchor = null;
+function openPop(el, x, y) {
+  S.pop = el; S.cursor = el; popAnchor = { x, y };
+  renderPop();
+  const b = pop.querySelector(".rbtn[aria-pressed='true']") || pop.querySelector(".rbtn");
+  b.focus();
+  announce(`${desc(el)}, ${similarCount(el)} benzer. Rol seç: 1 ile 8 arası.`);
+  repaint();
+}
+function assignedRole(el) {
+  if (S.card && el.matches(S.card) && !isExcludedCard(el)) return "card";
+  const c = S.card && el.closest(S.card);
+  if (c) for (const k of FIELD_KEYS) if (fieldEl(c, k) === el) return k;
+  if (S.outside.includes(el)) return "cut";
+  if (c && S.strip.some((s) => el.matches(s))) return "cut";
+  return null;
+}
+function renderPop(msg = "") {
+  const el = S.pop; if (!el) { pop.hidden = true; return; }
+  const cur = assignedRole(el);
+  const c = S.card && el.closest(S.card);
+  const notThisOk = c && !isExcludedCard(c) && keptCards().length > 1;
+  pop.innerHTML = `<h2 class="sr-only" id="pop-h">Bu öğe ne?</h2>
+    <div class="pop__head"><code>${esc(desc(el))}</code><span>${similarCount(el)} benzer</span></div>
+    <div class="pop__nav" role="group" aria-label="Seçimi değiştir">
+      <button class="kb" type="button" data-nav="up">${icon("up")}Geniş</button>
+      <button class="kb" type="button" data-nav="down">${icon("down")}Dar</button>
+      <button class="kb" type="button" data-nav="prev" aria-label="Önceki kardeş öğe">${icon("left")}</button>
+      <button class="kb" type="button" data-nav="next" aria-label="Sonraki kardeş öğe">${icon("right")}</button>
+    </div>
+    <div class="pop__roles" role="group" aria-label="Rol">${ROLES.map((r, i) => `<button class="rbtn${r.key === "cut" ? " rbtn--cut" : ""}" type="button" data-role="${r.key}" aria-pressed="${cur === r.key}" style="--c:${r.color}" ${r.help ? `title="${r.help}"` : ""}><span class="badge" style="--c:${r.color}" aria-hidden="true">${r.k}</span>${r.name}<kbd aria-hidden="true">${i + 1}</kbd></button>`).join("")}</div>
+    ${notThisOk || cur ? `<div class="pop__extra">${notThisOk ? `<button class="btn btn--ghost btn--inline" type="button" data-pop="notthis">${icon("close")}Bu kart değil</button>` : ""}${cur ? `<button class="btn btn--ghost btn--inline" type="button" data-pop="clear">Seçimi kaldır</button>` : ""}</div>` : ""}
+    ${msg ? `<p class="pop__msg" role="alert">${msg}</p>` : ""}`;
+  pop.hidden = false;
+  const w = 288, hgt = pop.offsetHeight;
+  let left = Math.min(Math.max(8, popAnchor.x + 12), innerWidth - w - 8);
+  let top = popAnchor.y + 12;
+  if (top + hgt > innerHeight - 8) top = Math.max(8, popAnchor.y - hgt - 12);
+  pop.style.left = left + "px"; pop.style.top = top + "px";
+}
+function closePop(returnFocus = true) {
+  S.pop = null; pop.hidden = true; repaint();
+  if (returnFocus) { const cb = $("cursorbox"); if (cb) cb.focus(); }
+}
+
+/* ── Rol atama ve genelleştirme ───────────────────────────── */
+/* Bir öğenin kimliği sonraki çekimlerde yoktur: "bu değil" kurala ancak bir
+   ÖZELLİK olarak yazılabilir. Kartın içinde olup diğer kartların en fazla
+   üçte birinde bulunan sınıf aranır → item.exclude: [":has(.sınıf)"]. */
+function distinguishing(card) {
+  const others = keptCards().filter((c) => c !== card);
+  let best = null;
+  for (const d of card.querySelectorAll("[class]")) for (const cls of d.classList) {
+    const n = others.filter((o) => o.querySelector("." + cls)).length;
+    if (n <= others.length / 3 && (!best || n < best.n)) best = { cls, n, label: d.textContent.trim().slice(0, 24) || cls };
+  }
+  return best;
+}
+function excludeCard(card) {
+  const g = distinguishing(card);
+  if (g) {
+    const prev = { has: S.excludeHas, label: S.excludeHasLabel };
+    S.excludeHas = g.cls; S.excludeHasLabel = g.label;
+    const n = allCards().filter((c) => c.querySelector("." + g.cls)).length;
+    return { msg: `${n} kart dışlandı — hepsinde “${g.label}” var.`, undo: () => { S.excludeHas = prev.has; S.excludeHasLabel = prev.label; render("#cursorbox"); } };
+  }
+  S.notThis.add(card);
+  return { msg: "Bu kartı ayıran bir özellik bulunamadı: dışlama yalnız bu sayfada görünür, kurala yazılamaz.", warn: true };
+}
+function assign(role, el) {
+  S.dirty = true;
+  if (role === "card") {
+    S.card = desc(el); S.notThis.clear(); S.excludeHas = null;
+    for (const k of FIELD_KEYS) if (S.fields[k] && !keptCards().some((c) => fieldEl(c, k))) delete S.fields[k];
+    const n = keptCards().length;
+    return { ok: true, msg: `${n} benzer kart bulundu.` };
+  }
+  if (role === "cut") {
+    if (S.card && el.matches(S.card)) { const x = excludeCard(el); return { ok: true, msg: x.msg, undo: x.undo }; }
+    const c = S.card && el.closest(S.card);
+    if (c) { const d = desc(el); if (!S.strip.includes(d)) S.strip.push(d); return { ok: true, msg: `Tüm kartlarda “${d}” metinden çıkarılacak.` }; }
+    if (!S.outside.includes(el)) S.outside.push(el);
+    return { ok: true, msg: "Kartların dışında; zaten okunmuyor. İşaretlendi." };
+  }
+  let msg = "";
+  if (!S.card || !el.closest(S.card)) {
+    const inferred = inferCard(el);
+    if (!inferred) return { ok: false, msg: "Bu öğe tekrar eden bir kartın içinde değil. Önce bir haber kutusunu <b>İçerik kartı</b> olarak seç." };
+    S.card = inferred; S.notThis.clear(); S.excludeHas = null;
+    msg = `Kart da bulundu: ${keptCards().length} × <code>${esc(inferred)}</code>. `;
+  }
+  let target = el;
+  if (role === "image" && el.tagName !== "IMG") target = el.querySelector("img") || el;
+  if (role === "link" && el.tagName !== "A") target = el.closest("a") && el.closest(S.card).contains(el.closest("a")) ? el.closest("a") : (el.querySelector("a") || el);
+  S.fields[role] = desc(target);
+  if (role === "title" && !S.fields.link) {
+    const a = target.tagName === "A" ? target : target.querySelector("a");
+    if (a) { S.fields.link = desc(a); msg += "Başlıktaki bağlantı “Bağlantı” olarak da alındı. "; }
+  }
+  const cov = coverage(role);
+  msg += `${roleOf(role).name}: ${cov.n}/${cov.of} kartta bulundu.`;
+  return { ok: true, msg };
+}
+function clearRole(key) {
+  S.dirty = true;
+  if (key === "card") { S.card = null; S.fields = {}; S.notThis.clear(); S.excludeHas = null; S.strip = []; }
+  else if (key === "cut") { S.notThis.clear(); S.excludeHas = null; S.strip = []; S.outside = []; }
+  else delete S.fields[key];
+}
+
+/* ── Gezinme (üst/alt/kardeş) ─────────────────────────────── */
+function move(dir) {
+  let t = S.pop || S.cursor;
+  if (!t) { t = siteRoot.querySelector(".np-card") || siteRoot.firstElementChild; }
+  else {
+    let n = null;
+    if (dir === "up") n = t.parentElement;
+    if (dir === "down") n = t.firstElementChild;
+    if (dir === "prev") n = t.previousElementSibling;
+    if (dir === "next") n = t.nextElementSibling;
+    if (n === host) n = dir === "next" ? null : n.previousElementSibling;
+    if (n && inSite(n)) t = n;
+    else { announce(dir === "up" ? "Daha geniş öğe yok." : dir === "down" ? "Daha dar öğe yok." : "Bu yönde kardeş öğe yok."); return; }
+  }
+  t.scrollIntoView({ block: "nearest" });
+  if (S.pop) { S.pop = t; S.cursor = t; const r = t.getBoundingClientRect(); popAnchor = { x: r.left, y: Math.min(r.bottom, innerHeight - 40) }; renderPop(); pop.querySelector(`[data-nav="${dir}"]`)?.focus(); }
+  else { S.cursor = t; refreshCursorBox(); }
+  announce(`${desc(t)}, ${similarCount(t)} benzer`);
+  repaint();
+}
+function refreshCursorBox() {
+  const cb = $("cursorbox"); if (!cb) return;
+  const t = S.cursor;
+  cb.querySelector(".cursorbox__row").innerHTML = `${icon("pointer")}<code>${t ? esc(desc(t)) : "Ok tuşlarıyla sayfada gezin"}</code>${t ? `<span class="cursorbox__cnt">${similarCount(t)} benzer</span>` : ""}`;
+  cb.setAttribute("aria-label", `Klavye imleci${t ? ": " + desc(t) : ""}`);
+}
+
+/* ── Mod geçişleri ────────────────────────────────────────── */
+function resetSel() { S.card = null; S.fields = {}; S.notThis = new Set(); S.excludeHas = null; S.strip = []; S.outside = []; S.cursor = S.hover = null; S.dirty = false; }
+function applyClaude() {
+  resetSel(); S.source = "claude";
+  S.card = "article.np-card";
+  S.fields = { title: "h2.np-title", text: "p.np-summary", link: "a.np-link", author: "span.np-author", time: "time", image: "img.np-thumb" };
+  S.excludeHas = "np-sponsor"; S.excludeHasLabel = "Sponsorlu"; S.strip = ["span.np-inline-promo"];
+  S.dirty = true;
+}
+function setMode(m, focusSel) {
+  clearTimeout(S.claudeTimer);
+  if (S.pop) closePop(false);
+  S.mode = m; S.min = false;
+  render(focusSel);
+}
+function startClaude() {
+  setMode("claude-wait", "[data-p='cancel']");
+  announce("Claude sayfayı inceliyor.");
+  S.claudeTimer = setTimeout(() => {
+    if (claudeMode === "error") { setMode("claude-error", "[data-p='claude']"); announce("Claude öneremedi."); return; }
+    applyClaude(); setMode("claude-result", "[data-p='preview']");
+    announce(`Claude önerdi: ${keptCards().length} kart, 6 alan, 2 çıkarma.`);
+  }, 1800);
+}
+function exitPicker(force = false) {
+  if (!force && S.dirty && !["saved", "confirm-exit"].includes(S.mode)) { S.prevMode = S.mode; setMode("confirm-exit", "[data-p='resume']"); return; }
+  setScreen("options");
+}
+function save() {
+  const kept = keptCards().length;
+  const name = shadow.getElementById("f-name").value.trim() || pending.host;
+  const minItems = Number(shadow.getElementById("f-min").value) || 3;
+  if (pending.repickOf) {
+    const r = rules.find((x) => x.id === pending.repickOf);
+    if (r) { Object.assign(r, { health: "new", last: { at: NOW, items: kept }, minItems, name }); newRuleId = r.id; }
+  } else {
+    const r = { id: "n" + Date.now(), name, url: pending.url, pattern: pending.pattern, hue: 352, on: true, health: "new", last: { at: NOW, items: kept }, minItems };
+    r.json = {
+      nmcRule: 1, id: pending.pattern.replace(/\/\*$/, ""), name, url: pending.url, match: [pending.pattern],
+      item: { selector: S.card, ...(S.excludeHas ? { exclude: [`:has(.${S.excludeHas})`] } : {}) },
+      fields: Object.fromEntries(Object.entries(S.fields).map(([k, v]) => [k, k === "link" ? { selector: v, attr: "href" } : k === "time" ? { selector: v, attr: "datetime" } : k === "image" ? { selector: v, attr: "src" } : { selector: v }])),
+      exclude: { within: S.strip },
+      pagination: { type: shadow.getElementById("f-page").value, selector: "button.np-more", maxPages: Number(shadow.getElementById("f-max").value) || 3 },
+      fetch: { mode: ["button", "scroll"].includes(shadow.getElementById("f-page").value) ? "browser" : "static" }, health: { minItems },
+      meta: { createdWith: S.source === "claude" ? "claude-suggest+edit" : "manual", createdAt: "2026-10-15T11:20:00Z", app: "nmc-extension/0.2.0" },
+    };
+    rules = rules.filter((x) => x.url !== r.url); rules.unshift(r); newRuleId = r.id;
+  }
+  S.dirty = false;
+  setMode("saved", "[data-p='to-options']");
+  announce("Kural kaydedildi.");
+}
+
+/* ── Panel / çekmece / pencere olayları ───────────────────── */
+shadow.addEventListener("click", (e) => {
+  const t = e.target;
+  const p = t.closest("[data-p]");
+  if (p) {
+    switch (p.dataset.p) {
+      case "claude": return startClaude();
+      case "manual": resetSel(); S.source = "manual"; setMode("pick", "#cursorbox"); return announce("Seçici açık. Sayfada bir öğeye tıkla ya da ok tuşlarıyla gezin.");
+      case "cancel": return setMode("start", "[data-p='claude']");
+      case "fix": S.mode = "pick"; render("#cursorbox"); return announce("Düzeltme modu. Öğeye tıklayıp rolünü değiştirebilirsin.");
+      case "reset": resetSel(); S.source = "manual"; return setMode("pick", "#cursorbox");
+      case "preview": if (ready()) setMode("preview", ".drawer .post"); return;
+      case "back": S.mode = "pick"; return render("#cursorbox");
+      case "save": return save();
+      case "resume": return setMode(S.prevMode || "pick", "#cursorbox");
+      case "close": return setScreen("options");
+      case "to-options": return setScreen("options");
+    }
+  }
+  if (t.closest("#p-close")) return exitPicker();
+  if (t.closest("#p-min")) { S.min = true; render(); return pill.focus(); }
+  if (t.closest("#pill")) { S.min = false; return render("#p-min"); }
+  if (t.closest("#p-side")) { S.side = S.side === "right" ? "left" : "right"; return render("#p-side"); }
+  if (t.closest("#p-theme")) return cycleTheme();
+  const clr = t.closest("[data-clear]");
+  if (clr) { clearRole(clr.dataset.clear); render("#cursorbox"); return announce(`${clr.dataset.clear === "cut" ? "Çıkarmalar" : roleOf(clr.dataset.clear).name} kaldırıldı.`); }
+  const nav = t.closest("[data-nav]");
+  if (nav) {
+    if (nav.dataset.nav === "open") { const c = S.cursor; if (c) { const r = c.getBoundingClientRect(); openPop(c, r.left, Math.min(r.bottom, innerHeight - 40)); } else announce("Önce ok tuşlarıyla bir öğeye gel."); return; }
+    return move(nav.dataset.nav);
+  }
+  const rb = t.closest("[data-role]");
+  if (rb) return choose(rb.dataset.role);
+  const pb = t.closest("[data-pop]");
+  if (pb) {
+    const el = S.pop;
+    if (pb.dataset.pop === "notthis") { const x = excludeCard(el.closest(S.card)); S.dirty = true; closePop(); render("#cursorbox"); announce(x.msg); return say(x.msg, x.undo || null); }
+    if (pb.dataset.pop === "clear") { const r = assignedRole(el); if (r === "cut") { S.outside = S.outside.filter((x) => x !== el); S.strip = S.strip.filter((s) => !el.matches(s)); } else clearRole(r); closePop(); return render("#cursorbox"); }
+  }
+  const ext = t.closest("a[data-ext]");
+  if (ext) { e.preventDefault(); say("Maket: haber sitede yeni sekmede açılırdı."); }
+});
+function choose(role) {
+  const el = S.pop; if (!el) return;
+  const r = assign(role, el);
+  if (!r.ok) { renderPop(r.msg); pop.querySelector(`[data-role="${role}"]`).focus(); return announce(r.msg.replace(/<[^>]+>/g, "")); }
+  closePop(false);
+  render("#cursorbox");
+  announce(r.msg.replace(/<[^>]+>/g, ""));
+  say(r.msg.replace(/<[^>]+>/g, ""), r.undo || null);
+}
+drawer.addEventListener("submit", (e) => e.preventDefault());
+drawer.addEventListener("change", (e) => { if (e.target.id === "f-page") shadow.getElementById("f-fetch").innerHTML = fetchNote(e.target.value); });
+
+/* Sayfa üzerinde seçim: fare */
+document.addEventListener("mousemove", (e) => {
+  if (S.mode !== "pick" || S.pop) return;
+  const el = e.composedPath()[0];
+  const t = inSite(el) ? el : null;
+  if (t !== S.hover) { S.hover = t; repaint(); }
+}, true);
+document.addEventListener("click", (e) => {
+  if (document.getElementById("scr-page").hidden) return;
+  const el = e.composedPath()[0];
+  if (!inSite(el)) return;
+  e.preventDefault(); e.stopPropagation();
+  if (S.mode === "pick") { S.hover = null; openPop(el, e.clientX, e.clientY); }
+  else if (S.mode === "start") say("Önce paneldeki seçeneklerden birini seç.");
+  else if (S.mode === "claude-result") say("Değiştirmek için paneldeki “Düzelt”e bas.");
+}, true);
+
+/* Klavye: Esc her yerde; oklar yalnız seçici bağlamında (imleç kutusu,
+   rol penceresi ya da odak sayfa gövdesindeyken) — sayfanın kendi
+   klavye kısayolları ve ekran okuyucu gezinmesi başka zaman bozulmaz. */
+document.addEventListener("keydown", (e) => {
+  if (document.getElementById("scr-page").hidden) return;
+  const a = shadow.activeElement;
+  if (e.key === "Escape") {
+    e.preventDefault(); e.stopPropagation();
+    if (S.pop) return closePop();
+    if (S.min) { S.min = false; return render("#p-min"); }
+    if (S.mode === "preview") { S.mode = "pick"; return render("#cursorbox"); }
+    if (S.mode === "confirm-exit") return setMode(S.prevMode || "pick", "#cursorbox");
+    if (S.mode === "claude-wait") return setMode("start", "[data-p='claude']");
+    return exitPicker();
+  }
+  if (S.mode !== "pick" || e.ctrlKey || e.metaKey || e.altKey) return;
+  const inPop = a && pop.contains(a);
+  const ctx = inPop || (a && a.id === "cursorbox") || (document.activeElement === document.body);
+  if (!ctx) return;
+  const DIR = { ArrowUp: "up", ArrowDown: "down", ArrowLeft: "prev", ArrowRight: "next" };
+  if (DIR[e.key]) { e.preventDefault(); e.stopPropagation(); return move(DIR[e.key]); }
+  if (inPop && /^[1-8]$/.test(e.key)) { e.preventDefault(); return choose(ROLES[Number(e.key) - 1].key); }
+  if (!inPop && (e.key === "Enter" || e.key === " ")) {
+    e.preventDefault();
+    if (!S.cursor) return move("down");
+    const r = S.cursor.getBoundingClientRect(); openPop(S.cursor, r.left, Math.min(r.bottom, innerHeight - 40));
+  }
+}, true);
+/* Rol penceresinde Tab döngüsü (non-modal ama odak dışarı kaçmasın) */
+pop.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  const f = [...pop.querySelectorAll("button")]; const i = f.indexOf(shadow.activeElement);
+  if (e.shiftKey && i === 0) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+});
+
+/* ═══ EKRAN GEÇİŞİ + MAKET DENETİMLERİ ═════════════════════════ */
+function setScreen(name) {
+  document.querySelectorAll(".seg[data-screen]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.screen === name)));
+  const page = name === "page";
+  document.getElementById("scr-options").hidden = page;
+  document.getElementById("scr-page").hidden = !page;
+  host.hidden = !page;
+  clearTimeout(S.claudeTimer);
+  if (page) {
+    resetSel(); S.min = false; S.pop = null; pop.hidden = true; scrollTo({ top: 0 });
+    if (pending.repickOf === "r1") { applyClaude(); S.source = "existing"; S.dirty = false; S.mode = "pick"; render("#cursorbox"); announce("Mevcut kural yüklendi; 9 seçicinin 9'u hâlâ eşleşiyor."); }
+    else { S.mode = "start"; render("[data-p='claude']"); }
+  }
+  else {
+    layer.innerHTML = ""; renderRules(); scrollTo({ top: 0 });
+    const nr = newRuleId && document.getElementById("rule-" + newRuleId);
+    if (nr) { nr.scrollIntoView({ block: "center" }); nr.querySelector("[data-act='toggle']").focus(); }
+  }
+}
+document.querySelector(".mock").addEventListener("click", (e) => {
+  const b = e.target.closest(".seg"); if (!b) return;
+  if (b.dataset.screen) { if (b.dataset.screen === "page") pending = { url: "https://haber.example.invalid/gundem", pattern: "haber.example.invalid/gundem/*", host: "haber.example.invalid", repickOf: null }; return setScreen(b.dataset.screen); }
+  if (b.dataset.list) {
+    document.querySelectorAll(".seg[data-list]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    rules = b.dataset.list === "empty" ? [] : RULES_FULL.map((r) => ({ ...r })); newRuleId = null;
+    return setScreen("options");
+  }
+  if (b.dataset.claude) {
+    document.querySelectorAll(".seg[data-claude]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    claudeMode = b.dataset.claude;
+  }
+});
+/* Sayfadaki bağlantılar: seçici kapalıyken de dışarı gitmesin (maket) */
+document.addEventListener("click", (e) => {
+  const a = e.target.closest && e.target.closest("a[href]");
+  if (a && a.hostname.endsWith("example.invalid")) { e.preventDefault(); }
+});
+document.getElementById("theme-btn").addEventListener("click", cycleTheme);
+
+applyTheme();
+setScreen("options");
+</script>
+</body>
+</html>

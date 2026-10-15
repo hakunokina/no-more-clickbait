@@ -125,10 +125,139 @@ export const PostBatchSchema = z.object({
 export type PostBatch = z.infer<typeof PostBatchSchema>;
 
 /**
+ * Feed sources beyond X. Each kind keeps its own schema and gets its own
+ * renderer: X posts stay `Post` exactly as above (owner's decision: that
+ * schema does not change), Instagram posts are `InstagramPost`, and
+ * everything else (Reddit, custom URL rules) is a `GenericItem`.
+ *
+ * `FeedItem` is the union the pipeline and the TimelineDoc carry. It is
+ * discriminated by `platform`, which only the new kinds must carry: an
+ * item without one is an X `Post`. So every Post, every stored
+ * result.json/timeline-doc.json and every X-only caller stays valid as
+ * is — no wrapper, no migration. (`Post.source` cannot be the tag: it
+ * already names the connector, e.g. "x-home-timeline".) Tell kinds apart
+ * only through `platformOf` and the `isXPost`/`isInstagramPost`/
+ * `isGenericItem` guards (feed-item.ts), never by probing fields.
+ *
+ * Not the same list as the capture side's `source` ("x" | "reddit" |
+ * "instagram"): that names the site a raw response came from, this names
+ * the item's shape — a Reddit post becomes a `generic` item with
+ * `sourceLabel: "reddit"`.
+ */
+export const FeedPlatformSchema = z.enum(["x", "instagram", "generic"]);
+export type FeedPlatform = z.infer<typeof FeedPlatformSchema>;
+
+/** One image or video of an Instagram post (a carousel has several, in order). */
+export const InstagramMediaSchema = z.object({
+  type: z.enum(["image", "video"]),
+  /** image: the image; video: the poster frame. */
+  url: z.string().url(),
+  /** video: a playable rendition. */
+  videoUrl: z.string().url().optional(),
+  altText: z.string().optional(),
+  /** Original pixel size (aspect ratio before load). */
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional(),
+  /** video: playback length. */
+  durationMs: z.number().int().nonnegative().optional(),
+});
+export type InstagramMedia = z.infer<typeof InstagramMediaSchema>;
+
+/**
+ * An Instagram feed post. Draft core: the field list follows the common
+ * ground of what the feed delivers and may grow (additively) once the
+ * capture research lands. Instagram has no quotes or reposts.
+ */
+export const InstagramPostSchema = z.object({
+  platform: z.literal("instagram"),
+  /** Platform-native media id, unique within Instagram. */
+  id: z.string().min(1),
+  /** Permalink of the post on instagram.com. */
+  url: z.string().url(),
+  authorHandle: z.string().min(1),
+  authorName: z.string().optional(),
+  authorAvatarUrl: z.string().url().optional(),
+  authorVerified: z.boolean().optional(),
+  /** The caption ("" when the post has none). */
+  caption: z.string().default(""),
+  /** post: one image/video; reel: a short video; carousel: several items. */
+  kind: z.enum(["post", "reel", "carousel"]),
+  media: z.array(InstagramMediaSchema).default([]),
+  /** ISO 8601 timestamp of when the post was published. */
+  publishedAt: z.string().datetime(),
+  metrics: z
+    .object({
+      likes: z.number().nonnegative().optional(),
+      comments: z.number().nonnegative().optional(),
+      /** Reels: play count, when delivered. */
+      views: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  /** True when Instagram labelled the post "Sponsored" (an ad). */
+  promoted: z.boolean().default(false),
+});
+export type InstagramPost = z.infer<typeof InstagramPostSchema>;
+
+/**
+ * Anything that is neither X nor Instagram: a Reddit post, a page a
+ * custom URL rule picked up. A link with a title is the common shape —
+ * and the title is where clickbait lives.
+ */
+export const GenericItemSchema = z.object({
+  platform: z.literal("generic"),
+  /**
+   * Stable within `sourceLabel` (e.g. the Reddit post id); when the
+   * source has none, `genericItemIdFromUrl(url)`.
+   */
+  id: z.string().min(1),
+  /** Where it came from: "reddit", "custom:<rule name>", … */
+  sourceLabel: z.string().min(1),
+  title: z.string().optional(),
+  text: z.string().optional(),
+  /** The item itself (the Reddit thread, the article). */
+  url: z
+    .string()
+    .url()
+    .refine((url) => /^https?:\/\//i.test(url), "url must be http(s)"),
+  /** Display domain, e.g. "news.example" or "reddit.com". */
+  domain: z.string().min(1),
+  author: z.string().optional(),
+  /** The community it was posted in, e.g. "r/science". */
+  community: z.string().optional(),
+  /** ISO 8601 timestamp of when it was published, when known. */
+  publishedAt: z.string().datetime().optional(),
+  /** Preview/thumbnail image, when delivered. */
+  image: SizedImageSchema.optional(),
+  engagement: z
+    .object({
+      /** Net votes/points (Reddit scores can go below zero). */
+      score: z.number().optional(),
+      comments: z.number().nonnegative().optional(),
+    })
+    .optional(),
+  /** True when the source marked it as an ad (e.g. Reddit "promoted"). */
+  promoted: z.boolean().default(false),
+});
+export type GenericItem = z.infer<typeof GenericItemSchema>;
+
+/** An X post inside the feed union: `Post` plus the optional tag. */
+export const XFeedPostSchema = PostSchema.extend({ platform: z.literal("x").optional() });
+export type XFeedPost = z.infer<typeof XFeedPostSchema>;
+
+/** One feed item of any source; see `FeedPlatformSchema` for the tagging rule. */
+export const FeedItemSchema = z.discriminatedUnion("platform", [
+  XFeedPostSchema,
+  InstagramPostSchema,
+  GenericItemSchema,
+]);
+export type FeedItem = z.infer<typeof FeedItemSchema>;
+
+/**
  * One post's judgement from the Scorer (single LLM call for the whole
  * batch). Scores are 0..1; thresholds live in code, not in the prompt.
  */
 export const ScoreEntrySchema = z.object({
+  /** The item's `feedItemKey` (for an X post: its id). */
   postId: z.string().min(1),
   /** 0 = straight reporting, 1 = pure clickbait. */
   clickbaitScore: z.number().min(0).max(1),
@@ -210,9 +339,9 @@ export const VerificationResultSchema = z
   });
 export type VerificationResult = z.infer<typeof VerificationResultSchema>;
 
-/** A post that survived the whole pipeline, with its judgements attached. */
+/** A feed item that survived the whole pipeline, with its judgements attached. */
 export const RankedPostSchema = z.object({
-  post: PostSchema,
+  post: FeedItemSchema,
   score: ScoreEntrySchema,
   verification: VerificationResultSchema.nullable(),
 });
@@ -560,9 +689,14 @@ export function isNewerStamp(a: SettingsStamp, b: SettingsStamp): boolean {
 /** Hard ceiling for one framed native-messaging message (extension + host). */
 export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
 
+/** Which site a developer capture came from; absent means "x". */
+export const CaptureSourceSchema = z.enum(["x", "reddit", "instagram"]);
+export type CaptureSource = z.infer<typeof CaptureSourceSchema>;
+
 /** One raw timeline response body, forwarded verbatim for developer capture. */
 export const RawCaptureSchema = z.object({
   type: z.literal("raw-capture"),
+  source: CaptureSourceSchema.optional(),
   /** Which GraphQL operation produced it, e.g. "HomeTimeline". */
   operation: z.string().min(1).max(64),
   /** ISO 8601 time the response was captured in the browser. */
@@ -575,6 +709,7 @@ export type RawCapture = z.infer<typeof RawCaptureSchema>;
 /** Reports a response the extension refused to send (frame ceiling). */
 export const OversizedCaptureSchema = z.object({
   type: z.literal("capture-oversized"),
+  source: CaptureSourceSchema.optional(),
   operation: z.string().min(1).max(64),
   capturedAt: z.string().datetime(),
   /** Framed byte length that exceeded MAX_BRIDGE_MESSAGE_BYTES. */
@@ -758,11 +893,14 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("batch-accepted"), postCount: z.number().int().nonnegative() }),
   z.object({
     type: z.literal("capture-accepted"),
+    /** The capture's source; `stats` are that source's session counts. */
+    source: CaptureSourceSchema.optional(),
     sequence: z.number().int().positive(),
     stats: CaptureStatsSchema,
   }),
   z.object({
     type: z.literal("capture-rejected"),
+    source: CaptureSourceSchema.optional(),
     message: z.string(),
     stats: CaptureStatsSchema,
   }),
