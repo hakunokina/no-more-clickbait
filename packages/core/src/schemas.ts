@@ -58,8 +58,19 @@ export const ScoreEntrySchema = z.object({
   clickbaitScore: z.number().min(0).max(1),
   /** 0 = not worth the reader's time, 1 = highly worth reading. */
   readWorthinessScore: z.number().min(0).max(1),
+  /** True when the post carries a factual claim worth verifying. */
+  checkWorthy: z.boolean().optional(),
   /** The single most check-worthy factual claim, if any. */
   checkWorthyClaim: z.string().min(1).nullable(),
+  /** Short human-readable justification of the scores. */
+  reason: z.string().optional(),
+  /**
+   * True when the Scorer could not obtain a valid score for this post
+   * (the LLM never returned one). Scores are then conservative
+   * placeholders (clickbait 1, read-worthiness 0) so threshold selectors
+   * drop the post, but the entry stays visible instead of vanishing.
+   */
+  scoringFailed: z.boolean().optional(),
 });
 export type ScoreEntry = z.infer<typeof ScoreEntrySchema>;
 
