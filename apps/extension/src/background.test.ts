@@ -1006,6 +1006,44 @@ describe("custom sites in the background worker's collections", () => {
     );
   });
 
+  it("waits out and drops the site run of a Mode B start that threw", async () => {
+    await storeFeedSite();
+    let answerFeed = (): void => undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise<Response>((resolve) => {
+            answerFeed = () =>
+              resolve(
+                new Response(FEED_XML, {
+                  status: 200,
+                  headers: { "content-type": "application/rss+xml" },
+                }),
+              );
+          }),
+      ),
+    );
+    await setSettings({
+      modeBEnabled: true,
+      collectTarget: 100,
+      modeBStrategy: "minimized-window",
+    });
+    await settle();
+    const set = fake.chrome.storage.session.set;
+    fake.chrome.storage.session.set = (items) =>
+      "nmc-mode-b-run" in items ? Promise.reject(new Error("quota")) : set(items);
+    modeBCommand("start");
+    await settle();
+    const port = currentPort();
+    answerFeed();
+    await settle();
+    // Its items went to the session the failed start opened; no outcome
+    // is left over for the next collection to report.
+    expect(postedTypes(port)).toContain("feed-batch");
+    expect(fake.sessionArea.has("nmc.siteRunOutcomes")).toBe(false);
+  });
+
   it("leaves completion as before when no site is set up", async () => {
     await setSettings({ collectTarget: 4 });
     await settle();

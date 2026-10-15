@@ -542,10 +542,11 @@ async function startModeB(target?: number): Promise<void> {
   await chrome.action.setBadgeBackgroundColor({ color: RUNNING_BADGE_COLOR });
   // Custom sites are collected alongside the run, into its session.
   startSiteRun();
-  await modeB.start(start).catch((error: unknown) => {
-    // Thrown before a run existed: nothing will complete this collection,
-    // so the next one must not inherit its site run.
-    siteRun = null;
+  await modeB.start(start).catch(async (error: unknown) => {
+    // Thrown before a run existed: nothing will complete this collection.
+    // Its site run is waited out (holding the command queue) and dropped,
+    // so the next collection neither overlaps nor reports it.
+    await finishSiteRun();
     throw error;
   });
 }

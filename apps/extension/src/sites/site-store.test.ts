@@ -97,6 +97,48 @@ describe("rule and state storage", () => {
       b: on,
     });
   });
+
+  it("builds a write before the move on the old map's entry", async () => {
+    const area = new MemoryArea();
+    const legacy = {
+      enabled: false,
+      permissionGranted: true,
+      staticKnownGood: true,
+      lastSuccessAt: NOW,
+      consecutiveZero: 2,
+    };
+    area.data["nmc.siteStates"] = { a: legacy };
+    await updateSiteState(area, "a", { lastBrowseAt: NOW });
+    await migrateLegacySiteStates(area);
+    expect((await loadSiteStates(area))["a"]).toEqual({ ...legacy, lastBrowseAt: NOW });
+  });
+
+  it("keeps the old map's counters for a site written to before the move finished", async () => {
+    const area = new MemoryArea();
+    area.data["nmc.siteStates"] = {
+      a: {
+        enabled: true,
+        permissionGranted: true,
+        staticKnownGood: true,
+        lastSuccessAt: NOW,
+        consecutiveZero: 2,
+      },
+    };
+    area.data["nmc.siteState.a"] = {
+      enabled: true,
+      permissionGranted: true,
+      lastBrowseAt: NOW,
+    };
+    await migrateLegacySiteStates(area);
+    expect((await loadSiteStates(area))["a"]).toEqual({
+      enabled: true,
+      permissionGranted: true,
+      staticKnownGood: true,
+      lastSuccessAt: NOW,
+      consecutiveZero: 2,
+      lastBrowseAt: NOW,
+    });
+  });
 });
 
 describe("import", () => {

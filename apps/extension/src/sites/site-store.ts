@@ -134,7 +134,8 @@ export function stateOf(states: Record<string, SiteState>, id: string): SiteStat
 /**
  * Read-modify-write of one site's state on its freshest stored value
  * (never on a copy read before a long collect), one step at a time per
- * site within this context.
+ * site within this context. Until the site has its own key, the base is
+ * its entry in the pre-#2023 shared map (a write may beat the move).
  */
 export function mutateSiteState(
   area: StorageArea,
@@ -143,7 +144,12 @@ export function mutateSiteState(
 ): Promise<SiteState> {
   const key = siteStateKey(id);
   return withKeyLock(key, async () => {
-    const current = asSiteState((await area.get([key]))[key]) ?? defaultSiteState();
+    const stored = await area.get([key, LEGACY_SITE_STATES_KEY]);
+    const legacy = stored[LEGACY_SITE_STATES_KEY];
+    const current =
+      asSiteState(stored[key]) ??
+      (isRecord(legacy) ? asSiteState(legacy[id]) : undefined) ??
+      defaultSiteState();
     const next = change(current);
     await area.set({ [key]: next });
     return next;
@@ -173,8 +179,10 @@ export function removeSiteState(area: StorageArea, id: string): Promise<void> {
 }
 
 /**
- * Moves states from the pre-#2023 shared map to per-site keys (a state
- * already under its own key wins), then drops the map. Idempotent.
+ * Moves states from the pre-#2023 shared map to per-site keys, then drops
+ * the map. A state already under its own key (written before the move
+ * finished) is merged over the old entry, so the old counters survive.
+ * Idempotent.
  */
 export async function migrateLegacySiteStates(area: StorageArea): Promise<void> {
   const legacy = (await area.get([LEGACY_SITE_STATES_KEY]))[LEGACY_SITE_STATES_KEY];
@@ -185,7 +193,8 @@ export async function migrateLegacySiteStates(area: StorageArea): Promise<void> 
       const key = siteStateKey(id);
       if (!state) continue;
       await withKeyLock(key, async () => {
-        if ((await area.get([key]))[key] === undefined) await area.set({ [key]: state });
+        const current = asSiteState((await area.get([key]))[key]);
+        await area.set({ [key]: { ...state, ...current } });
       });
     }
   }
