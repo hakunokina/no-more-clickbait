@@ -758,6 +758,22 @@ function igVideo(
   return `<div class="${box}">${frame}<img src="${esc(poster.href)}" alt=""${dims} loading="lazy" decoding="async">${tag}${open}${chip}</div>`;
 }
 
+/** A frame Instagram's CDN serves: an image, or a video with a poster or a rendition there. */
+function igShown(m: InstagramMedia): boolean {
+  return Boolean(
+    m.type === "image" ? igMediaUrl(m.url) : igMediaUrl(m.url) || igMediaUrl(m.videoUrl),
+  );
+}
+
+/** What the card shows: a reel's video alone when it can, else the CDN's frames. */
+function igShownMedia(post: InstagramPost): InstagramMedia[] {
+  if (post.kind === "reel") {
+    const video = post.media.find((m) => m.type === "video");
+    if (video && igShown(video)) return [video];
+  }
+  return post.media.filter(igShown);
+}
+
 function igMedia(pid: string, post: InstagramPost, postUrl: URL | undefined): string {
   if (post.kind === "reel") {
     const video = post.media.find((m) => m.type === "video");
@@ -765,9 +781,7 @@ function igMedia(pid: string, post: InstagramPost, postUrl: URL | undefined): st
     if (reel) return `<div class="media ig__media reel-wrap">${reel}</div>`;
   }
   // Frames from Instagram's CDN only, numbered after that filter (like X's photos).
-  const frames = post.media.filter((m) =>
-    m.type === "image" ? igMediaUrl(m.url) : igMediaUrl(m.url) || igMediaUrl(m.videoUrl),
-  );
+  const frames = post.media.filter(igShown);
   const n = frames.length;
   const first = frames[0];
   if (!first) return "";
@@ -984,12 +998,24 @@ const SOURCE_NAMES: Record<string, string> = {
 function sourceName(label: string, cards: readonly TimelineCard[]): string {
   const known = SOURCE_NAMES[label];
   if (known) return known;
+  const host = customHost(label, cards);
+  // Two rules on one site: their hosts would read the same, so each keeps its name.
+  const shared = cards.some(
+    ({ post }) =>
+      isGenericItem(post) &&
+      post.sourceLabel !== label &&
+      !SOURCE_NAMES[post.sourceLabel] &&
+      customHost(post.sourceLabel, cards) === host,
+  );
+  return host && !shared ? host : label.replace(/^custom:/, "");
+}
+
+/** A custom source's host, from its first item in the feed. */
+function customHost(label: string, cards: readonly TimelineCard[]): string | undefined {
   const item = cards.find(
     ({ post }) => isGenericItem(post) && post.sourceLabel === label,
   )?.post;
-  return item && isGenericItem(item)
-    ? genericHost(item, item.url)
-    : label.replace(/^custom:/, "");
+  return item && isGenericItem(item) ? genericHost(item, item.url) : undefined;
 }
 
 /** "X, Instagram ve Reddit". */
@@ -1135,13 +1161,13 @@ function renderError(
 
 /**
  * Words at 200/min plus a glance per photo, video/GIF and link (X) or
- * image and video (Instagram). Generic cards show no media.
+ * image and video (Instagram) the card shows. Generic cards show no media.
  */
 function readingMinutes(doc: TimelineDoc, cards: TimelineCard[]): number {
   let seconds = (doc.header.wordCount / 200) * 60;
   for (const { post } of cards) {
     if (isGenericItem(post)) continue;
-    for (const m of post.media) {
+    for (const m of isInstagramPost(post) ? igShownMedia(post) : post.media) {
       seconds += m.type === "photo" || m.type === "image" ? 8 : m.type === "link" ? 5 : 15;
     }
   }
