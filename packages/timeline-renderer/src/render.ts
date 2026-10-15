@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  isXCard,
   scoreOutOfTen,
   type FunnelCounts,
   type Post,
@@ -8,6 +9,7 @@ import {
   type TimelineCard,
   type TimelineDoc,
   type VerificationResult,
+  type XTimelineCard,
 } from "@nmc/core";
 import { TIMELINE_SCRIPT } from "./client-script.js";
 import { TIMELINE_CSS } from "./styles.js";
@@ -497,7 +499,7 @@ function renderStats(ctx: Ctx, metrics: Post["metrics"]): string {
   );
 }
 
-function renderCard(ctx: Ctx, card: TimelineCard, total: number): string {
+function renderCard(ctx: Ctx, card: XTimelineCard, total: number): string {
   const { post } = card;
   const pid = `p${card.rank}`;
   const name = post.authorName?.trim() || `@${post.authorHandle}`;
@@ -641,7 +643,7 @@ function renderError(
 }
 
 /** Words at 200/min plus a glance per photo, video/GIF and link. */
-function readingMinutes(doc: TimelineDoc, cards: TimelineCard[]): number {
+function readingMinutes(doc: TimelineDoc, cards: XTimelineCard[]): number {
   let seconds = (doc.header.wordCount / 200) * 60;
   for (const { post } of cards) {
     for (const m of post.media) seconds += m.type === "photo" ? 8 : m.type === "link" ? 5 : 15;
@@ -654,7 +656,11 @@ function readingMinutes(doc: TimelineDoc, cards: TimelineCard[]): number {
 export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): string {
   const ctx = makeCtx(doc, opts);
   // The schema already forbids them; a contradicted post never reaches the feed.
-  const cards = doc.cards.filter((card) => card.verification?.status !== "false_or_disputed");
+  // X cards only: Instagram and generic cards get their own renderers.
+  const cards = doc.cards.filter(
+    (card): card is XTimelineCard =>
+      card.verification?.status !== "false_or_disputed" && isXCard(card),
+  );
   const total = cards.length;
   const state = doc.status.state;
   const scanned = doc.funnel?.scanned;

@@ -1,11 +1,13 @@
 import { z } from "zod";
+import { isInstagramPost, isXPost } from "./feed-item.js";
 import { FunnelCountsSchema, type FunnelCounts } from "./metrics.js";
 import {
-  PostSchema,
+  FeedItemSchema,
   ScoreEntrySchema,
   VerificationResultSchema,
-  type Post,
+  type FeedItem,
   type RankedPost,
+  type XFeedPost,
 } from "./schemas.js";
 
 /**
@@ -14,6 +16,11 @@ import {
  * cut-offs and verification already happened in the pipeline; the
  * renderer only lays it out. Feed content inside stays untrusted — the
  * renderer escapes every string and allow-lists every URL.
+ *
+ * A card's `post` is a `FeedItem`: an X post (no `platform`, exactly as
+ * before — documents written before other sources existed stay valid),
+ * an Instagram post or a generic item. Each kind has its own renderer;
+ * pick it with `platformOf(card.post)`.
  */
 
 export const TIMELINE_DOC_VERSION = 1;
@@ -45,7 +52,7 @@ export function scoreLevel(score: number): ScoreLevel {
 export const TimelineCardSchema = z.object({
   /** 1-based position; the order IS the read-value ranking. */
   rank: z.number().int().positive(),
-  post: PostSchema,
+  post: FeedItemSchema,
   score: ScoreEntrySchema,
   levels: z.object({ readValue: ScoreLevelSchema, clickbait: ScoreLevelSchema }),
   /**
@@ -59,6 +66,13 @@ export const TimelineCardSchema = z.object({
   ),
 });
 export type TimelineCard = z.infer<typeof TimelineCardSchema>;
+
+/** A card holding an X post (the X renderer's input). */
+export type XTimelineCard = TimelineCard & { post: XFeedPost };
+
+export function isXCard(card: TimelineCard): card is XTimelineCard {
+  return isXPost(card.post);
+}
 
 export const TimelineStatusSchema = z.discriminatedUnion("state", [
   /** N posts shown. */
@@ -121,9 +135,14 @@ function countWords(text: string | undefined): number {
   return text ? text.split(/\s+/).filter(Boolean).length : 0;
 }
 
-/** Words a reader goes through for one post: its own text plus the quote. */
-export function postWordCount(post: Post): number {
-  return countWords(post.text) + countWords(post.quoted?.text);
+/**
+ * Words a reader goes through for one item: an X post's own text plus
+ * the quote, an Instagram caption, a generic item's title and text.
+ */
+export function postWordCount(post: FeedItem): number {
+  if (isXPost(post)) return countWords(post.text) + countWords(post.quoted?.text);
+  if (isInstagramPost(post)) return countWords(post.caption);
+  return countWords(post.title) + countWords(post.text);
 }
 
 /** A finished run → the renderer's document (validated; throws if inconsistent). */

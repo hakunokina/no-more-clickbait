@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ZodError } from "zod";
+import { feedItemKey, isInstagramPost, isXPost } from "../feed-item.js";
 import { createHardFilter, type HardFilterStats } from "../hard-filter.js";
 import {
   CollectionMetricsSchema,
@@ -23,6 +24,7 @@ import {
 } from "../pipeline.js";
 import {
   SettingsFieldsSchema,
+  type FeedItem,
   type PipelineSettingKey,
   type Post,
   type RankedPost,
@@ -229,7 +231,7 @@ export interface CaptureRunReport {
   /** Verification counts and results; absent when run without a Verifier. */
   verification?: VerificationStats;
   /** Media-only posts passed through unscored, outside the selection count. */
-  unjudged: Post[];
+  unjudged: FeedItem[];
   /** Where every parsed post went; the buckets add up to `scanned`. */
   funnel: FunnelCounts;
   metrics: RunMetrics;
@@ -333,8 +335,30 @@ function verificationLines(verification: VerificationResult): string[] {
   return lines;
 }
 
-/** Text, quote and link lines of one post (scores excluded). */
-function postBody(post: Post): string[] {
+/** Who/where an item is from: "@handle", "ig @handle", "reddit r/sub". */
+function itemLabel(item: FeedItem): string {
+  if (isXPost(item)) return `@${item.authorHandle}`;
+  if (isInstagramPost(item)) return `ig @${item.authorHandle}`;
+  return [item.sourceLabel, item.community].filter(Boolean).join(" ");
+}
+
+/** Media kinds of an item, for the unjudged list. */
+function mediaKinds(item: FeedItem): string {
+  if (isXPost(item)) return [...new Set(item.media.map((media) => media.type))].join(", ");
+  if (isInstagramPost(item)) return item.kind;
+  return item.image ? "photo" : "";
+}
+
+/** Text, quote and link lines of one item (scores excluded). */
+function postBody(post: FeedItem): string[] {
+  if (isInstagramPost(post)) {
+    return [post.caption ? `> ${oneLine(post.caption)}` : "> _(metin yok)_", ""];
+  }
+  if (!isXPost(post)) {
+    const body = [post.title ? `**${oneLine(post.title)}**` : "", oneLine(post.text ?? "")];
+    const text = body.filter(Boolean).join(" — ");
+    return [text ? `> ${text}` : "> _(metin yok)_", ""];
+  }
   const lines: string[] = [];
   if (post.repostedBy) lines.push(`_@${post.repostedBy} yeniden paylaştı_`, "");
   lines.push(post.text ? `> ${oneLine(post.text)}` : "> _(metin yok)_", "");
@@ -394,7 +418,7 @@ export function renderSelectedMarkdown(report: CaptureRunReport): string {
   for (const [index, { post, score, verification }] of report.selected.entries()) {
     const badge = verification ? [VERIFICATION_BADGES[verification.status]] : [];
     lines.push(
-      `## ${index + 1}. @${post.authorHandle} — ${[...scoreTags(score, true), ...badge].join(" · ")}`,
+      `## ${index + 1}. ${itemLabel(post)} — ${[...scoreTags(score, true), ...badge].join(" · ")}`,
       "",
     );
     lines.push(...postBody(post));
@@ -410,9 +434,10 @@ export function renderSelectedMarkdown(report: CaptureRunReport): string {
     "",
   );
   for (const [index, post] of report.unjudged.entries()) {
-    const kinds = [...new Set(post.media.map((media) => media.type))].join(", ") || "medya";
-    lines.push(`## ${index + 1}. @${post.authorHandle} — ${kinds}`, "");
-    if (post.repostedBy) lines.push(`_@${post.repostedBy} yeniden paylaştı_`, "");
+    const kinds = mediaKinds(post) || "medya";
+    lines.push(`## ${index + 1}. ${itemLabel(post)} — ${kinds}`, "");
+    if (isXPost(post) && post.repostedBy)
+      lines.push(`_@${post.repostedBy} yeniden paylaştı_`, "");
     lines.push(`- Bağlantı: ${post.url}`, "");
   }
   return lines.join("\n");
@@ -428,14 +453,14 @@ export function renderSelectedMarkdown(report: CaptureRunReport): string {
  */
 export function renderClickbaitTopMarkdown(
   report: CaptureRunReport,
-  posts: readonly Post[],
+  posts: readonly FeedItem[],
   limit = 40,
 ): string {
-  const byId = new Map(posts.map((post) => [post.id, post]));
+  const byId = new Map(posts.map((post) => [feedItemKey(post), post]));
   const judged = report.scores
     .filter((score) => !score.scoringFailed)
     .map((score, order) => ({ score, order, post: byId.get(score.postId) }))
-    .filter((entry): entry is typeof entry & { post: Post } => entry.post !== undefined)
+    .filter((entry): entry is typeof entry & { post: FeedItem } => entry.post !== undefined)
     .sort(
       (a, b) =>
         b.score.clickbaitScore - a.score.clickbaitScore ||
@@ -452,7 +477,7 @@ export function renderClickbaitTopMarkdown(
   ];
   for (const [index, { post, score }] of judged.entries()) {
     lines.push(
-      `## ${index + 1}. @${post.authorHandle} — ${scoreTags(score, false).join(" · ")}`,
+      `## ${index + 1}. ${itemLabel(post)} — ${scoreTags(score, false).join(" · ")}`,
       "",
     );
     lines.push(...postBody(post));

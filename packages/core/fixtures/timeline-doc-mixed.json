@@ -1,0 +1,356 @@
+{
+  "version": 1,
+  "header": {
+    "generatedAt": "2026-01-01T10:00:00.000Z",
+    "capturedAt": "2026-01-01T09:40:00.000Z",
+    "timelineSize": 6,
+    "wordCount": 82
+  },
+  "cards": [
+    {
+      "rank": 1,
+      "post": {
+        "id": "3000000000000000001",
+        "source": "x-home-timeline",
+        "authorHandle": "synthetic_author_1",
+        "authorName": "Synthetic Author 1",
+        "authorAvatarUrl": "https://pbs.twimg.com/profile_images/10000001/synthetic_normal.jpg",
+        "text": "Sentetik şehirde yeni köprü 3 Mart'ta açılıyor; belediye açıklaması ekte. https://news.example.invalid/kopru",
+        "url": "https://x.com/synthetic_author_1/status/3000000000000000001",
+        "publishedAt": "2026-01-01T01:15:00.000Z",
+        "media": [
+          {
+            "type": "photo",
+            "url": "https://pbs.twimg.com/media/synthetic-bridge.jpg",
+            "altText": "Sentetik bir köprünün gün batımında çizimi",
+            "width": 1600,
+            "height": 900
+          },
+          {
+            "type": "link",
+            "url": "https://news.example.invalid/kopru"
+          }
+        ],
+        "metrics": {
+          "likes": 120,
+          "reposts": 14,
+          "replies": 9,
+          "quotes": 1,
+          "views": 18400
+        },
+        "promoted": false,
+        "authorVerified": true,
+        "lang": "tr"
+      },
+      "score": {
+        "postId": "3000000000000000001",
+        "clickbaitScore": 0.1,
+        "readWorthinessScore": 0.9,
+        "checkWorthy": true,
+        "checkWorthyClaim": "Köprü 3 Mart'ta açılıyor.",
+        "reason": "somut tarih, resmi kaynak",
+        "scoringFailed": false
+      },
+      "levels": {
+        "readValue": "very-high",
+        "clickbait": "very-low"
+      },
+      "verification": {
+        "postId": "3000000000000000001",
+        "claim": "Köprü 3 Mart'ta açılıyor.",
+        "status": "verified",
+        "confidence": 0.86,
+        "summary": "Belediye duyurusu ve yerel haber 3 Mart açılışını doğruluyor.",
+        "sources": [
+          {
+            "url": "https://city.example.invalid/duyuru",
+            "title": "Sentetik Belediye duyurusu"
+          },
+          {
+            "url": "https://news.example.invalid/kopru",
+            "title": "Sentetik Haber: Köprü açılıyor"
+          }
+        ]
+      }
+    },
+    {
+      "rank": 2,
+      "post": {
+        "platform": "generic",
+        "id": "t3_synth01",
+        "sourceLabel": "reddit",
+        "title": "Sentetik çalışma: günde 20 dakika yürüyüş uyku süresini ortalama 14 dakika uzattı (n=1.200)",
+        "text": "Makale açık erişimli; yöntem bölümünde ölçümlerin bileklik ile yapıldığı yazıyor.",
+        "url": "https://www.reddit.com/r/synthetic_science/comments/synth01/sentetik_calisma/",
+        "domain": "reddit.com",
+        "author": "synthetic_redditor",
+        "community": "r/synthetic_science",
+        "publishedAt": "2026-01-01T02:00:00.000Z",
+        "engagement": {
+          "score": 2140,
+          "comments": 318
+        },
+        "promoted": false
+      },
+      "score": {
+        "postId": "generic:reddit:t3_synth01",
+        "clickbaitScore": 0.2,
+        "readWorthinessScore": 0.8,
+        "checkWorthy": true,
+        "checkWorthyClaim": "Günde 20 dakika yürüyüş uyku süresini ortalama 14 dakika uzattı.",
+        "reason": "somut bulgu, birincil kaynak",
+        "scoringFailed": false
+      },
+      "levels": {
+        "readValue": "very-high",
+        "clickbait": "low"
+      },
+      "verification": {
+        "postId": "generic:reddit:t3_synth01",
+        "claim": "Günde 20 dakika yürüyüş uyku süresini ortalama 14 dakika uzattı.",
+        "status": "unverifiable",
+        "confidence": 0.4,
+        "summary": "Çalışmanın kendisi dışında bağımsız kaynak bulunamadı; doğrulanamadı.",
+        "sources": []
+      }
+    },
+    {
+      "rank": 3,
+      "post": {
+        "platform": "generic",
+        "id": "ua316cf13747dcfad",
+        "sourceLabel": "custom:haber",
+        "title": "Sentetik Merkez Bankası politika faizini 50 baz puan düşürdü",
+        "url": "https://news.example.invalid/ekonomi/sentetik-faiz-karari",
+        "domain": "news.example.invalid",
+        "publishedAt": "2026-01-01T07:30:00.000Z",
+        "image": {
+          "url": "https://news.example.invalid/img/sentetik-faiz.jpg",
+          "width": 1200,
+          "height": 630
+        },
+        "promoted": false
+      },
+      "score": {
+        "postId": "generic:custom%3Ahaber:ua316cf13747dcfad",
+        "clickbaitScore": 0.1,
+        "readWorthinessScore": 0.7,
+        "checkWorthy": true,
+        "checkWorthyClaim": "Merkez Bankası politika faizini 50 baz puan düşürdü.",
+        "reason": "resmi karar haberi",
+        "scoringFailed": false
+      },
+      "levels": {
+        "readValue": "high",
+        "clickbait": "very-low"
+      },
+      "verification": {
+        "postId": "generic:custom%3Ahaber:ua316cf13747dcfad",
+        "claim": "Merkez Bankası politika faizini 50 baz puan düşürdü.",
+        "status": "verified",
+        "confidence": 0.9,
+        "summary": "Bankanın karar metni 50 baz puanlık indirimi kaynaklarla destekliyor.",
+        "sources": [
+          {
+            "url": "https://cb.example.invalid/karar",
+            "title": "Sentetik Merkez Bankası karar metni"
+          }
+        ]
+      }
+    },
+    {
+      "rank": 4,
+      "post": {
+        "platform": "instagram",
+        "id": "3100000000000000001",
+        "url": "https://www.instagram.com/p/SYNTHCAR01/",
+        "authorHandle": "synthetic_ig_1",
+        "authorName": "Synthetic IG 1",
+        "authorAvatarUrl": "https://scontent.cdninstagram.com/v/synthetic-avatar-1.jpg",
+        "authorVerified": false,
+        "caption": "Sentetik bahçede bu yıl 4 tür domates denedik; en verimlisi 1,8 kg/bitki ile kiraz domates oldu. Ölçümler kaydırmalı görsellerde.",
+        "kind": "carousel",
+        "media": [
+          {
+            "type": "image",
+            "url": "https://scontent.cdninstagram.com/v/synthetic-tomato-1.jpg",
+            "altText": "Sentetik domates fideleri",
+            "width": 1080,
+            "height": 1350
+          },
+          {
+            "type": "image",
+            "url": "https://scontent.cdninstagram.com/v/synthetic-tomato-2.jpg",
+            "width": 1080,
+            "height": 1350
+          },
+          {
+            "type": "video",
+            "url": "https://scontent.cdninstagram.com/v/synthetic-tomato-3-poster.jpg",
+            "videoUrl": "https://scontent.cdninstagram.com/v/synthetic-tomato-3.mp4",
+            "width": 1080,
+            "height": 1920,
+            "durationMs": 14000
+          }
+        ],
+        "publishedAt": "2026-01-01T03:20:00.000Z",
+        "metrics": {
+          "likes": 842,
+          "comments": 37
+        },
+        "promoted": false
+      },
+      "score": {
+        "postId": "instagram:3100000000000000001",
+        "clickbaitScore": 0.1,
+        "readWorthinessScore": 0.6,
+        "checkWorthy": false,
+        "checkWorthyClaim": null,
+        "reason": null,
+        "scoringFailed": false
+      },
+      "levels": {
+        "readValue": "high",
+        "clickbait": "very-low"
+      },
+      "verification": null
+    },
+    {
+      "rank": 5,
+      "post": {
+        "id": "3000000000000000003",
+        "source": "x-home-timeline",
+        "authorHandle": "synthetic_author_3",
+        "authorName": "Synthetic Author 3",
+        "authorAvatarUrl": "https://pbs.twimg.com/profile_images/10000003/synthetic_normal.jpg",
+        "text": "Four synthetic photos from the harbour festival.",
+        "url": "https://x.com/synthetic_author_3/status/3000000000000000003",
+        "publishedAt": "2026-01-01T03:15:00.000Z",
+        "media": [
+          {
+            "type": "photo",
+            "url": "https://pbs.twimg.com/media/synthetic-harbour-1.jpg",
+            "altText": "Harbour at dawn (synthetic)",
+            "width": 1200,
+            "height": 800
+          },
+          {
+            "type": "photo",
+            "url": "https://pbs.twimg.com/media/synthetic-harbour-2.jpg",
+            "width": 900,
+            "height": 1600
+          },
+          {
+            "type": "photo",
+            "url": "https://pbs.twimg.com/media/synthetic-harbour-3.jpg",
+            "width": 1200,
+            "height": 800
+          },
+          {
+            "type": "photo",
+            "url": "https://pbs.twimg.com/media/synthetic-harbour-4.jpg",
+            "width": 1200,
+            "height": 800
+          }
+        ],
+        "metrics": {
+          "likes": 360,
+          "reposts": 42,
+          "replies": 27,
+          "quotes": 3,
+          "views": 55200
+        },
+        "promoted": false,
+        "authorVerified": true,
+        "lang": "en",
+        "quoted": {
+          "id": "3000000000000000030",
+          "authorHandle": "synthetic_quoted",
+          "text": "Festival programme announced (synthetic).",
+          "authorName": "Synthetic Quoted",
+          "authorVerified": true,
+          "publishedAt": "2025-12-31T18:00:00.000Z",
+          "media": [
+            {
+              "type": "photo",
+              "url": "https://pbs.twimg.com/media/synthetic-programme.jpg",
+              "width": 1000,
+              "height": 1000
+            }
+          ]
+        }
+      },
+      "score": {
+        "postId": "3000000000000000003",
+        "clickbaitScore": 0.1,
+        "readWorthinessScore": 0.7,
+        "checkWorthy": false,
+        "checkWorthyClaim": null,
+        "reason": null,
+        "scoringFailed": false
+      },
+      "levels": {
+        "readValue": "high",
+        "clickbait": "very-low"
+      },
+      "verification": null
+    },
+    {
+      "rank": 6,
+      "post": {
+        "platform": "instagram",
+        "id": "3100000000000000002",
+        "url": "https://www.instagram.com/reel/SYNTHREEL02/",
+        "authorHandle": "synthetic_ig_2",
+        "caption": "Sentetik atölyede ahşap kaşık oyma: 3 adımda temel teknik.",
+        "kind": "reel",
+        "media": [
+          {
+            "type": "video",
+            "url": "https://scontent.cdninstagram.com/v/synthetic-spoon-poster.jpg",
+            "videoUrl": "https://scontent.cdninstagram.com/v/synthetic-spoon.mp4",
+            "width": 1080,
+            "height": 1920,
+            "durationMs": 42000
+          }
+        ],
+        "publishedAt": "2026-01-01T05:05:00.000Z",
+        "metrics": {
+          "likes": 1530,
+          "comments": 64,
+          "views": 48200
+        },
+        "promoted": false
+      },
+      "score": {
+        "postId": "instagram:3100000000000000002",
+        "clickbaitScore": 0.3,
+        "readWorthinessScore": 0.5,
+        "checkWorthy": false,
+        "checkWorthyClaim": null,
+        "reason": null,
+        "scoringFailed": false
+      },
+      "levels": {
+        "readValue": "medium",
+        "clickbait": "low"
+      },
+      "verification": null
+    }
+  ],
+  "funnel": {
+    "scanned": 150,
+    "ads": 17,
+    "duplicates": 25,
+    "mediaOnly": 5,
+    "scoringFailed": 1,
+    "clickbait": 31,
+    "belowReadFloor": 60,
+    "contradicted": 2,
+    "rankedOut": 3,
+    "shown": 6
+  },
+  "status": {
+    "state": "ok"
+  }
+}

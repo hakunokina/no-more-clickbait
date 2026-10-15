@@ -8,12 +8,13 @@ import {
   type LlmProvider,
   type LlmResult,
 } from "../llm/cli-provider.js";
+import { feedItemKey } from "../feed-item.js";
 import type { RunMetricsCollector } from "../metrics.js";
 import type { Verifier } from "../pipeline.js";
 import {
   MAX_VERIFICATION_SUMMARY_WORDS,
   VerificationStatusSchema,
-  type Post,
+  type FeedItem,
   type VerificationResult,
   type VerificationSource,
 } from "../schemas.js";
@@ -179,7 +180,8 @@ export function createClaudeVerifier(options: ClaudeVerifierOptions): Verifier {
   const now = options.now ?? (() => new Date());
 
   return {
-    async verify(post: Post, claim: string): Promise<VerificationResult> {
+    async verify(post: FeedItem, claim: string): Promise<VerificationResult> {
+      const postId = feedItemKey(post);
       const startedAt = new Date().toISOString();
       const started = Date.now();
       let result: LlmResult;
@@ -196,7 +198,7 @@ export function createClaudeVerifier(options: ClaudeVerifierOptions): Verifier {
           stage: "verifier",
           startedAt,
           durationMs: Date.now() - started,
-          postId: post.id,
+          postId,
           postCount: 1,
           failed: true,
           // A budget-capped run still reports what it spent.
@@ -204,17 +206,17 @@ export function createClaudeVerifier(options: ClaudeVerifierOptions): Verifier {
             ? { costUsd: error.costUsd }
             : {}),
         });
-        if (error instanceof CliRunError) return failedResult(post.id, claim);
+        if (error instanceof CliRunError) return failedResult(postId, claim);
         throw error;
       }
       const reply = parseReply(result.text);
       metrics?.recordLlmCall({
         ...llmResultToCallMetrics(provider.id, "verifier", startedAt, result),
-        postId: post.id,
+        postId,
         postCount: 1,
         ...(reply ? {} : { failed: true }),
       });
-      return reply ? toVerificationResult(post.id, claim, reply) : failedResult(post.id, claim);
+      return reply ? toVerificationResult(postId, claim, reply) : failedResult(postId, claim);
     },
   };
 }

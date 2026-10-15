@@ -1,4 +1,5 @@
-import type { Post } from "../schemas.js";
+import { isInstagramPost, isXPost } from "../feed-item.js";
+import type { FeedItem, GenericItem, InstagramPost, Post } from "../schemas.js";
 
 /**
  * The batch-scoring prompt. Feed content is untrusted (prompt
@@ -29,6 +30,13 @@ import type { Post } from "../schemas.js";
  * a reply IS truncated at the output limit — every completed line
  * survives; only the cut tail line is lost. Each line is still
  * zod-validated per post on our side.
+ *
+ * Sources: X lines are the format above, unchanged. Instagram posts and
+ * generic items (Reddit, custom URL rules) use the same six columns,
+ * with the source told by the author column ("ig:@handle", "reddit
+ * r/sub author"). Their legend and per-source guidance go into the
+ * system prompt only when the batch holds such items, so an X-only
+ * batch costs and reads exactly as before.
  */
 
 export const POSTS_DATA_BEGIN = "<<<GONDERILER_BASLANGIC>>>";
@@ -58,7 +66,17 @@ function sanitizeField(value: string): string {
 }
 
 function linkDomains(post: Post): string {
+  const links = post.media.filter((media) => media.type === "link").map((media) => media.url);
+  return domainsOf(post.text, links);
+}
+
+/**
+ * Hostnames of `first` (an already known domain), of the links in
+ * `text` and of `urls`, comma-joined; "-" when there are none.
+ */
+function domainsOf(text: string, urls: readonly string[], first?: string): string {
   const domains = new Set<string>();
+  if (first) domains.add(sanitizeField(first).replace(/^www\./, ""));
   const add = (raw: string): void => {
     try {
       domains.add(new URL(raw).hostname.replace(/^www\./, ""));
@@ -66,8 +84,8 @@ function linkDomains(post: Post): string {
       // Not a URL we can parse; the raw text still carries the signal.
     }
   };
-  for (const match of post.text.matchAll(/https?:\/\/[^\s<>"']+/g)) add(match[0]);
-  for (const media of post.media) if (media.type === "link") add(media.url);
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"']+/g)) add(match[0]);
+  for (const url of urls) add(url);
   return domains.size > 0 ? [...domains].join(",") : "-";
 }
 
@@ -112,9 +130,61 @@ function postLine(post: Post, index: number): string {
   ].join("\t");
 }
 
+function instagramMediaField(post: InstagramPost): string {
+  if (post.kind === "reel") return "reel";
+  if (post.kind === "carousel") return `carousel:${post.media.length}`;
+  const kinds = new Set(post.media.map((media) => (media.type === "image" ? "foto" : "video")));
+  return kinds.size > 0 ? [...kinds].join(",") : "-";
+}
+
+function instagramLine(post: InstagramPost, index: number): string {
+  const m = post.metrics;
+  const counts = [
+    ...(m?.likes !== undefined ? [`L:${m.likes}`] : []),
+    ...(m?.comments !== undefined ? [`C:${m.comments}`] : []),
+    ...(m?.views !== undefined ? [`V:${m.views}`] : []),
+  ];
+  return [
+    String(index + 1),
+    `ig:@${sanitizeField(post.authorHandle)}`,
+    domainsOf(post.caption, []),
+    counts.length > 0 ? counts.join(" ") : "-",
+    instagramMediaField(post),
+    cap(sanitizeField(post.caption), MAX_TEXT_CHARS) || "-",
+  ].join("\t");
+}
+
+function genericLine(item: GenericItem, index: number): string {
+  const e = item.engagement;
+  const counts = [
+    ...(e?.score !== undefined ? [`P:${e.score}`] : []),
+    ...(e?.comments !== undefined ? [`C:${e.comments}`] : []),
+  ];
+  const origin = [item.sourceLabel, item.community, item.author]
+    .map((part) => sanitizeField(part ?? ""))
+    .filter(Boolean)
+    .join(" ");
+  const title = sanitizeField(item.title ?? "");
+  const text = cap(sanitizeField(item.text ?? ""), MAX_TEXT_CHARS);
+  return [
+    String(index + 1),
+    origin,
+    domainsOf(item.text ?? "", [], item.domain),
+    counts.length > 0 ? counts.join(" ") : "-",
+    item.image ? "foto" : "-",
+    `${title ? `«${title}» ` : ""}${text}`.trim() || "-",
+  ].join("\t");
+}
+
+function itemLine(item: FeedItem, index: number): string {
+  if (isXPost(item)) return postLine(item, index);
+  if (isInstagramPost(item)) return instagramLine(item, index);
+  return genericLine(item, index);
+}
+
 /** The user message: only the delimited, sanitized data block. */
-export function buildScorerPrompt(posts: readonly Post[]): string {
-  const lines = posts.map((post, index) => postLine(post, index)).join("\n");
+export function buildScorerPrompt(posts: readonly FeedItem[]): string {
+  const lines = posts.map((post, index) => itemLine(post, index)).join("\n");
   return `${POSTS_DATA_BEGIN}
 ${lines}
 ${POSTS_DATA_END}`;
@@ -162,3 +232,23 @@ sıra|clickbait|readValue|checkWorthy|claim|reason
 12|9|0|0||bilgi yok merak tuzağı
 7|0|8|1|Köprü onarımı Mart ayında başlayacak|resmi kurum duyurusu
 30|2|6|0||`;
+
+/**
+ * Appended to the system prompt when a batch holds non-X items: how to
+ * read their lines, and where clickbait sits for each source.
+ */
+export const SCORER_SOURCES_GUIDE = `KAYNAKLAR: Bu akışta X dışı öğeler de var. İkinci alan kaynağı gösterir:
+- "@ad": X gönderisi (yukarıdaki biçim).
+- "ig:@ad": Instagram gönderisi. Metin, gönderinin açıklamasıdır (caption). Etkileşimde L beğeni, C yorum, V oynatma sayısıdır. Medya alanı "reel" (kısa video), "carousel:N" (N öğeli kaydırmalı gönderi) ya da foto/video olur. Görsel ağırlıklı bir paylaşımda kısa açıklama tek başına clickbait değildir; "linki bio'da", "sonuna kadar izle", "kaydet/paylaş" gibi merak ve etkileşim çağrıları clickbait işaretidir.
+- "<kaynak> [topluluk] [yazar]" (ör. "reddit r/science ayse", "custom:haber"): genel bağlantı öğesi (forum gönderisi, haber ya da sayfa bağlantısı). Bağlantı alanı ilk sırada öğenin kendi alan adını taşır. Etkileşimde P puan (oy), C yorum sayısıdır. Metin «başlık» ve varsa ardından gövde metnidir. Clickbait'in asıl yeri BAŞLIKTIR: onu bir haber başlığı gibi değerlendir — bilgiyi saklayan, abartan ya da gövdeyle uyuşmayan başlık yüksek clickbait alır. Gövde yoksa başlık ve alan adıyla puanla.
+Ölçütler, güvenlik kuralları ve çıktı biçimi bütün kaynaklarda aynıdır.`;
+
+/**
+ * The system prompt for one batch: `SCORER_SYSTEM_PROMPT` as is when it
+ * holds X posts only, plus `SCORER_SOURCES_GUIDE` otherwise.
+ */
+export function scorerSystemPrompt(posts: readonly FeedItem[]): string {
+  return posts.every(isXPost)
+    ? SCORER_SYSTEM_PROMPT
+    : `${SCORER_SYSTEM_PROMPT}\n\n${SCORER_SOURCES_GUIDE}`;
+}

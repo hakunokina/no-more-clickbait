@@ -1,4 +1,5 @@
 export * from "./schemas.js";
+export * from "./feed-item.js";
 export * from "./pipeline.js";
 export * from "./metrics.js";
 export * from "./hard-filter.js";
