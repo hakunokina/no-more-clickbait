@@ -30,20 +30,38 @@ export interface HardFilterStats {
   flagged: { mediaOnly: number };
 }
 
+/**
+ * Serialisable run state (JSON-safe), so a run can outlive the process
+ * holding it — e.g. an MV3 service worker that the browser restarts.
+ */
+export interface HardFilterState {
+  /** Kept post ids → whether that kept appearance was a repost. */
+  seen: [id: string, asRepost: boolean][];
+  stats: HardFilterStats;
+}
+
 export interface CountingHardFilter extends HardFilter {
   /** Live counters for the current run (a snapshot copy). */
   readonly stats: HardFilterStats;
+  /** A copy of the run state; pass it to `createHardFilter` to resume. */
+  snapshot(): HardFilterState;
 }
 
-export function createHardFilter(): CountingHardFilter {
+function copyStats(stats: HardFilterStats): HardFilterStats {
+  return { ...stats, dropped: { ...stats.dropped }, flagged: { ...stats.flagged } };
+}
+
+export function createHardFilter(resume?: HardFilterState): CountingHardFilter {
   /** Post id → whether its kept appearance was a repost. */
-  const seenIds = new Map<string, boolean>();
-  const stats: HardFilterStats = {
-    seen: 0,
-    kept: 0,
-    dropped: { promoted: 0, duplicate: 0, "duplicate-repost": 0 },
-    flagged: { mediaOnly: 0 },
-  };
+  const seenIds = new Map<string, boolean>(resume?.seen);
+  const stats: HardFilterStats = resume
+    ? copyStats(resume.stats)
+    : {
+        seen: 0,
+        kept: 0,
+        dropped: { promoted: 0, duplicate: 0, "duplicate-repost": 0 },
+        flagged: { mediaOnly: 0 },
+      };
 
   const drop = (reason: HardFilterDropReason): false => {
     stats.dropped[reason] += 1;
@@ -65,7 +83,10 @@ export function createHardFilter(): CountingHardFilter {
       return true;
     },
     get stats(): HardFilterStats {
-      return { ...stats, dropped: { ...stats.dropped }, flagged: { ...stats.flagged } };
+      return copyStats(stats);
+    },
+    snapshot(): HardFilterState {
+      return { seen: [...seenIds], stats: copyStats(stats) };
     },
   };
 }

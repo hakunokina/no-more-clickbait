@@ -23,9 +23,20 @@
         <legend>Timeline</legend>
         <label>
           Posts per finished timeline
-          <input id="timeline-size" type="number" min="1" max="100" step="1" />
+          <input
+            id="timeline-size"
+            type="number"
+            min="1"
+            max="100"
+            step="1"
+            aria-describedby="timeline-size-hint"
+          />
         </label>
-        <p class="hint">Your filtered timeline ends after this many posts. No infinite scroll.</p>
+        <p id="timeline-size-hint" class="hint">
+          Your filtered timeline ends after this many posts. No infinite scroll. This is how many
+          posts you <em>read</em> — not how many are collected: the developer capture target below
+          counts raw posts gathered before filtering and is set separately.
+        </p>
       </fieldset>
 
       <fieldset>
@@ -66,7 +77,7 @@
             share them and never commit them. For development/debugging only.
           </p>
           <label>
-            Capture target (posts, roughly counted)
+            Capture target (distinct posts collected)
             <input
               id="capture-target"
               type="number"
@@ -77,8 +88,10 @@
             />
           </label>
           <p id="capture-target-hint" class="hint">
-            The badge shows the running count; you get a notification when this many posts were
-            captured. Capture does not stop at the target.
+            Counts distinct organic posts — ads and posts repeated across responses are not
+            counted. The badge shows the running count; you get a notification when this many were
+            captured. Capture does not stop at the target. Toggling developer capture starts a new
+            count and a new capture folder.
           </p>
         </div>
       </fieldset>

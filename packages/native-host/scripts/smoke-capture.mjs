@@ -8,7 +8,9 @@
 //     counts/times-only summary.json, and the reply carries the stats;
 //  2. a post-batch written right before stdin closes still hits disk
 //     (regression: the host used to exit on stdin "end" without waiting
-//     for in-flight async handlers, losing the last batch).
+//     for in-flight async handlers, losing the last batch);
+//  3. two overlapping synthetic HomeTimeline responses count as distinct
+//     organic posts (uniquePostCount), apart from the rough postCount.
 import { spawn } from "node:child_process";
 import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -94,7 +96,8 @@ const syntheticBody = JSON.stringify({
   await new Promise((resolve) => child.once("exit", resolve));
 
   assert(replies[0]?.type === "capture-accepted", "first reply is capture-accepted");
-  assert(replies[0]?.stats?.postCount === 2, "stats count 2 posts");
+  assert(replies[0]?.stats?.postCount === 2, "stats count 2 rough posts");
+  assert(replies[0]?.stats?.uniquePostCount === 0, "entryId-only body has no parsed posts");
   assert(replies[0]?.stats?.promotedCount === 1, "stats count 1 promoted");
   assert(replies[1]?.type === "capture-rejected", "oversized reply is capture-rejected");
   assert(replies[1]?.stats?.oversizedCount === 1, "stats count 1 oversized");
@@ -108,6 +111,7 @@ const syntheticBody = JSON.stringify({
   assert(dump === syntheticBody, "dump is the raw body verbatim");
   const summary = JSON.parse(await readFile(join(sessionDir, "summary.json"), "utf8"));
   assert(summary.postCount === 2 && summary.promotedCount === 1, "summary counts");
+  assert(summary.uniquePostCount === 0, "summary unique count");
   assert(
     summary.responseCount === 1 && summary.oversizedCount === 1,
     "summary response/oversized",
@@ -138,6 +142,47 @@ const syntheticBody = JSON.stringify({
   const batches = files.filter((name) => name.startsWith("batch-"));
   assert(batches.length === 1, `one batch file written before exit, got ${batches.length}`);
   console.log(`stdin-close smoke OK — batch file: ${batches[0]}`);
+}
+
+// --- Run 3: distinct organic count across overlapping responses ------
+{
+  const fixtureDir = join(
+    import.meta.dirname,
+    "..",
+    "..",
+    "core",
+    "fixtures",
+    "x-home-timeline",
+  );
+  const dedupInbox = await mkdtemp(join(tmpdir(), "nmc-smoke-dedup-"));
+  const child = spawn(process.execPath, [hostEntry], {
+    env: { ...process.env, NMC_INBOX_DIR: dedupInbox },
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  const repliesPromise = readReplies(child, 2);
+  for (const [index, name] of ["response-1.json", "response-2.json"].entries()) {
+    child.stdin.write(
+      frame({
+        type: "raw-capture",
+        operation: "HomeTimeline",
+        capturedAt: `2026-01-01T10:0${index}:00.000Z`,
+        bodyText: await readFile(join(fixtureDir, name), "utf8"),
+      }),
+    );
+  }
+  const replies = await repliesPromise;
+  child.stdin.end();
+  await new Promise((resolve) => child.once("exit", resolve));
+  // Synthetic fixture: 5 distinct organic posts, 10 rough tweet- entries.
+  assert(replies[1]?.stats?.uniquePostCount === 5, "two responses → 5 distinct posts");
+  assert(replies[1]?.stats?.postCount === 10, "rough count keeps the repeats");
+  const [sessionName] = await readdir(dedupInbox);
+  const summary = JSON.parse(
+    await readFile(join(dedupInbox, sessionName, "summary.json"), "utf8"),
+  );
+  assert(summary.uniquePostCount === 5 && summary.postCount === 10, "summary dedup counts");
+  await rm(dedupInbox, { recursive: true, force: true });
+  console.log("dedup smoke OK — uniquePostCount 5, postCount 10");
 }
 
 await rm(inbox, { recursive: true, force: true });

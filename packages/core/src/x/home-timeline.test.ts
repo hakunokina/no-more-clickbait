@@ -174,6 +174,26 @@ describe("createHardFilter", () => {
     });
   });
 
+  it("resumes from a JSON round-tripped snapshot without recounting repeats", () => {
+    const first = createHardFilter();
+    for (const post of parseHomeTimeline(fixture("response-1.json"))) first.keep(post);
+    const state = JSON.parse(JSON.stringify(first.snapshot())) as ReturnType<
+      typeof first.snapshot
+    >;
+
+    const resumed = createHardFilter(state);
+    for (const post of parseHomeTimeline(fixture("response-2.json"))) resumed.keep(post);
+    const uninterrupted = createHardFilter();
+    for (const post of [
+      ...parseHomeTimeline(fixture("response-1.json")),
+      ...parseHomeTimeline(fixture("response-2.json")),
+    ]) {
+      uninterrupted.keep(post);
+    }
+    expect(resumed.stats).toEqual(uninterrupted.stats);
+    expect(resumed.stats.kept).toBe(5);
+  });
+
   it("returns a snapshot, not the live counters", () => {
     const filter = createHardFilter();
     const snapshot = filter.stats;

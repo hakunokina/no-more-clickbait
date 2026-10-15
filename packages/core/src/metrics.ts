@@ -12,8 +12,14 @@ export const CollectionMetricsSchema = z.object({
   firstCapturedAt: z.string().datetime(),
   /** ISO 8601 time of the last HomeTimeline capture in the run. */
   lastCapturedAt: z.string().datetime(),
-  /** Posts captured across all timeline responses in the run. */
+  /**
+   * Posts captured across all timeline responses in the run. In a
+   * developer-capture summary this is the ROUGH count (`tweet-` entries
+   * per response, repeats across responses included).
+   */
   postCount: z.number().int().nonnegative(),
+  /** Distinct organic posts (parsed, no ads, no cross-response repeats). */
+  uniquePostCount: z.number().int().nonnegative().optional(),
   /** Timeline responses captured (developer capture). */
   responseCount: z.number().int().nonnegative().optional(),
   /** Rough promoted-entry count, tracked apart from posts. */

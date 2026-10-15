@@ -1,6 +1,7 @@
 import {
   BridgeMessageSchema,
   type BridgeReply,
+  type CaptureStats,
   type OversizedCapture,
   type PostBatch,
   type RawCapture,
@@ -14,15 +15,16 @@ export interface BridgeHandlers {
   /** Records a refused oversized capture (counter + summary only). */
   onOversizedCapture?: (capture: OversizedCapture) => Promise<void> | void;
   /** Cumulative capture counts, reported back to the extension. */
-  captureStats?: () => {
-    responseCount: number;
-    postCount: number;
-    promotedCount: number;
-    oversizedCount: number;
-  };
+  captureStats?: () => CaptureStats;
 }
 
-const EMPTY_STATS = { responseCount: 0, postCount: 0, promotedCount: 0, oversizedCount: 0 };
+const EMPTY_STATS: CaptureStats = {
+  responseCount: 0,
+  postCount: 0,
+  uniquePostCount: 0,
+  promotedCount: 0,
+  oversizedCount: 0,
+};
 
 /**
  * Validates one raw bridge message and produces the reply to send back.

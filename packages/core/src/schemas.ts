@@ -174,7 +174,14 @@ export type OversizedCapture = z.infer<typeof OversizedCaptureSchema>;
 /** Cumulative per-session capture counts the host reports back. */
 export const CaptureStatsSchema = z.object({
   responseCount: z.number().int().nonnegative(),
+  /** Rough: `tweet-` entries summed per response, repeats included. */
   postCount: z.number().int().nonnegative(),
+  /**
+   * Distinct organic posts this session (parsed Posts through the hard
+   * filter: no ads, no repeats across responses). The capture target
+   * is measured against this.
+   */
+  uniquePostCount: z.number().int().nonnegative(),
   promotedCount: z.number().int().nonnegative(),
   oversizedCount: z.number().int().nonnegative(),
 });
