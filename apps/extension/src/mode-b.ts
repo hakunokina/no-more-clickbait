@@ -74,7 +74,10 @@ export const MODE_B_LIMITS: ModeBLimits = {
  * The pause between jumps: `normal` 0.36–0.70 s (the first version's
  * 1.8–3.5 s, five times faster), `fast` half of it, 0.18–0.35 s.
  */
-export function stepDelayMs(random: number, pacing: ModeBPacing = DEFAULT_MODE_B_PACING): number {
+export function stepDelayMs(
+  random: number,
+  pacing: ModeBPacing = DEFAULT_MODE_B_PACING,
+): number {
   const pause = 360 + Math.floor(random * 340);
   return pacing === "fast" ? Math.floor(pause / 2) : pause;
 }
