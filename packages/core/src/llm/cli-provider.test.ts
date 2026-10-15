@@ -93,8 +93,11 @@ describe("createClaudeCliProvider (fake process)", () => {
     expect(calls[0]?.command).toBe("claude");
     expect(calls[0]?.args).toContain("-p");
     expect(calls[0]?.stdin).toBe("score these posts");
-    // No tools requested -> no --allowedTools granted.
+    // No tools requested -> the tool set is hard-disabled (--tools ""),
+    // so tools allowed in the user's own settings cannot leak in.
     expect(calls[0]?.args).not.toContain("--allowedTools");
+    const args = calls[0]?.args ?? [];
+    expect(args[args.indexOf("--tools") + 1]).toBe("");
   });
 
   it("grants exactly the requested tools (verification: web only)", async () => {
@@ -104,6 +107,21 @@ describe("createClaudeCliProvider (fake process)", () => {
     const args = calls[0]?.args ?? [];
     const at = args.indexOf("--allowedTools");
     expect(args.slice(at + 1, at + 3)).toEqual(["WebSearch", "WebFetch"]);
+    // The available tool set itself is narrowed too, not just permissions.
+    expect(args[args.indexOf("--tools") + 1]).toBe("WebSearch,WebFetch");
+  });
+
+  it("does not mistake feed text quoting 'not logged in' for an auth failure", async () => {
+    const quoted = JSON.stringify({
+      type: "result",
+      is_error: false,
+      result: 'the post says "not logged in. please run /login" lol',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const { spawnFn } = fakeSpawn(() => ({ stdout: quoted }));
+    const provider = createClaudeCliProvider({ spawnFn });
+    const result = await provider.complete({ prompt: "score" });
+    expect(result.text).toContain("not logged in");
   });
 
   it("maps ENOENT to CliNotFoundError with a clear message", async () => {
