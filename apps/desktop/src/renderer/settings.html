@@ -44,23 +44,23 @@
     </style>
   </head>
   <body>
-    <h1>Settings</h1>
-    <p class="sub">
+    <h1 data-i18n="settingsTitle">Settings</h1>
+    <p class="sub" data-i18n="settingsSub">
       The same settings as the extension's options page — a change here is sent to the
       browser extension, and a change there shows up here.
     </p>
 
     <section aria-labelledby="browser-h">
-      <h2 id="browser-h">Browser for collecting</h2>
-      <label for="browser-choice">Collect in</label>
+      <h2 id="browser-h" data-i18n="browserForCollecting">Browser for collecting</h2>
+      <label for="browser-choice" data-i18n="collectIn">Collect in</label>
       <select id="browser-choice"></select>
       <p id="browser-note" class="note" aria-live="polite"></p>
     </section>
 
     <section aria-labelledby="settings-h">
-      <h2 id="settings-h">Collection, filter and checks</h2>
+      <h2 id="settings-h" data-i18n="settingsSection">Collection, filter and checks</h2>
       <div id="settings-form"></div>
-      <button id="save" type="button">Save settings</button>
+      <button id="save" type="button" data-i18n="saveSettings">Save settings</button>
       <p id="save-note" class="note" role="status" aria-live="polite"></p>
       <p id="pending-note" class="note" aria-live="polite"></p>
       <p id="mode-b-note" class="note bad" role="alert"></p>

@@ -1,11 +1,13 @@
-import { access, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { access, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import {
+  TimelineDocSchema,
   toTimelineDoc,
   type MissingSource,
   type Settings,
   type SourceCount,
   type TimelineDoc,
+  type UiLang,
 } from "@nmc/core";
 import {
   listSessions,
@@ -26,7 +28,7 @@ import {
   type RunError,
   type RunErrorKind,
 } from "../shared/status.js";
-import { describeStopReason } from "../shared/format.js";
+import { messages, note, runErrorNote, say } from "../shared/i18n.js";
 import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
 
 /**
@@ -68,8 +70,8 @@ export interface SessionControllerDeps {
   sessionsRoot: string;
   runner: PipelineRunner;
   loadSettings(): Promise<Settings>;
-  /** Produces the reading window's HTML for a finished run. */
-  renderTimeline(doc: TimelineDoc): string;
+  /** Produces the reading window's HTML for a finished run, in `lang`. */
+  renderTimeline(doc: TimelineDoc, lang: UiLang): string;
   /** Sends a command to the newest connected host; false when none. */
   sendToHost(command: DesktopCommand): boolean;
   onStatus(status: DesktopStatus): void;
@@ -128,17 +130,19 @@ const RUN_SOURCES: readonly string[] = ["x"];
 /**
  * Enabled sources that delivered nothing while others did (a partial
  * timeline). A run where nothing delivered has no missing sources:
- * that is an empty or error timeline, not a partial one.
+ * that is an empty or error timeline, not a partial one. The reason is
+ * page text, in the timeline's language.
  */
 export function missingSourcesOf(
   enabled: readonly string[],
   bySource: readonly SourceCount[] | undefined,
+  lang: UiLang = "en",
 ): MissingSource[] {
   const delivered = new Set(bySource?.map((count) => count.label));
   if (delivered.size === 0) return [];
   return enabled
     .filter((label) => !delivered.has(label))
-    .map((label) => ({ label, reason: "Nothing was collected from this source." }));
+    .map((label) => ({ label, reason: messages(lang).nothingFromSource }));
 }
 
 export class SessionController {
@@ -207,6 +211,41 @@ export class SessionController {
     this.#deps.onStatus(next);
   }
 
+  /**
+   * The windows' language changed: they re-word on the status push; the
+   * newest timeline page is written again in the new language (from its
+   * timeline.json). Resolves true when it was rewritten.
+   */
+  async setLang(lang: UiLang): Promise<boolean> {
+    if (this.#status.lang === lang) return false;
+    this.#update((status) => {
+      status.lang = lang;
+    });
+    const path = this.#lastTimeline;
+    if (!path || this.#busy) return false;
+    try {
+      const raw = await readFile(join(dirname(path), TIMELINE_DOC_FILE), "utf8");
+      const doc = TimelineDocSchema.parse(JSON.parse(raw));
+      // A partial run's notes are page text too.
+      const relabelled: TimelineDoc = doc.missingSources
+        ? {
+            ...doc,
+            missingSources: doc.missingSources.map((source) => ({
+              ...source,
+              reason: messages(lang).nothingFromSource,
+            })),
+          }
+        : doc;
+      await writeFile(path, this.#deps.renderTimeline(relabelled, lang), "utf8");
+      return true;
+    } catch (error) {
+      this.#deps.log?.(
+        `timeline not re-rendered: ${error instanceof Error ? error.name : "error"}`,
+      );
+      return false;
+    }
+  }
+
   setLink(link: Partial<DesktopStatus["link"]>): void {
     const connectedNow = (link.hosts ?? 0) > this.#status.link.hosts;
     this.#update((status) => {
@@ -218,7 +257,7 @@ export class SessionController {
     if (this.#status.link.hosts === 0 && this.#status.collection.state === "requested") {
       this.#setCollection(() => ({
         state: "refused",
-        message: "The browser extension disconnected before answering.",
+        message: note("extDisconnected"),
         target: null,
         count: null,
       }));
@@ -232,7 +271,7 @@ export class SessionController {
     if (isRunActive(this.#status.run.stage)) {
       this.#setCollection(() => ({
         state: "refused",
-        message: "A timeline is being prepared; wait for it or cancel it first.",
+        message: note("runBusy"),
         target: null,
         count: null,
       }));
@@ -257,8 +296,7 @@ export class SessionController {
         ? { state: "requested", message: null, target: settings.collectTarget, count: null }
         : {
             state: "refused",
-            message:
-              "The browser or the extension is not running. Open Brave/Chrome with the extension, then try again.",
+            message: note("extNotRunning"),
             target: null,
             count: null,
           },
@@ -291,22 +329,21 @@ export class SessionController {
           case "mode-b-off":
             return {
               state: "refused",
-              message: `Automatic collection (Mode B) is off. Browse x.com/home in your browser; once ${target ?? "enough"} posts are collected you can build the timeline.`,
+              message: note("modeBOff", target),
               target,
               count: null,
             };
           case "permission-missing":
             return {
               state: "refused",
-              message:
-                "The extension lacks a permission Mode B needs. Open the extension's options and turn Mode B on again.",
+              message: note("permissionMissing"),
               target,
               count: null,
             };
           default:
             return {
               state: "refused",
-              message: "The extension could not start collecting.",
+              message: note("startFailed"),
               target,
               count: null,
             };
@@ -360,19 +397,17 @@ export class SessionController {
       plan = "ask";
     }
     const reached = done.reason === "target-reached";
-    const counted = done.target
-      ? `${done.uniquePostCount} of ${done.target}`
-      : `${done.uniquePostCount}`;
-    let message: string | null = null;
+    const { uniquePostCount: count, target, reason } = done;
+    let message: DesktopStatus["collection"]["message"] = null;
     if (empty) {
-      message = `The collection ended without any post (${describeStopReason(done.reason)}).`;
+      message = note("endedEmpty", reason);
     } else if (plan === "drop") {
-      message = `The collection was stopped (${describeStopReason(done.reason)}); no timeline was built.`;
+      message = note("stoppedDropped", reason);
     } else if (!reached) {
       message =
         plan === "build"
-          ? `Target not reached — the timeline uses ${counted} posts (${describeStopReason(done.reason)}).`
-          : `The collection stopped early (${describeStopReason(done.reason)}) with ${counted} posts.`;
+          ? note("targetNotReached", count, target, reason)
+          : note("stoppedEarly", count, target, reason);
     }
     // A session found on disk must not end a collection that is running now.
     const { state } = this.#status.collection;
@@ -461,11 +496,8 @@ export class SessionController {
         state: "refused",
         message:
           state === "requested"
-            ? "The browser extension did not answer. Is the browser open with the extension enabled?"
-            : `No word from the browser extension for ${Math.round(waitMs / 1000)} s — the collection may have stopped. Check the browser window` +
-              (count !== null
-                ? ` (${count}${target ? ` of ${target}` : ""} posts so far).`
-                : "."),
+            ? note("extNoAnswer")
+            : note("extSilent", Math.round(waitMs / 1000), count, target),
       }));
       this.#silent = state === "collecting";
     }, waitMs);
@@ -537,7 +569,7 @@ export class SessionController {
   #collectionCancelled(): void {
     this.#setCollection(() => ({
       state: "idle",
-      message: "Collection cancelled; no timeline was built.",
+      message: note("collectionCancelled"),
       target: null,
       count: null,
     }));
@@ -602,7 +634,7 @@ export class SessionController {
       status.run.endedAt = last.processed?.processedAt ?? null;
       status.run.error = {
         kind: isRunErrorKind(saved?.kind) ? saved.kind : "internal",
-        message: saved?.message ?? "The last run failed.",
+        note: runErrorNote(saved?.message),
         detail: null,
       };
     });
@@ -642,7 +674,7 @@ export class SessionController {
     } catch (error) {
       await this.#fail(sessionId, {
         kind: "session-unreadable",
-        message: "The collected posts could not be read back from disk.",
+        note: note("errSessionUnreadable"),
         detail: error instanceof Error ? error.message : String(error),
       });
       return;
@@ -711,7 +743,11 @@ export class SessionController {
           settings,
           ...(collection ? { collection } : {}),
           metrics: outcome.result.metrics,
-          missingSources: missingSourcesOf(RUN_SOURCES, outcome.result.metrics.bySource),
+          missingSources: missingSourcesOf(
+            RUN_SOURCES,
+            outcome.result.metrics.bySource,
+            this.#status.lang,
+          ),
         },
         new Date(this.#now()),
       );
@@ -721,12 +757,12 @@ export class SessionController {
         "utf8",
       );
       await writeFile(join(session.dir, TIMELINE_DOC_FILE), `${JSON.stringify(doc)}\n`, "utf8");
-      await writeFile(timelinePath, this.#deps.renderTimeline(doc), "utf8");
+      await writeFile(timelinePath, this.#deps.renderTimeline(doc, this.#status.lang), "utf8");
       await markSessionProcessed(session.dir, "done", () => this.#now());
     } catch (error) {
       await this.#fail(sessionId, {
         kind: "internal",
-        message: "The timeline could not be written to disk.",
+        note: note("errWriteFailed"),
         detail: error instanceof Error ? error.message : String(error),
       });
       return;
@@ -755,7 +791,8 @@ export class SessionController {
       join(this.#deps.sessionsRoot, sessionId),
       "error",
       () => this.#now(),
-      { kind: error.kind, message: error.message.slice(0, 500) },
+      // In English: runErrorNote reads it back into a note.
+      { kind: error.kind, message: say("en", error.note).slice(0, 500) },
     ).catch(() => undefined);
     this.#finish((status) => {
       status.run.stage = "error";

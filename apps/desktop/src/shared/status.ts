@@ -1,9 +1,11 @@
-import type { FunnelCounts } from "@nmc/core";
+import type { FunnelCounts, UiLang } from "@nmc/core";
+import type { Note } from "./i18n.js";
 
 /**
  * The desktop app's state as the windows see it. Main owns it and pushes
  * every change to the monitor and reading windows; counts and token
- * figures only — never feed content.
+ * figures only — never feed content. Messages are `Note`s, put into
+ * words by each window in `lang`.
  */
 
 export type RunStage =
@@ -23,7 +25,7 @@ export type RunErrorKind =
 export interface RunError {
   kind: RunErrorKind;
   /** Plain-language reason; technical detail goes in `detail`. */
-  message: string;
+  note: Note;
   detail: string | null;
 }
 
@@ -62,11 +64,13 @@ export interface UsageTotals {
 export type CollectionState = "idle" | "requested" | "collecting" | "cancelling" | "refused";
 
 export interface DesktopStatus {
+  /** The language the windows show (the Settings choice, "system" resolved). */
+  lang: UiLang;
   link: {
     listening: boolean;
     /** Authenticated native-host connections (one per running browser). */
     hosts: number;
-    error: string | null;
+    error: Note | null;
   };
   collection: {
     state: CollectionState;
@@ -74,7 +78,7 @@ export interface DesktopStatus {
      * Why a request was refused or a collection fell short, or what the
      * user should do next.
      */
-    message: string | null;
+    message: Note | null;
     target: number | null;
     /** Distinct posts counted so far by the running collection. */
     count: number | null;
@@ -140,6 +144,7 @@ export const EMPTY_USAGE: UsageTotals = {
 
 export function initialStatus(): DesktopStatus {
   return {
+    lang: "en",
     link: { listening: false, hosts: 0, error: null },
     collection: { state: "idle", message: null, target: null, count: null },
     pending: null,

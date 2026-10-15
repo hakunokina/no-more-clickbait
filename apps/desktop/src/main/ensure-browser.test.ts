@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { note, say } from "../shared/i18n.js";
 import { ensureCollectBrowser } from "./ensure-browser.js";
 import { waitForConnection } from "./windows-browsers.js";
+
+const NO_BROWSER = note("browserNotInstalled", "vivaldi");
 
 const BRAVE = { family: "brave" as const, exePath: "C:\\Brave\\brave.exe" };
 
@@ -42,18 +45,16 @@ describe("ensureCollectBrowser", () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) {
-      expect(result.reason).toContain("Brave was opened");
-      expect(result.reason).toContain("extension installed in Brave");
+      expect(say("en", result.reason)).toContain("Brave was opened");
+      expect(say("en", result.reason)).toContain("extension installed in Brave");
+      expect(say("tr", result.reason)).toContain("Brave açıldı");
     }
   });
 
   it("collects in the linked browser when the choice resolves to none, and says so", async () => {
     let launched = false;
     const result = await ensureCollectBrowser({
-      resolution: {
-        ok: false,
-        reason: "Your default browser is not a supported Chromium browser.",
-      },
+      resolution: { ok: false, reason: note("browserUnsupportedDefault") },
       isConnected: () => false,
       launch: () => (launched = true),
       waitForConnection: () => Promise.resolve(false),
@@ -62,45 +63,48 @@ describe("ensureCollectBrowser", () => {
     expect(result).toEqual({
       ok: true,
       launched: false,
-      notice:
-        "Your default browser is not a supported Chromium browser. " +
-        "Collecting in the connected Brave instead.",
+      notice: [note("browserUnsupportedDefault"), note("browserFallback", "brave")],
     });
+    if (result.ok) {
+      expect(result.notice?.map((part) => say("en", part)).join(" ")).toBe(
+        "Your default browser is not a supported Chromium browser. Pick a browser for " +
+          "collecting in Settings. Collecting in the connected Brave instead.",
+      );
+    }
     expect(launched).toBe(false);
 
     const unknown = await ensureCollectBrowser({
-      resolution: { ok: false, reason: "No browser." },
+      resolution: { ok: false, reason: NO_BROWSER },
       isConnected: () => false,
       launch: () => undefined,
       waitForConnection: () => Promise.resolve(false),
       anyConnected: () => "other",
     });
-    expect(unknown).toMatchObject({
-      ok: true,
-      notice: expect.stringContaining("connected browser"),
-    });
+    expect(unknown.ok && say("en", unknown.notice?.at(-1) ?? null)).toContain(
+      "connected browser",
+    );
 
     // Nobody linked: still refused, with the choice's own reason.
     await expect(
       ensureCollectBrowser({
-        resolution: { ok: false, reason: "No browser." },
+        resolution: { ok: false, reason: NO_BROWSER },
         isConnected: () => false,
         launch: () => undefined,
         waitForConnection: () => Promise.resolve(false),
         anyConnected: () => null,
       }),
-    ).resolves.toEqual({ ok: false, reason: "No browser." });
+    ).resolves.toEqual({ ok: false, reason: NO_BROWSER });
   });
 
   it("passes an unresolvable choice through and reports a failed launch", async () => {
     await expect(
       ensureCollectBrowser({
-        resolution: { ok: false, reason: "no browser" },
+        resolution: { ok: false, reason: NO_BROWSER },
         isConnected: () => false,
         launch: () => undefined,
         waitForConnection: () => Promise.resolve(false),
       }),
-    ).resolves.toEqual({ ok: false, reason: "no browser" });
+    ).resolves.toEqual({ ok: false, reason: NO_BROWSER });
 
     const result = await ensureCollectBrowser({
       resolution: { ok: true, browser: BRAVE },
@@ -110,9 +114,6 @@ describe("ensureCollectBrowser", () => {
       },
       waitForConnection: () => Promise.resolve(false),
     });
-    expect(result).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("could not be started"),
-    });
+    expect(!result.ok && say("en", result.reason)).toContain("could not be started");
   });
 });

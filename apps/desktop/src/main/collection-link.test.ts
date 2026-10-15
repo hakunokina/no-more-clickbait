@@ -27,6 +27,7 @@ import { NativeChannel } from "../../../extension/src/native-channel.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import { SessionController } from "./session-controller.js";
+import { say } from "../shared/i18n.js";
 
 /*
  * End to end over the real pieces: the built native host runs as its own
@@ -331,7 +332,7 @@ describe("collection over the real host, pipe and controller", () => {
       completion: { mode: "B", reason: "stalled", uniquePostCount: 84, target: 100 },
     });
     await until(() => controller.status.run.stage === "ready", "the run to finish");
-    expect(controller.status.collection.message).toMatch(
+    expect(say("en", controller.status.collection.message)).toMatch(
       /^Target not reached — the timeline uses 84 of 100 posts/,
     );
     const processed = JSON.parse(

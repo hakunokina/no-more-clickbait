@@ -6,6 +6,7 @@ import {
   type BrowserFamily,
   type BrowserIdentity,
 } from "@nmc/native-host";
+import { note, type Note } from "../shared/i18n.js";
 import type { BrowserChoice } from "../shared/settings-status.js";
 import type { InstalledBrowser } from "./windows-browsers.js";
 
@@ -59,8 +60,8 @@ export async function saveBrowserChoice(
 
 export type CollectBrowserResolution =
   | { ok: true; browser: InstalledBrowser }
-  /** The choice leads nowhere usable; the reason is user-facing English. */
-  | { ok: false; reason: string };
+  /** The choice leads nowhere usable; the reason is for the user. */
+  | { ok: false; reason: Note };
 
 const LABELS: Partial<Record<BrowserFamily, string>> = {
   brave: "Brave",
@@ -85,24 +86,17 @@ export function resolveCollectBrowser(
 ): CollectBrowserResolution {
   if (choice === "default") {
     if (!systemDefault) {
-      return {
-        ok: false,
-        reason:
-          "Your default browser is not a supported Chromium browser. Pick a browser for collecting in Settings.",
-      };
+      return { ok: false, reason: note("browserUnsupportedDefault") };
     }
     const found = installed.find((browser) => browser.family === systemDefault);
     return found
       ? { ok: true, browser: found }
-      : {
-          ok: false,
-          reason: `${browserLabel(systemDefault)} is your default browser but was not found on this PC. Pick a browser for collecting in Settings.`,
-        };
+      : { ok: false, reason: note("browserDefaultMissing", systemDefault) };
   }
   const found = installed.find((browser) => browser.family === choice);
   return found
     ? { ok: true, browser: found }
-    : { ok: false, reason: `${browserLabel(choice)} is not installed on this PC.` };
+    : { ok: false, reason: note("browserNotInstalled", choice) };
 }
 
 /**

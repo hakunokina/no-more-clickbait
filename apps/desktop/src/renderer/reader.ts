@@ -1,12 +1,14 @@
 import type { ReaderApi } from "../preload/reader-bridge.js";
+import { messages, say, type DesktopMessages } from "../shared/i18n.js";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
+import { localizePage } from "./localize.js";
 
 /**
  * The reading window's own page: preparing (the pipeline's steps, as in
  * docs/design/timeline-mockup.md), collecting, error, cancelled and
- * empty states. Turkish, like the reading window. Built with DOM APIs
- * only (no innerHTML): status carries counts and fixed messages, but
- * nothing here ever interprets text as markup.
+ * empty states, in the windows' language (status.lang). Built with DOM
+ * APIs only (no innerHTML): status carries counts and fixed messages,
+ * but nothing here ever interprets text as markup.
  */
 
 // Not a global augmentation: the monitor page declares the wider DesktopApi.
@@ -32,19 +34,25 @@ function button(label: string, action: () => Promise<unknown>, primary = false):
   return node;
 }
 
-const collectButton = (primary = true): HTMLElement =>
-  button("Yeni akış topla", () => nmc.startCollection(), primary);
+const collectButton = (m: DesktopMessages, primary = true): HTMLElement =>
+  button(m.collectNew, () => nmc.startCollection(), primary);
 
 type StepState = "done" | "current" | "wait";
 
-function step(state: StepState, label: string, detail?: string): HTMLElement {
+function step(
+  m: DesktopMessages,
+  state: StepState,
+  label: string,
+  detail?: string,
+): HTMLElement {
   const marker =
     state === "done"
       ? h("span", { class: "st-done", "aria-hidden": "true" }, "✓")
       : state === "current"
         ? h("span", { class: "spinner", "aria-hidden": "true" })
         : h("span", { class: "st-wait", "aria-hidden": "true" }, "–");
-  const prefix = state === "done" ? "Tamam: " : state === "current" ? "Sürüyor: " : "Sırada: ";
+  const prefix =
+    state === "done" ? m.stepDone : state === "current" ? m.stepCurrent : m.stepWaiting;
   const body = h("span", {}, h("span", { class: "vh" }, prefix), label);
   if (detail) body.append(h("small", {}, detail));
   return h("li", state === "current" ? { "aria-current": "step" } : {}, marker, body);
@@ -58,7 +66,7 @@ function stateOf(stage: RunStage, at: RunStage): StepState {
   return now > mine ? "done" : now === mine ? "current" : "wait";
 }
 
-function preparing(status: DesktopStatus): HTMLElement[] {
+function preparing(status: DesktopStatus, m: DesktopMessages): HTMLElement[] {
   const { stage, counts } = status.run;
   const judged =
     counts.afterHardFilter !== null && counts.mediaOnly !== null
@@ -66,24 +74,26 @@ function preparing(status: DesktopStatus): HTMLElement[] {
       : null;
   const verifyDetail =
     stage === "verifying" || (stage === "rendering" && counts.verifyTotal > 0)
-      ? `${counts.verifyDone} / ${counts.verifyTotal} iddia`
+      ? m.claims(counts.verifyDone, counts.verifyTotal)
       : undefined;
   const steps = h(
     "ol",
     { class: "steps" },
-    step("done", "Toplandı", counts.postsIn !== null ? `${counts.postsIn} gönderi` : undefined),
     step(
+      m,
+      "done",
+      m.prepCollected,
+      counts.postsIn !== null ? m.posts(counts.postsIn) : undefined,
+    ),
+    step(
+      m,
       stage === "checking" || stage === "filtering" ? "current" : "done",
-      "Reklam, tekrar ve yalnız-medya ayrıldı",
-      judged !== null ? `${judged} gönderi değerlendirilecek` : undefined,
+      m.prepSetAside,
+      judged !== null ? m.toJudge(judged) : undefined,
     ),
-    step(stateOf(stage, "scoring"), "Claude okuyor ve puanlıyor", "Tek çağrı · birkaç dakika"),
-    step(
-      stateOf(stage, "verifying"),
-      "Doğrulamaya değer iddialar kontrol ediliyor",
-      verifyDetail,
-    ),
-    step(stateOf(stage, "rendering"), "Akış yazılıyor"),
+    step(m, stateOf(stage, "scoring"), m.prepScoring, m.prepScoringDetail),
+    step(m, stateOf(stage, "verifying"), m.prepVerifying, verifyDetail),
+    step(m, stateOf(stage, "rendering"), m.prepRendering),
   );
   const skeleton = h("div", { "aria-hidden": "true" });
   for (let i = 0; i < 3; i += 1) {
@@ -97,131 +107,101 @@ function preparing(status: DesktopStatus): HTMLElement[] {
     );
   }
   return [
-    h("h1", {}, "Akış hazırlanıyor"),
-    h("p", {}, "Bu pencereyi kapatabilirsin; hazır olunca tepsiden haber verilir."),
+    h("h1", {}, m.preparingTitle),
+    h("p", {}, m.preparingLead),
     steps,
     h(
       "div",
       { class: "btn-row" },
-      button("İptal", () => nmc.cancelRun()),
+      button(m.cancel, () => nmc.cancelRun()),
     ),
     skeleton,
   ];
 }
 
 function render(status: DesktopStatus): void {
-  const { run, collection } = status;
+  const { run, collection, lang } = status;
+  const m = messages(lang);
+  localizePage(document, lang, m.readerTitle);
+  const note = say(lang, collection.message);
   let content: HTMLElement[];
   if (isRunActive(run.stage)) {
-    content = preparing(status);
+    content = preparing(status, m);
   } else if (collection.state === "requested" || collection.state === "collecting") {
     content = [
-      h("h1", {}, "Gönderiler toplanıyor"),
-      h(
-        "p",
-        {},
-        collection.target
-          ? `Eklenti X akışından ${collection.target} gönderi topluyor. Bitince akış kendiliğinden hazırlanır.`
-          : "Eklenti X akışından gönderi topluyor. Bitince akış kendiliğinden hazırlanır.",
-      ),
+      h("h1", {}, m.collectingTitle),
+      h("p", {}, collection.target ? m.collectingTarget(collection.target) : m.collectingAny),
     ];
     if (collection.count !== null) {
-      content.push(
-        h(
-          "p",
-          { role: "status" },
-          `Şu ana kadar ${collection.count}${collection.target ? ` / ${collection.target}` : ""} gönderi.`,
-        ),
-      );
+      content.push(h("p", { role: "status" }, m.soFar(collection.count, collection.target)));
     }
   } else if (status.pending) {
     content = [
-      h("h1", {}, `${status.pending.uniquePostCount} gönderi toplandı`),
-      h(
-        "p",
-        {},
-        status.pending.mode === "A"
-          ? "X'te gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer."
-          : "Toplama hedefe ulaşmadan durdu. Toplananlarla akışı yine de oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.",
-      ),
-      ...(collection.message ? [h("p", { class: "muted" }, collection.message)] : []),
+      h("h1", {}, m.pendingTitle(status.pending.uniquePostCount)),
+      h("p", {}, status.pending.mode === "A" ? m.pendingLeadA : m.pendingLeadB),
+      ...(note ? [h("p", { class: "muted" }, note)] : []),
       h(
         "div",
         { class: "btn-row" },
-        button("Akışı oluştur", () => nmc.buildTimeline(), true),
-        collectButton(false),
+        button(m.buildTimeline, () => nmc.buildTimeline(), true),
+        collectButton(m, false),
       ),
     ];
   } else if (run.stage === "error" && run.error) {
     const detail = h(
       "details",
       {},
-      h("summary", {}, "Teknik ayrıntı"),
+      h("summary", {}, m.technicalDetail),
       h("pre", {}, run.error.detail ?? run.error.kind),
     );
     content = [
       h("div", { class: "icon", "aria-hidden": "true" }, "⚠"),
-      h("h1", {}, "Akış hazırlanamadı"),
-      h("p", {}, run.error.message),
-      h(
-        "p",
-        { class: "muted" },
-        "Toplanan gönderiler duruyor; yeniden denemek için yeniden toplamak gerekmez.",
-      ),
+      h("h1", {}, m.notPrepared),
+      h("p", {}, say(lang, run.error.note)),
+      h("p", { class: "muted" }, m.keptPosts),
       detail,
       h(
         "div",
         { class: "btn-row" },
-        button("Tekrar dene", () => nmc.retryRun(), true),
-        collectButton(false),
+        button(m.tryAgain, () => nmc.retryRun(), true),
+        collectButton(m, false),
       ),
     ];
   } else if (run.stage === "cancelled") {
     content = [
-      h("h1", {}, "İptal edildi"),
-      h("p", {}, "Toplanan gönderiler duruyor."),
+      h("h1", {}, m.cancelledTitle),
+      h("p", {}, m.cancelledLead),
       h(
         "div",
         { class: "btn-row" },
-        button("Tekrar dene", () => nmc.retryRun(), true),
-        collectButton(false),
+        button(m.tryAgain, () => nmc.retryRun(), true),
+        collectButton(m, false),
       ),
     ];
   } else if (run.stage === "ready" && run.timelineGone) {
     content = [
-      h("h1", {}, "Akış artık yok"),
-      h(
-        "p",
-        {},
-        "Bu akışın dosyaları yer açmak için silindi (eski toplamalar sınırlı sayıda saklanır). Yeni bir akış toplayabilirsin.",
-      ),
-      h("div", { class: "btn-row" }, collectButton()),
+      h("h1", {}, m.goneTitle),
+      h("p", {}, m.goneLead),
+      h("div", { class: "btn-row" }, collectButton(m)),
     ];
   } else if (run.stage === "ready" && run.hasTimeline) {
     content = [
-      h("h1", {}, "Akış hazır"),
-      h("p", {}, `${run.counts.selected ?? 0} gönderi.`),
-      ...(collection.message ? [h("p", { class: "muted" }, collection.message)] : []),
+      h("h1", {}, m.readyTitle),
+      h("p", {}, m.readyCount(run.counts.selected ?? 0)),
+      ...(note ? [h("p", { class: "muted" }, note)] : []),
       h(
         "div",
         { class: "btn-row" },
-        button("Akışı aç", () => nmc.openReader(), true),
-        collectButton(false),
+        button(m.openTimeline, () => nmc.openReader(), true),
+        collectButton(m, false),
       ),
     ];
   } else {
-    content = [
-      h("h1", {}, "Henüz akış yok"),
-      h(
-        "p",
-        {},
-        "Yeni bir akış için eklenti X akışından gönderi toplar; sonra Claude puanlar ve doğrular.",
-      ),
-    ];
-    if (collection.state === "refused" && collection.message) {
-      content.push(h("p", { class: "muted", role: "alert" }, collection.message));
+    content = [h("h1", {}, m.emptyTitle), h("p", {}, m.emptyLead)];
+    if (collection.state === "refused" && note) {
+      content.push(h("p", { class: "muted", role: "alert" }, note));
     }
-    content.push(h("div", { class: "btn-row" }, collectButton()));
+    content.push(h("div", { class: "btn-row" }, collectButton(m)));
   }
   const focused = document.activeElement?.textContent ?? null;
   view.replaceChildren(...content);

@@ -168,6 +168,7 @@ export async function applySettingsPush(
       modeBStrategy: wanted.modeBStrategy,
       modeBPacing: wanted.modeBPacing,
       devCaptureEnabled: wanted.devCaptureEnabled,
+      uiLanguage: wanted.uiLanguage,
     },
     SyncedSettingsSchema.parse(wanted),
   );

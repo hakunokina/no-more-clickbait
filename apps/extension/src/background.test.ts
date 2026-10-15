@@ -461,6 +461,7 @@ describe("background worker", () => {
       modeBStrategy: "offscreen-window",
       modeBPacing: "fast",
       devCaptureEnabled: false,
+      uiLanguage: "tr",
     };
     port.onMessage.emit({ type: "settings-push", settings, stamp });
     await settle();

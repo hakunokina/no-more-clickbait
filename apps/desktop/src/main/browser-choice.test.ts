@@ -9,6 +9,7 @@ import {
   resolveCollectBrowser,
   saveBrowserChoice,
 } from "./browser-choice.js";
+import { say } from "../shared/i18n.js";
 
 const BRAVE = { family: "brave" as const, exePath: "C:\\Brave\\brave.exe" };
 const EDGE = { family: "edge" as const, exePath: "C:\\Edge\\msedge.exe" };
@@ -55,18 +56,15 @@ describe("resolveCollectBrowser", () => {
   });
 
   it("explains an unsupported or missing default", () => {
-    expect(resolveCollectBrowser("default", null, installed)).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("not a supported Chromium browser"),
-    });
-    expect(resolveCollectBrowser("default", "chrome", installed)).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("Chrome"),
-    });
-    expect(resolveCollectBrowser("vivaldi", "brave", installed)).toMatchObject({
-      ok: false,
-      reason: expect.stringContaining("not installed"),
-    });
+    const reason = (resolution: ReturnType<typeof resolveCollectBrowser>) =>
+      resolution.ok ? "" : say("en", resolution.reason);
+    expect(reason(resolveCollectBrowser("default", null, installed))).toContain(
+      "not a supported Chromium browser",
+    );
+    expect(reason(resolveCollectBrowser("default", "chrome", installed))).toContain("Chrome");
+    expect(reason(resolveCollectBrowser("vivaldi", "brave", installed))).toContain(
+      "not installed",
+    );
   });
 });
 

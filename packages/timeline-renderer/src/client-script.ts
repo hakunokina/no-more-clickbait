@@ -1,10 +1,18 @@
+import type { UiLang } from "@nmc/core";
+import { RENDER_MESSAGES, type ScriptMessages } from "./messages.js";
+
+/** A fixed UI string as a JS string literal. */
+const q = (text: string): string => JSON.stringify(text);
+
 /**
  * The page's only script: lightbox, theme, J/K, "read more", the
  * verification/why/alt panels, video and GIF controls, the progress
- * counter. Static: it reads everything from the DOM and no feed data is
- * ever interpolated, so its CSP hash is fixed. No inline handlers.
+ * counter. Static per language: it reads everything from the DOM, only
+ * the page's own fixed words are written in and no feed data ever is,
+ * so its CSP hash is fixed. No inline handlers.
  */
-export const TIMELINE_SCRIPT = `"use strict";
+function timelineScript(s: ScriptMessages): string {
+  return `"use strict";
 (() => {
   const doc = document;
   const root = doc.documentElement;
@@ -13,7 +21,7 @@ export const TIMELINE_SCRIPT = `"use strict";
   const topbar = doc.querySelector(".topbar");
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
 
-  /* Progress: "3 / 10", then "Bitti" once the Done screen is in view. */
+  /* Progress: "3 / 10", then ${q(s.done)} once the Done screen is in view. */
   const progressNow = doc.getElementById("progress-now");
   const progressOf = doc.getElementById("progress-of");
   const progressBar = doc.getElementById("progress-bar");
@@ -25,7 +33,7 @@ export const TIMELINE_SCRIPT = `"use strict";
     posts.forEach((p, k) => { if (p.getBoundingClientRect().top < line) idx = k + 1; });
     const finished = !!done && done.getBoundingClientRect().top < innerHeight * 0.8;
     const now = finished ? total : Math.max(1, idx);
-    progressNow.textContent = finished ? "Bitti" : String(now);
+    progressNow.textContent = finished ? ${q(s.done)} : String(now);
     progressOf.hidden = finished;
     progressBar.style.width = (now / total) * 100 + "%";
   }
@@ -37,7 +45,7 @@ export const TIMELINE_SCRIPT = `"use strict";
   /* Theme: system → light → dark (remembered per viewer when storage works). */
   const THEME_KEY = "nmc-theme";
   const MODES = ["system", "light", "dark"];
-  const LABELS = { system: "Sistem", light: "Açık", dark: "Koyu" };
+  const LABELS = { system: ${q(s.system)}, light: ${q(s.light)}, dark: ${q(s.dark)} };
   const themeBtn = doc.getElementById("theme-btn");
   let mode = "system";
   try { const saved = localStorage.getItem(THEME_KEY); if (MODES.includes(saved)) mode = saved; } catch (_) { /* no storage */ }
@@ -46,8 +54,8 @@ export const TIMELINE_SCRIPT = `"use strict";
     else root.setAttribute("data-theme", mode);
     const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
     themeBtn.dataset.mode = mode;
-    themeBtn.setAttribute("aria-label", "Tema: " + LABELS[mode] + ". Değiştir: " + LABELS[next]);
-    themeBtn.title = "Tema: " + LABELS[mode];
+    themeBtn.setAttribute("aria-label", ${q(s.theme)} + LABELS[mode] + ${q(s.switchTo)} + LABELS[next]);
+    themeBtn.title = ${q(s.theme)} + LABELS[mode];
   }
   themeBtn.addEventListener("click", () => {
     mode = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
@@ -132,7 +140,7 @@ export const TIMELINE_SCRIPT = `"use strict";
     if (more) {
       const { panel, open } = toggle(more);
       panel.classList.toggle("is-clamped", !open);
-      more.textContent = open ? "Daha az göster" : "Devamını oku";
+      more.textContent = open ? ${q(s.showLess)} : ${q(s.readMore)};
       return;
     }
     const disclosure = t.closest(".verify__toggle, .why-btn, [data-alt]");
@@ -176,14 +184,16 @@ export const TIMELINE_SCRIPT = `"use strict";
   });
 })();
 `;
+}
 
 /**
- * Appended to TIMELINE_SCRIPT only on a page with Instagram or generic
- * cards (an X-only page keeps its exact script and hash): the Instagram
- * carousel and the fallback for Instagram media that does not load
- * (signed CDN links expire). Static, like TIMELINE_SCRIPT.
+ * Appended to the timeline script only on a page with Instagram or
+ * generic cards (an X-only page keeps its exact script and hash): the
+ * Instagram carousel and the fallback for Instagram media that does not
+ * load (signed CDN links expire). Static per language, like it.
  */
-export const CARDS_SCRIPT = `"use strict";
+function cardsScript(s: ScriptMessages): string {
+  return `"use strict";
 (() => {
   const doc = document;
   const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
@@ -209,7 +219,7 @@ export const CARDS_SCRIPT = `"use strict";
     // An arrow hidden at the end hands its focus to the other one.
     if (focused === prev && prev.hidden) next.focus();
     if (focused === next && next.hidden) prev.focus();
-    if (announce && changed) car.querySelector("[data-car-live]").textContent = "Görsel " + (idx + 1) + " / " + n;
+    if (announce && changed) car.querySelector("[data-car-live]").textContent = ${q(s.image)} + (idx + 1) + " / " + n;
   }
   function carGo(car, delta) {
     const track = car.querySelector(".car__track");
@@ -254,3 +264,14 @@ export const CARDS_SCRIPT = `"use strict";
   doc.querySelectorAll(watched).forEach((img) => { if (img.complete && !img.naturalWidth) broken(img); });
 })();
 `;
+}
+
+export const TIMELINE_SCRIPTS: Readonly<Record<UiLang, string>> = {
+  en: timelineScript(RENDER_MESSAGES.en.script),
+  tr: timelineScript(RENDER_MESSAGES.tr.script),
+};
+
+export const CARDS_SCRIPTS: Readonly<Record<UiLang, string>> = {
+  en: cardsScript(RENDER_MESSAGES.en.script),
+  tr: cardsScript(RENDER_MESSAGES.tr.script),
+};

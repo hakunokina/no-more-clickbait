@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,7 +7,7 @@
       http-equiv="Content-Security-Policy"
       content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
     />
-    <title>No More Clickbait — akış</title>
+    <title>No More Clickbait — timeline</title>
     <style>
       /* Tokens from docs/design/timeline-mockup.md */
       :root {
@@ -55,7 +55,7 @@
   <body>
     <div class="app">
       <main id="view" aria-live="polite">
-        <h1>Yükleniyor…</h1>
+        <h1 data-i18n="loading">Loading…</h1>
       </main>
     </div>
     <script src="reader.js"></script>

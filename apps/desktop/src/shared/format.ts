@@ -1,96 +1,79 @@
+import { INTL_LOCALES, type UiLang } from "@nmc/core";
+import { messages, say } from "./i18n.js";
 import type { DesktopStatus } from "./status.js";
 
 /** Display helpers shared by the monitor and the reading window. */
 
-export function formatCount(value: number | null): string {
-  return value === null ? "—" : value.toLocaleString("en-US");
+export function formatCount(value: number | null, lang: UiLang): string {
+  return value === null ? "—" : value.toLocaleString(INTL_LOCALES[lang]);
 }
 
-export function formatCost(usd: number | null): string {
-  return usd === null ? "—" : `$${usd.toFixed(usd < 1 ? 3 : 2)}`;
+export function formatCost(usd: number | null, lang: UiLang): string {
+  if (usd === null) return "—";
+  const digits = usd < 1 ? 3 : 2;
+  return new Intl.NumberFormat(INTL_LOCALES[lang], {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(usd);
 }
 
-export function formatDuration(ms: number | null): string {
+export function formatDuration(ms: number | null, lang: UiLang): string {
   if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  const m = messages(lang);
   const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds} s`;
+  if (seconds < 60) return m.seconds(seconds);
   const minutes = Math.floor(seconds / 60);
   const rest = seconds % 60;
-  return rest === 0 ? `${minutes} min` : `${minutes} min ${rest} s`;
+  return rest === 0 ? m.minutes(minutes) : m.minutesSeconds(minutes, rest);
 }
 
-/** One status line for the monitor (English, like the rest of the window). */
+/** One status line for the monitor. */
 export function describeRun(status: DesktopStatus): string {
   const { run, collection } = status;
+  const m = messages(status.lang);
   switch (run.stage) {
     case "checking":
-      return "Checking the claude CLI…";
+      return m.runChecking;
     case "filtering":
-      return "Filtering ads and repeats…";
+      return m.runFiltering;
     case "scoring":
-      return `Scoring ${formatCount(run.counts.afterHardFilter)} posts…`;
+      return m.runScoring(run.counts.afterHardFilter);
     case "verifying":
-      return `Verifying claims ${run.counts.verifyDone}/${run.counts.verifyTotal}…`;
+      return m.runVerifying(run.counts.verifyDone, run.counts.verifyTotal);
     case "rendering":
-      return "Writing the timeline…";
+      return m.runRendering;
     case "ready":
-      return `Ready — ${formatCount(run.counts.selected)} posts`;
+      return m.runReady(run.counts.selected);
     case "error":
-      return "The timeline could not be prepared";
+      return m.runError;
     case "cancelled":
-      return "Run cancelled";
+      return m.runCancelled;
     case "idle":
-      if (collection.state === "requested") return "Asking the extension to collect…";
-      if (collection.state === "cancelling") return "Cancelling the collection…";
+      if (collection.state === "requested") return m.collectRequested;
+      if (collection.state === "cancelling") return m.collectCancelling;
       if (collection.state === "collecting") {
         if (collection.count !== null && collection.target) {
-          return `Collecting in the browser… ${formatCount(collection.count)} / ${formatCount(collection.target)} posts`;
+          return m.collectProgress(collection.count, collection.target);
         }
-        return collection.target
-          ? `Collecting ${collection.target} posts in the browser…`
-          : "Collecting posts in the browser…";
+        return collection.target ? m.collectTarget(collection.target) : m.collectAny;
       }
-      return "Idle";
+      return m.idle;
   }
 }
 
 export function describeLink(status: DesktopStatus): string {
   const { link } = status;
-  if (link.error) return link.error;
-  if (!link.listening) return "Opening the browser link…";
-  if (link.hosts === 0)
-    return "Browser extension not connected (open Brave/Chrome with the extension).";
-  return link.hosts === 1
-    ? "Browser extension connected."
-    : `${link.hosts} browsers connected.`;
-}
-
-const STOP_REASONS: Record<string, string> = {
-  "target-reached": "target reached",
-  timeout: "time limit reached",
-  stalled: "no new posts for about 20 s of scrolling",
-  "not-logged-in": "not logged in to X in this browser",
-  "error-page": "X showed an error page",
-  "navigated-away": "the tab left x.com/home",
-  "rate-limited": "X rate-limited the timeline",
-  "page-unresponsive": "the page stopped answering scroll steps",
-  "tab-closed": "the collection tab was closed",
-  cancelled: "stopped by you",
-  "settings-changed": "the extension's settings changed during the run",
-  "failed-to-open": "the collection tab or window could not be opened",
-};
-
-/** Why a collection ended, in words (unknown reasons as they came). */
-export function describeStopReason(reason: string): string {
-  return STOP_REASONS[reason] ?? reason;
+  const m = messages(status.lang);
+  if (link.error) return say(status.lang, link.error);
+  if (!link.listening) return m.linkOpening;
+  if (link.hosts === 0) return m.linkNoBrowser;
+  return link.hosts === 1 ? m.linkOne : m.linkMany(link.hosts);
 }
 
 /** Monitor note on Mode B sessions whose collection never completed; empty when none. */
 export function describeUnfinished(status: DesktopStatus): string {
   const { count, newestAt } = status.unfinished;
-  if (count === 0) return "";
-  const when = newestAt ? ` (latest started ${new Date(newestAt).toLocaleString()})` : "";
-  return count === 1
-    ? `1 earlier collection was not completed${when}. Its posts stay on disk; it is not built.`
-    : `${count} earlier collections were not completed${when}. Their posts stay on disk; they are not built.`;
+  return count === 0 ? "" : messages(status.lang).unfinished(count, newestAt);
 }

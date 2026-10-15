@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { monitorActions } from "./actions.js";
+import { note } from "./i18n.js";
 import { initialStatus, type DesktopStatus } from "./status.js";
 
 function status(mutate: (status: DesktopStatus) => void): DesktopStatus {
@@ -40,7 +41,7 @@ describe("monitorActions", () => {
   it("only collects again after a collection was cancelled, even after a failed run", () => {
     // The controller clears an old error/cancel when a collection starts.
     const afterCancel = status((s) => {
-      s.collection.message = "Collection cancelled; no timeline was built.";
+      s.collection.message = note("collectionCancelled");
     });
     expect(monitorActions(afterCancel)).toMatchObject({
       primary: "collect",
@@ -68,6 +69,16 @@ describe("monitorActions", () => {
       label: "Try again with the same posts",
       collectLink: true,
     });
+  });
+
+  it("labels the buttons in the windows' language", () => {
+    const failed = status((s) => {
+      s.lang = "tr";
+      s.run.stage = "cancelled";
+      s.run.counts.postsIn = 1200;
+    });
+    expect(monitorActions(failed).label).toBe("1.200 gönderiden akış oluştur");
+    expect(monitorActions(status((s) => (s.lang = "tr"))).label).toBe("Yeni akış topla");
   });
 
   it("builds a pending collection; a running pipeline can only be cancelled", () => {

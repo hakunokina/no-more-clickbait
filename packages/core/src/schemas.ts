@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { UiLanguageSchema, type UiLanguage } from "./i18n.js";
 
 /**
  * Wire/storage schemas shared by the extension, the native host and the
@@ -606,6 +607,8 @@ export const SettingsFieldsSchema = z.object({
    * seeds `collectTarget` when neither that nor `modeBTarget` is set.
    */
   captureTarget: z.number().int().min(1).max(10_000).default(250),
+  /** UI language of the desktop app and the timeline ("system": the OS's). */
+  uiLanguage: UiLanguageSchema.default("system"),
 });
 
 /** User settings shared between the extension options page and desktop. */
@@ -699,6 +702,32 @@ export const EXTENSION_SETTING_FIELDS = {
 
 export type ExtensionSettingKey = keyof typeof EXTENSION_SETTING_FIELDS;
 
+/** UI preferences, with the same UI-copy shape (the extension carries them along). */
+export const UI_SETTING_FIELDS = {
+  uiLanguage: {
+    kind: "choice",
+    default: "system",
+    options: [
+      { value: "system", label: "System language" },
+      { value: "en", label: "English" },
+      { value: "tr", label: "Türkçe" },
+    ],
+    label: "Language",
+    description:
+      "The language of the desktop app and the timeline. System language follows Windows: " +
+      "Turkish when Windows is in Turkish, English otherwise.",
+  },
+} as const satisfies { uiLanguage: ChoiceSettingField<UiLanguage> };
+
+/** Every field the desktop Settings form shows, in its order. */
+export const MANAGED_SETTING_FIELDS = {
+  ...SYNCED_SETTING_FIELDS,
+  ...EXTENSION_SETTING_FIELDS,
+  ...UI_SETTING_FIELDS,
+} as const;
+
+export type ManagedSettingKey = keyof typeof MANAGED_SETTING_FIELDS;
+
 /**
  * Every setting the desktop app shows and may change: the synced
  * pipeline settings plus the extension's collection switches. The
@@ -717,6 +746,7 @@ export const ManagedSettingsSchema = SettingsFieldsSchema.pick({
   modeBStrategy: true,
   modeBPacing: true,
   devCaptureEnabled: true,
+  uiLanguage: true,
 });
 export type ManagedSettings = z.infer<typeof ManagedSettingsSchema>;
 

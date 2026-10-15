@@ -1,5 +1,6 @@
 import { ManagedSettingsSchema } from "@nmc/core";
 import { describe, expect, it } from "vitest";
+import { say } from "../shared/i18n.js";
 import { parseSettingForm, settingFieldModels, settingFormValues } from "./settings-form.js";
 
 describe("settings form model", () => {
@@ -18,6 +19,21 @@ describe("settings form model", () => {
     const pacing = models.find((m) => m.key === "modeBPacing");
     expect(pacing).toMatchObject({ kind: "choice" });
     for (const model of models) expect(model.description.length).toBeGreaterThan(10);
+  });
+
+  it("words every field in Turkish too, choices included", () => {
+    const tr = settingFieldModels("tr");
+    expect(tr.map((m) => m.key)).toEqual(settingFieldModels().map((m) => m.key));
+    expect(tr.find((m) => m.key === "collectTarget")?.label).toBe("Toplanacak gönderi");
+    expect(tr.find((m) => m.key === "uiLanguage")).toMatchObject({
+      kind: "choice",
+      label: "Dil",
+      options: [
+        { value: "system", label: "Sistem dili" },
+        { value: "en", label: "English" },
+        { value: "tr", label: "Türkçe" },
+      ],
+    });
   });
 
   it("round-trips a settings object through raw form values", () => {
@@ -47,7 +63,9 @@ describe("settings form model", () => {
         "modeBStrategy",
         "timelineSize",
       ]);
-      expect(result.errors["maxClickbait"]).toContain("between 1 and 10");
+      const error = result.errors["maxClickbait"] ?? null;
+      expect(say("en", error)).toContain("between 1 and 10");
+      expect(say("tr", error)).toBe("1 ile 10 arasında bir tam sayı gir.");
     }
   });
 });

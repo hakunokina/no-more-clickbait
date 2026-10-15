@@ -1,4 +1,4 @@
-import { formatCount } from "./format.js";
+import { messages } from "./i18n.js";
 import { isRunActive, type DesktopStatus } from "./status.js";
 
 /**
@@ -24,16 +24,17 @@ export interface MonitorActions {
 
 export function monitorActions(status: DesktopStatus): MonitorActions {
   const { run, collection, pending } = status;
+  const m = messages(status.lang);
   if (isRunActive(run.stage)) {
-    return { primary: "cancel", label: "Cancel run", disabled: false, collectLink: false };
+    return { primary: "cancel", label: m.cancelRun, disabled: false, collectLink: false };
   }
   if (collection.state === "cancelling") {
-    return { primary: "cancel", label: "Cancelling…", disabled: true, collectLink: false };
+    return { primary: "cancel", label: m.cancelling, disabled: true, collectLink: false };
   }
   if (collection.state === "requested" || collection.state === "collecting") {
     return {
       primary: "cancel",
-      label: "Cancel collection",
+      label: m.cancelCollection,
       disabled: false,
       collectLink: false,
     };
@@ -41,7 +42,7 @@ export function monitorActions(status: DesktopStatus): MonitorActions {
   if (pending) {
     return {
       primary: "build",
-      label: pending.mode === "B" ? "Build timeline anyway" : "Build timeline",
+      label: pending.mode === "B" ? m.buildAnyway : m.buildTimeline,
       disabled: false,
       collectLink: true,
     };
@@ -49,7 +50,7 @@ export function monitorActions(status: DesktopStatus): MonitorActions {
   if (run.sessionId !== null && run.stage === "error") {
     return {
       primary: "retry",
-      label: "Try again with the same posts",
+      label: m.retrySame,
       disabled: false,
       collectLink: true,
     };
@@ -58,17 +59,14 @@ export function monitorActions(status: DesktopStatus): MonitorActions {
     const posts = run.counts.postsIn;
     return {
       primary: "rebuild",
-      label:
-        posts === null
-          ? "Build timeline from the same posts"
-          : `Build timeline from ${formatCount(posts)} posts`,
+      label: posts === null ? m.rebuildSame : m.rebuildFrom(posts),
       disabled: false,
       collectLink: true,
     };
   }
   return {
     primary: "collect",
-    label: "Collect new timeline",
+    label: m.collectNew,
     disabled: !status.link.listening,
     collectLink: false,
   };

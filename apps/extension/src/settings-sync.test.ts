@@ -46,6 +46,7 @@ describe("syncSettings", () => {
           modeBStrategy: "minimized-window",
           modeBPacing: "normal",
           devCaptureEnabled: true,
+          uiLanguage: "system",
         },
         stamp,
       },
@@ -156,17 +157,26 @@ describe("applySettingsPush", () => {
   it("applies a later desktop change and answers with what it now holds", async () => {
     const { state, deps } = store(SettingsSchema.parse({ modeBTarget: 100 }), OWN);
     const stamp = at("2026-10-15T10:05:00.000Z", "desktop");
-    const pushed = { ...SettingsSchema.parse({}), maxClickbait: 3, collectTarget: 400 };
+    const pushed = {
+      ...SettingsSchema.parse({}),
+      maxClickbait: 3,
+      collectTarget: 400,
+      uiLanguage: "tr" as const,
+    };
     const result = await applySettingsPush({ settings: pushed, stamp }, deps);
     expect(result).toMatchObject({
       type: "settings-push-result",
       outcome: "applied",
       stamp,
-      settings: { maxClickbait: 3, collectTarget: 400 },
+      settings: { maxClickbait: 3, collectTarget: 400, uiLanguage: "tr" },
     });
     expect(result.modeBPermissionMissing).toBeUndefined();
     expect(state.stamp).toEqual(stamp);
-    expect(state.settings).toMatchObject({ maxClickbait: 3, collectTarget: 400 });
+    expect(state.settings).toMatchObject({
+      maxClickbait: 3,
+      collectTarget: 400,
+      uiLanguage: "tr",
+    });
     // The deprecated Mode B target mirrors the collection target, as on Save.
     expect(state.settings.modeBTarget).toBe(400);
   });

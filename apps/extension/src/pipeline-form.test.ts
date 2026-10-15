@@ -111,6 +111,16 @@ describe("pipeline settings form", () => {
     expect(result.ok && result.settings.verifyEnabled).toBe(false);
   });
 
+  it("keeps the UI language on Save (the form has no field for it)", () => {
+    const stored = SettingsSchema.parse({ uiLanguage: "tr" });
+    const form = readPipelineForm(formOf({ maxClickbait: "5" }));
+    if (!form.ok) throw new Error("form should be valid");
+    expect(applyPipelineSettings(stored, form.settings)).toMatchObject({
+      maxClickbait: 5,
+      uiLanguage: "tr",
+    });
+  });
+
   it("writes the one collection target to collectTarget and mirrors the deprecated modeBTarget", () => {
     // Stored before collectTarget existed: the schema seeds it from modeBTarget.
     const stored = SettingsSchema.parse({ modeBTarget: 80, devCaptureEnabled: true });

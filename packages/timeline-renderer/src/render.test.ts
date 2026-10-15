@@ -2,8 +2,8 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { TimelineDocSchema, type TimelineCard, type TimelineDoc } from "@nmc/core";
 import { describe, expect, it } from "vitest";
-import { TIMELINE_SCRIPT } from "./client-script.js";
-import { renderTimeline, TIMELINE_CSP } from "./render.js";
+import { TIMELINE_SCRIPTS } from "./client-script.js";
+import { renderTimeline, TIMELINE_CSPS } from "./render.js";
 import { stateDocs } from "./state-docs.js";
 import { TIMELINE_CSS } from "./styles.js";
 
@@ -12,7 +12,11 @@ const fixture = TimelineDocSchema.parse(
     readFileSync(new URL("../../core/fixtures/timeline-doc.json", import.meta.url), "utf8"),
   ),
 );
-const render = (doc: TimelineDoc) => renderTimeline(doc, { timeZone: "Europe/Istanbul" });
+/** The Turkish page: the mockups' original copy, kept byte for byte. */
+const render = (doc: TimelineDoc) =>
+  renderTimeline(doc, { timeZone: "Europe/Istanbul", lang: "tr" });
+const TIMELINE_SCRIPT = TIMELINE_SCRIPTS.tr;
+const TIMELINE_CSP = TIMELINE_CSPS.tr;
 const count = (html: string, needle: string | RegExp) =>
   typeof needle === "string"
     ? html.split(needle).length - 1

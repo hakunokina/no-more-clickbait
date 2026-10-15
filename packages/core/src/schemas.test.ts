@@ -8,6 +8,7 @@ import {
   BridgeReplySchema,
   EXTENSION_SETTING_FIELDS,
   isNewerStamp,
+  MANAGED_SETTING_FIELDS,
   ManagedSettingsSchema,
   MAX_BRIDGE_MESSAGE_BYTES,
   ModeBPacingSchema,
@@ -57,6 +58,7 @@ describe("SettingsSchema", () => {
       minReadForVerify: 4,
       maxVerifications: 20,
       verifyEnabled: true,
+      uiLanguage: "system",
     });
     expect(SettingsSchema.safeParse({ modeBStrategy: "headless" }).success).toBe(false);
   });
@@ -273,9 +275,7 @@ describe("collection and settings bridge messages", () => {
 
   it("settings-sync carries the managed settings and an optional stamp", () => {
     const managed = ManagedSettingsSchema.parse({ modeBEnabled: true, modeBPacing: "fast" });
-    expect(Object.keys(managed).sort()).toEqual(
-      [...Object.keys(SYNCED_SETTING_FIELDS), ...Object.keys(EXTENSION_SETTING_FIELDS)].sort(),
-    );
+    expect(Object.keys(managed).sort()).toEqual(Object.keys(MANAGED_SETTING_FIELDS).sort());
     const stamp = { updatedAt: "2026-10-15T10:00:00.000Z", source: "desktop" } as const;
     // Deprecated targets stay in the extension.
     expect(

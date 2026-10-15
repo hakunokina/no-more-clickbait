@@ -1,81 +1,73 @@
 import {
-  EXTENSION_SETTING_FIELDS,
+  MANAGED_SETTING_FIELDS,
   ManagedSettingsSchema,
-  SYNCED_SETTING_FIELDS,
+  settingCopy,
+  type ManagedSettingKey,
   type ManagedSettings,
+  type UiLang,
 } from "@nmc/core";
+import { note, say, type Note } from "../shared/i18n.js";
 
 /**
- * The desktop Settings form: fields, bounds and copy come straight from
- * core (the same tables the extension's Options page renders), so the
- * two forms cannot drift apart. This module is the pure model plus a
- * thin DOM builder; wiring it into the monitor window (preload IPC,
- * status field) is a separate step.
+ * The desktop Settings form: fields and bounds come straight from core
+ * (the same tables the extension's Options page renders), and so does
+ * their copy in both languages (settingCopy), so the two forms cannot
+ * drift apart. This module is the pure model plus a thin DOM builder.
  */
 
 export type SettingFieldModel =
   | {
-      key: string;
+      key: ManagedSettingKey;
       kind: "integer";
       min: number;
       max: number;
       label: string;
       description: string;
     }
-  | { key: string; kind: "boolean"; label: string; description: string }
+  | { key: ManagedSettingKey; kind: "boolean"; label: string; description: string }
   | {
-      key: string;
+      key: ManagedSettingKey;
       kind: "choice";
       options: readonly { value: string; label: string }[];
       label: string;
       description: string;
     };
 
-function toModel(key: string, field: unknown): SettingFieldModel {
-  const f = field as {
-    kind: string;
-    min?: number;
-    max?: number;
-    options?: readonly { value: string; label: string }[];
-    label: string;
-    description: string;
-  };
-  if (f.kind === "integer") {
-    return {
-      key,
-      kind: "integer",
-      min: f.min!,
-      max: f.max!,
-      label: f.label,
-      description: f.description,
-    };
+function toModel(key: ManagedSettingKey, lang: UiLang): SettingFieldModel {
+  const field = MANAGED_SETTING_FIELDS[key];
+  const { label, description, options } = settingCopy(lang, key);
+  if (field.kind === "integer") {
+    return { key, kind: "integer", min: field.min, max: field.max, label, description };
   }
-  if (f.kind === "choice") {
+  if (field.kind === "choice") {
     return {
       key,
       kind: "choice",
-      options: f.options!,
-      label: f.label,
-      description: f.description,
+      options: field.options.map(({ value }: { value: string }) => ({
+        value,
+        label: options?.[value] ?? value,
+      })),
+      label,
+      description,
     };
   }
-  return { key, kind: "boolean", label: f.label, description: f.description };
+  return { key, kind: "boolean", label, description };
 }
 
-/** Pipeline + collection fields, in core's table order. */
-export function settingFieldModels(): SettingFieldModel[] {
-  return [
-    ...Object.entries(SYNCED_SETTING_FIELDS),
-    ...Object.entries(EXTENSION_SETTING_FIELDS),
-  ].map(([key, field]) => toModel(key, field));
+/** Pipeline, collection and UI fields, in core's table order, worded in `lang`. */
+export function settingFieldModels(lang: UiLang = "en"): SettingFieldModel[] {
+  return (Object.keys(MANAGED_SETTING_FIELDS) as ManagedSettingKey[]).map((key) =>
+    toModel(key, lang),
+  );
 }
 
 /** Raw form values keyed by setting (text for integers/choices, checkbox booleans). */
 export type SettingFormValues = Readonly<Record<string, string | boolean>>;
 
+/** Errors are notes: the form words them in whatever language it shows. */
 export type SettingFormResult =
   | { ok: true; settings: ManagedSettings }
-  | { ok: false; errors: Readonly<Record<string, string>> };
+  | { ok: false; errors: Readonly<Record<string, Note>> };
 
 /**
  * Validates raw form values against core's bounds. Every bad field gets
@@ -83,7 +75,7 @@ export type SettingFormResult =
  * these). Unknown keys are ignored, missing ones read as invalid.
  */
 export function parseSettingForm(values: SettingFormValues): SettingFormResult {
-  const errors: Record<string, string> = {};
+  const errors: Record<string, Note> = {};
   const parsed: Record<string, unknown> = {};
   for (const field of settingFieldModels()) {
     const raw = values[field.key];
@@ -93,12 +85,12 @@ export function parseSettingForm(values: SettingFormValues): SettingFormResult {
       if (typeof raw === "string" && field.options.some((option) => option.value === raw)) {
         parsed[field.key] = raw;
       } else {
-        errors[field.key] = "Pick one of the listed options.";
+        errors[field.key] = note("pickOption");
       }
     } else {
       const number = typeof raw === "string" && raw.trim() !== "" ? Number(raw) : Number.NaN;
       if (!Number.isInteger(number) || number < field.min || number > field.max) {
-        errors[field.key] = `Enter a whole number between ${field.min} and ${field.max}.`;
+        errors[field.key] = note("wholeNumber", field.min, field.max);
       } else {
         parsed[field.key] = number;
       }
@@ -108,14 +100,14 @@ export function parseSettingForm(values: SettingFormValues): SettingFormResult {
   const settings = ManagedSettingsSchema.safeParse(parsed);
   return settings.success
     ? { ok: true, settings: settings.data }
-    : { ok: false, errors: { form: "Some values are out of range." } };
+    : { ok: false, errors: { form: note("outOfRange") } };
 }
 
 /** The raw values that fill the form from a settings object. */
 export function settingFormValues(settings: ManagedSettings): Record<string, string | boolean> {
   const values: Record<string, string | boolean> = {};
   for (const field of settingFieldModels()) {
-    const value = settings[field.key as keyof ManagedSettings];
+    const value = settings[field.key];
     values[field.key] = typeof value === "boolean" ? value : String(value);
   }
   return values;
@@ -127,7 +119,16 @@ export interface SettingsFormHandle {
   element: HTMLFormElement;
   read(): SettingFormResult;
   fill(settings: ManagedSettings): void;
-  showErrors(errors: Readonly<Record<string, string>>): void;
+  showErrors(errors: Readonly<Record<string, Note>>): void;
+  /** Re-words labels, hints, choices and shown errors; values stay. */
+  setLanguage(lang: UiLang): void;
+}
+
+interface FieldParts {
+  input: HTMLInputElement | HTMLSelectElement;
+  label: HTMLLabelElement;
+  hint: HTMLElement;
+  error: HTMLElement;
 }
 
 /**
@@ -137,20 +138,21 @@ export interface SettingsFormHandle {
  */
 export function buildSettingsForm(
   container: HTMLElement,
+  lang: UiLang = "en",
   doc: Document = container.ownerDocument,
 ): SettingsFormHandle {
   const form = doc.createElement("form");
   form.noValidate = true;
-  const inputs = new Map<string, HTMLInputElement | HTMLSelectElement>();
-  const errorLines = new Map<string, HTMLElement>();
+  const fields = new Map<string, FieldParts>();
+  let shownLang = lang;
+  let shownErrors: Readonly<Record<string, Note>> = {};
 
-  for (const field of settingFieldModels()) {
+  for (const field of settingFieldModels(lang)) {
     const wrap = doc.createElement("div");
     wrap.className = "setting-field";
     const inputId = `setting-${field.key}`;
     const label = doc.createElement("label");
     label.htmlFor = inputId;
-    label.textContent = field.label;
 
     let input: HTMLInputElement | HTMLSelectElement;
     if (field.kind === "choice") {
@@ -158,7 +160,6 @@ export function buildSettingsForm(
       for (const option of field.options) {
         const el = doc.createElement("option");
         el.value = option.value;
-        el.textContent = option.label;
         input.append(el);
       }
     } else {
@@ -178,7 +179,6 @@ export function buildSettingsForm(
     const hint = doc.createElement("p");
     hint.id = hintId;
     hint.className = "hint";
-    hint.textContent = field.description;
 
     const errorId = `${inputId}-error`;
     const error = doc.createElement("p");
@@ -188,16 +188,35 @@ export function buildSettingsForm(
     input.setAttribute("aria-describedby", `${hintId} ${errorId}`);
     wrap.append(label, input, hint, error);
     form.append(wrap);
-    inputs.set(field.key, input);
-    errorLines.set(field.key, error);
+    fields.set(field.key, { input, label, hint, error });
   }
   container.append(form);
+
+  function word(): void {
+    for (const field of settingFieldModels(shownLang)) {
+      const parts = fields.get(field.key)!;
+      parts.label.textContent = field.label;
+      parts.hint.textContent = field.description;
+      if (field.kind === "choice" && parts.input instanceof HTMLSelectElement) {
+        for (const option of parts.input.options) {
+          option.textContent =
+            field.options.find((choice) => choice.value === option.value)?.label ??
+            option.value;
+        }
+      }
+    }
+    for (const [key, parts] of fields) {
+      const error = shownErrors[key];
+      parts.error.textContent = error ? say(shownLang, error) : "";
+    }
+  }
+  word();
 
   return {
     element: form,
     read() {
       const values: Record<string, string | boolean> = {};
-      for (const [key, input] of inputs) {
+      for (const [key, { input }] of fields) {
         values[key] =
           input instanceof HTMLInputElement && input.type === "checkbox"
             ? input.checked
@@ -207,7 +226,8 @@ export function buildSettingsForm(
     },
     fill(settings) {
       const values = settingFormValues(settings);
-      for (const [key, input] of inputs) {
+      shownErrors = {};
+      for (const [key, { input, error }] of fields) {
         const value = values[key];
         if (input instanceof HTMLInputElement && input.type === "checkbox") {
           input.checked = value === true;
@@ -215,18 +235,23 @@ export function buildSettingsForm(
           input.value = String(value ?? "");
         }
         input.removeAttribute("aria-invalid");
-        errorLines.get(key)!.textContent = "";
+        error.textContent = "";
       }
     },
     showErrors(errors) {
-      for (const [key, input] of inputs) {
-        const message = errors[key] ?? "";
-        errorLines.get(key)!.textContent = message;
-        if (message) input.setAttribute("aria-invalid", "true");
+      shownErrors = errors;
+      word();
+      for (const [key, { input }] of fields) {
+        if (errors[key]) input.setAttribute("aria-invalid", "true");
         else input.removeAttribute("aria-invalid");
       }
       const first = Object.keys(errors)[0];
-      if (first) inputs.get(first)?.focus();
+      if (first) fields.get(first)?.input.focus();
+    },
+    setLanguage(next) {
+      if (next === shownLang) return;
+      shownLang = next;
+      word();
     },
   };
 }
