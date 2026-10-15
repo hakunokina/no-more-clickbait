@@ -8,6 +8,7 @@ import {
   errorTimelineDoc,
   postWordCount,
   scoreLevel,
+  scoreOutOfTen,
   TimelineDocSchema,
   toTimelineDoc,
 } from "./timeline-doc.js";
@@ -78,6 +79,18 @@ describe("scoreLevel", () => {
       "very-high",
       "very-high",
     ]);
+  });
+
+  it("rounds down, like the Settings thresholds", () => {
+    expect([0.19, 0.58, 0.79].map(scoreLevel)).toEqual(["very-low", "medium", "high"]);
+  });
+});
+
+describe("scoreOutOfTen", () => {
+  it("floors onto 0-10, immune to float error", () => {
+    expect([0, 0.68, 0.7, 0.3, 0.91, 1].map(scoreOutOfTen)).toEqual([0, 6, 7, 3, 9, 10]);
+    expect(scoreOutOfTen(7 / 10)).toBe(7);
+    expect(scoreOutOfTen(0.1 * 3)).toBe(3);
   });
 });
 

@@ -22,9 +22,19 @@ export const TIMELINE_DOC_VERSION = 1;
 export const ScoreLevelSchema = z.enum(["very-low", "low", "medium", "high", "very-high"]);
 export type ScoreLevel = z.infer<typeof ScoreLevelSchema>;
 
-/** 0-1 → very-low, 2-3 → low, 4-5 → medium, 6-7 → high, 8-10 → very-high (0-10 scale). */
+/**
+ * A 0..1 score on the Settings' 0-10 scale, rounded DOWN: the pipeline
+ * keeps clickbait < maxClickbait/10 and read value ≥ minReadValue/10, so
+ * a shown post reads "6 / 10" under a "max 7" setting, never "7 / 10".
+ * The epsilon absorbs float error (0.7 * 10 = 6.999…).
+ */
+export function scoreOutOfTen(score: number): number {
+  return Math.min(10, Math.max(0, Math.floor(score * 10 + 1e-9)));
+}
+
+/** 0-1 → very-low, 2-3 → low, 4-5 → medium, 6-7 → high, 8-10 → very-high (scoreOutOfTen). */
 export function scoreLevel(score: number): ScoreLevel {
-  const tenths = Math.round(score * 10);
+  const tenths = scoreOutOfTen(score);
   if (tenths <= 1) return "very-low";
   if (tenths <= 3) return "low";
   if (tenths <= 5) return "medium";
