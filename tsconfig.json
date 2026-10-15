@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/native-host" },
+    { "path": "packages/timeline-renderer" },
     { "path": "apps/extension" },
     { "path": "apps/desktop" }
   ]
