@@ -120,6 +120,11 @@ export interface CliProviderSpec {
   parseOutput(stdout: string): Omit<LlmResult, "durationMs"> & { durationMs?: number };
   /** stderr/stdout fingerprint of "not logged in". */
   authFailurePattern?: RegExp;
+  /**
+   * Appended to a completion's "not logged in" error: a configuration
+   * of this provider that can itself cause it (see isolateUserSettings).
+   */
+  authFailureHint?: string;
 }
 
 export interface CliLlmProviderOptions {
@@ -200,9 +205,10 @@ export class CliLlmProvider implements LlmProvider {
       // JSON error field while stderr carries unrelated warnings.
       const diagnostics = `${outcome.stderr}\n${outcome.stdout}`;
       if (this.#spec.authFailurePattern?.test(diagnostics)) {
+        const detail = firstLine(outcome.stderr) || firstLine(outcome.stdout);
         throw new CliNotAuthenticatedError(
           this.#spec.command,
-          firstLine(outcome.stderr) || firstLine(outcome.stdout),
+          this.#spec.authFailureHint ? `${detail}; ${this.#spec.authFailureHint}` : detail,
         );
       }
       throw new CliRunError(
@@ -373,9 +379,14 @@ export interface ClaudeCliOptions extends CliLlmProviderOptions {
    * (`--setting-sources ""`): no CLAUDE.md, hooks, output style or
    * other personal configuration reaches the call, so the judgement is
    * the same on every machine and the user's private instructions never
-   * ride along with feed content. Auth is unaffected (OAuth/subscription
-   * login still works; measured with claude 2.1.300). Only completions
-   * get the flag — the `auth status` check runs unchanged.
+   * ride along with feed content. OAuth/subscription login still works
+   * (measured with claude 2.1.300), but credentials that come FROM a
+   * settings.json — `apiKeyHelper`, or an API key in its `env` block —
+   * are not loaded either: auth is then only the CLI's own
+   * OAuth/credentials store or this process's environment. A completion
+   * failing with "not logged in" under this option says so in its error.
+   * Only completions get the flag — the `auth status` check runs
+   * unchanged (and loads settings), so it can pass while completions fail.
    */
   isolateUserSettings?: boolean;
   /**
@@ -416,6 +427,7 @@ const RESERVED_FLAGS = [
   "--append-system-prompt-file",
   "--setting-sources",
   "--settings",
+  "--no-session-persistence",
 ] as const;
 
 function assertExtraArgsSafe(extraArgs: readonly string[]): void {
@@ -480,13 +492,27 @@ export function createClaudeCliProvider(options: ClaudeCliOptions = {}): CliLlmP
       authCheckArgs: ["auth", "status"],
       parseAuthStatus: parseClaudeAuthStatus,
       authFailurePattern: /not logged in|please run \/login|authentication required/i,
+      ...(options.isolateUserSettings
+        ? {
+            authFailureHint:
+              "isolateUserSettings is on, so credentials from settings.json " +
+              "(apiKeyHelper/env) are not loaded — log in to the CLI or set the " +
+              "key in the process environment",
+          }
+        : {}),
       supportsSystemPrompt: true,
       buildArgs: (request) => {
-        const args = ["-p", "--output-format", outputFormat];
+        // --no-session-persistence: print mode otherwise saves every call
+        // as a transcript under ~/.claude/projects/, i.e. a lasting copy
+        // of other people's feed posts on the user's disk. Nothing here
+        // reads it back (thinking tokens come from the JSON `usage`).
+        const args = ["-p", "--no-session-persistence", "--output-format", outputFormat];
         if (outputFormat === "stream-json") args.push("--verbose");
         if (options.model !== undefined) args.push("--model", options.model);
         if (options.effort !== undefined) args.push("--effort", options.effort);
         if (request.systemPrompt !== undefined) {
+          // Checked per request (the prompt arrives with each call, not
+          // at construction), so a bad one fails that complete() call.
           // Same flag-parsing concern as `model`: a leading "-" would be
           // read as the next flag, an empty one leaves the CLI's default.
           if (request.systemPrompt.trim() === "" || request.systemPrompt.startsWith("-")) {
