@@ -1,9 +1,9 @@
 import {
   bridgeMessageByteLength,
+  BridgeReplySchema,
   MAX_BRIDGE_MESSAGE_BYTES,
   parseHomeTimeline,
   type BridgeMessage,
-  type BridgeReply,
   type CaptureStats,
   type PostBatch,
   type Settings,
@@ -26,7 +26,12 @@ import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
  * source — it owns the dumps, so it is what was really captured — and
  * it alone drives the one-shot target notification (capture keeps
  * going). With capture OFF the worker's own session counter is shown.
- * Toggling developer capture starts a new counting session.
+ * Toggling developer capture starts a new counting session; replies
+ * still in flight from the previous session's port are dropped.
+ *
+ * Host replies are validated: a host built from older sources (e.g. the
+ * extension was reloaded but `pnpm build` + host re-register were
+ * skipped) yields a "?" badge and a console warning, never "undefined".
  *
  * Mode B (auto-scroll a hidden tab until enough posts are gathered) is
  * intentionally only a guarded switch in this skeleton: it stays OFF
@@ -37,20 +42,28 @@ import { loadSettings, SETTINGS_STORAGE_KEY } from "./settings.js";
 export const NATIVE_HOST_NAME = "io.github.hakunokina.no_more_clickbait";
 
 const CAPTURE_NOTIFICATION_ID = "nmc-capture-target";
+const DEFAULT_BADGE_COLOR = "#5f6368";
+const TARGET_BADGE_COLOR = "#137333";
 
 let port: chrome.runtime.Port | null = null;
+/** Bumped on every capture toggle; work started under an older value is stale. */
+let generation = 0;
 const session = new CaptureSession(chrome.storage.session);
 
 function nativePort(): chrome.runtime.Port {
   if (port) return port;
-  port = chrome.runtime.connectNative(NATIVE_HOST_NAME);
-  port.onDisconnect.addListener(() => {
-    port = null;
+  const opened = chrome.runtime.connectNative(NATIVE_HOST_NAME);
+  const portGeneration = generation;
+  opened.onDisconnect.addListener(() => {
+    if (port === opened) port = null;
   });
-  port.onMessage.addListener((reply: BridgeReply) => {
-    void handleReply(reply);
+  opened.onMessage.addListener((reply: unknown) => {
+    void handleReply(reply, portGeneration).catch((error: unknown) => {
+      console.error(`[nmc] native host reply handling failed: ${String(error)}`);
+    });
   });
-  return port;
+  port = opened;
+  return opened;
 }
 
 function sendToDesktop(message: BridgeMessage): boolean {
@@ -67,23 +80,40 @@ async function updateBadge(count: number): Promise<void> {
   await chrome.action.setBadgeText({ text: count === 0 ? "" : String(count) });
 }
 
-async function handleReply(reply: BridgeReply): Promise<void> {
+async function handleReply(raw: unknown, replyGeneration: number): Promise<void> {
+  const parsed = BridgeReplySchema.safeParse(raw);
+  if (!parsed.success) {
+    console.warn(
+      "[nmc] native host reply has an unexpected shape — the host is probably older than the " +
+        "extension: run `pnpm build`, re-register the host, then reload the extension",
+    );
+    const settings = await loadSettings().catch(() => null);
+    if (settings?.devCaptureEnabled && replyGeneration === generation) {
+      await chrome.action.setBadgeText({ text: "?" });
+    }
+    return;
+  }
+  const reply = parsed.data;
   if (reply.type === "capture-accepted" || reply.type === "capture-rejected") {
     if (reply.type === "capture-rejected") {
       console.error(`[nmc] developer capture refused: ${reply.message}`);
     }
-    await reflectCaptureStats(reply.stats);
+    await reflectCaptureStats(reply.stats, replyGeneration);
   } else if (reply.type === "error") {
     console.error(`[nmc] native host error: ${reply.message}`);
   }
 }
 
-async function reflectCaptureStats(stats: CaptureStats): Promise<void> {
+async function reflectCaptureStats(
+  stats: CaptureStats,
+  replyGeneration: number,
+): Promise<void> {
   const settings = await loadSettings().catch(() => null);
-  if (!settings?.devCaptureEnabled) return;
+  if (!settings?.devCaptureEnabled || replyGeneration !== generation) return;
   await updateBadge(stats.uniquePostCount);
-  if (!(await session.reachedTarget(stats.uniquePostCount, settings.captureTarget))) return;
-  await chrome.action.setBadgeBackgroundColor({ color: "#137333" });
+  const reached = await session.reachedTarget(stats.uniquePostCount, settings.captureTarget);
+  if (!reached || replyGeneration !== generation) return;
+  await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
   try {
     await chrome.notifications.create(CAPTURE_NOTIFICATION_ID, {
       type: "basic",
@@ -132,6 +162,7 @@ function forwardDevCapture(message: WorkerCaptureMessage): void {
 }
 
 async function handleCapture(message: WorkerCaptureMessage): Promise<void> {
+  const captureGeneration = generation;
   const settings: Settings | null = await loadSettings().catch(() => null);
   if (settings?.devCaptureEnabled) {
     forwardDevCapture(message);
@@ -146,8 +177,11 @@ async function handleCapture(message: WorkerCaptureMessage): Promise<void> {
 
   const posts = parseHomeTimeline(payload);
   if (posts.length === 0) return;
-  const uniqueCount = await session.countPosts(posts);
-  if (!settings?.devCaptureEnabled) await updateBadge(uniqueCount);
+  // With capture ON the host's count is the single source (see top).
+  if (!settings?.devCaptureEnabled) {
+    const uniqueCount = await session.countPosts(posts);
+    if (captureGeneration === generation) await updateBadge(uniqueCount);
+  }
 
   const batch: PostBatch = {
     source: "x-home-timeline",
@@ -179,11 +213,13 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   if (Boolean(before) === Boolean(after)) return;
   // One host process == one capture folder: closing the port ends it,
   // so the next capture starts a fresh host session too.
+  generation += 1;
   port?.disconnect();
   port = null;
   void (async () => {
     await session.reset();
     await updateBadge(0);
+    await chrome.action.setBadgeBackgroundColor({ color: DEFAULT_BADGE_COLOR });
   })().catch((error: unknown) => {
     console.error(`[nmc] capture session reset failed: ${String(error)}`);
   });

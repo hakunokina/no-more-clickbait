@@ -34,17 +34,41 @@ interface LiveState {
   notified: boolean;
 }
 
-function isStoredState(value: unknown): value is StoredState {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-  const filter = v["filter"] as Record<string, unknown> | undefined;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+}
+
+/** Every counter the filter increments must be present, or `+= 1` yields NaN. */
+function isHardFilterStats(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  const { dropped, flagged } = value;
   return (
-    typeof v["notified"] === "boolean" &&
-    typeof filter === "object" &&
-    filter !== null &&
+    isCount(value["seen"]) &&
+    isCount(value["kept"]) &&
+    isRecord(dropped) &&
+    isCount(dropped["promoted"]) &&
+    isCount(dropped["duplicate"]) &&
+    isCount(dropped["duplicate-repost"]) &&
+    isRecord(flagged) &&
+    isCount(flagged["mediaOnly"])
+  );
+}
+
+function isStoredState(value: unknown): value is StoredState {
+  if (!isRecord(value) || typeof value["notified"] !== "boolean") return false;
+  const filter = value["filter"];
+  return (
+    isRecord(filter) &&
     Array.isArray(filter["seen"]) &&
-    typeof filter["stats"] === "object" &&
-    filter["stats"] !== null
+    filter["seen"].every(
+      (entry: unknown) =>
+        Array.isArray(entry) && typeof entry[0] === "string" && typeof entry[1] === "boolean",
+    ) &&
+    isHardFilterStats(filter["stats"])
   );
 }
 
