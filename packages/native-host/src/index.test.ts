@@ -102,6 +102,35 @@ describe("handleBridgeMessage", () => {
     expect(seen).toEqual(["HomeTimeline"]);
   });
 
+  it("routes a sourced capture and replies with that source's stats", async () => {
+    const asked: string[] = [];
+    const reply = await handleBridgeMessage(
+      JSON.stringify({
+        type: "raw-capture",
+        source: "reddit",
+        operation: "dom-initial",
+        capturedAt: "2026-01-01T00:00:00.000Z",
+        bodyText: "<shreddit-post></shreddit-post>",
+      }),
+      {
+        onPostBatch: () => {},
+        onRawCapture: () => Promise.resolve({ sequence: 1 }),
+        captureStats: (source) => {
+          asked.push(source);
+          return {
+            responseCount: 1,
+            postCount: 1,
+            uniquePostCount: 0,
+            promotedCount: 0,
+            oversizedCount: 0,
+          };
+        },
+      },
+    );
+    expect(reply).toMatchObject({ type: "capture-accepted", source: "reddit", sequence: 1 });
+    expect(asked).toEqual(["reddit"]);
+  });
+
   it("reports an oversized capture as rejected and counts it", async () => {
     const refused: number[] = [];
     const reply = await handleBridgeMessage(

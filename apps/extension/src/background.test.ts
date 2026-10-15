@@ -238,6 +238,44 @@ describe("background worker", () => {
     expect(fake.badge.text).toBe("17");
   });
 
+  it("forwards Reddit captures only with developer capture on, apart from X's counts", async () => {
+    // Made-up shreddit markup, no real data.
+    const redditCapture = {
+      kind: "reddit-capture",
+      operation: "dom-initial",
+      bodyText: '<shreddit-post id="t3_1"></shreddit-post>',
+    };
+    fake.chrome.runtime.onMessage.emit(redditCapture, { id: "test", tab: { id: USER_TAB } });
+    await settle();
+    expect(postedTypes(currentPort())).toEqual(["ping"]);
+
+    await setCapture(true);
+    await settle();
+    fake.chrome.runtime.onMessage.emit(redditCapture, { id: "test", tab: { id: USER_TAB } });
+    await settle();
+    const port = currentPort();
+    expect(port.posted).toEqual([
+      { type: "ping" },
+      expect.objectContaining({
+        type: "raw-capture",
+        source: "reddit",
+        operation: "dom-initial",
+        bodyText: redditCapture.bodyText,
+      }),
+    ]);
+    expect(fake.sessionArea.size).toBe(0);
+
+    port.onMessage.emit({
+      type: "capture-accepted",
+      source: "reddit",
+      sequence: 1,
+      stats: stats(5),
+    });
+    await settle();
+    expect(fake.badge.text).toBe("");
+    expect(fake.chrome.notifications.create).not.toHaveBeenCalled();
+  });
+
   it("turns the badge green at the target and back to default on reset", async () => {
     await setCapture(true, 10);
     await settle();

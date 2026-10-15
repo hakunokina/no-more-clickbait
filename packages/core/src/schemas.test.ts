@@ -301,3 +301,53 @@ describe("collection and settings bridge messages", () => {
     ).toBe(false);
   });
 });
+
+describe("developer capture source", () => {
+  const capture = {
+    type: "raw-capture",
+    operation: "HomeTimeline",
+    capturedAt: "2026-01-01T10:00:00.000Z",
+    bodyText: "{}",
+  } as const;
+  const stats = {
+    responseCount: 1,
+    postCount: 0,
+    uniquePostCount: 0,
+    promotedCount: 0,
+    oversizedCount: 0,
+  };
+
+  it("is optional (absent means X) and limited to known sites", () => {
+    expect(BridgeMessageSchema.parse(capture)).toEqual(capture);
+    expect(BridgeMessageSchema.parse({ ...capture, source: "reddit" })).toEqual({
+      ...capture,
+      source: "reddit",
+    });
+    expect(BridgeMessageSchema.safeParse({ ...capture, source: "mastodon" }).success).toBe(
+      false,
+    );
+    expect(
+      BridgeMessageSchema.parse({
+        type: "capture-oversized",
+        source: "reddit",
+        operation: "dom-added",
+        capturedAt: capture.capturedAt,
+        byteLength: 1,
+      }),
+    ).toMatchObject({ source: "reddit" });
+  });
+
+  it("travels back on capture replies", () => {
+    expect(
+      BridgeReplySchema.parse({
+        type: "capture-accepted",
+        source: "reddit",
+        sequence: 1,
+        stats,
+      }),
+    ).toMatchObject({ source: "reddit" });
+    expect(
+      BridgeReplySchema.parse({ type: "capture-accepted", sequence: 1, stats }),
+    ).not.toHaveProperty("source");
+  });
+});

@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CollectionMetricsSchema } from "@nmc/core";
-import { CaptureStore, defaultCaptureRoot, type CaptureSummary } from "./capture-store.js";
+import {
+  CaptureStore,
+  countShredditPosts,
+  defaultCaptureRoot,
+  type CaptureSummary,
+} from "./capture-store.js";
 
 const SESSION_NOW = "2026-01-01T10:00:00.000Z";
 
@@ -177,5 +182,98 @@ describe("CaptureStore", () => {
       await readFile(join(store.sessionDir ?? "", "summary.json"), "utf8"),
     ) as Record<string, unknown>;
     expect(Object.keys(summary)).toEqual(["modeBRun"]);
+  });
+});
+
+// Made-up shreddit markup: invented ids, titles and names, no real data.
+const shredditFragment = (ids: string[], ads = 0): string =>
+  [
+    ...ids.map(
+      (id) =>
+        `<shreddit-post id="${id}" post-title="Synthetic ${id}" subreddit-prefixed-name="r/example"><div slot="text-body">body</div></shreddit-post>`,
+    ),
+    ...Array.from(
+      { length: ads },
+      (_, i) => `<shreddit-ad-post id="ad-${i}"></shreddit-ad-post>`,
+    ),
+  ].join("\n");
+
+describe("countShredditPosts", () => {
+  it("counts post tags, their ids and ad tags in HTML and JSON-escaped bodies", () => {
+    expect(countShredditPosts(shredditFragment(["t3_a", "t3_b"], 1))).toEqual({
+      postIds: ["t3_a", "t3_b"],
+      postTags: 2,
+      adTags: 1,
+    });
+    expect(countShredditPosts(JSON.stringify({ html: shredditFragment(["t3_c"]) }))).toEqual({
+      postIds: ["t3_c"],
+      postTags: 1,
+      adTags: 0,
+    });
+    // Look-alike tags and attributes are not posts / ids.
+    expect(
+      countShredditPosts(
+        '<shreddit-post-overflow id="x"></shreddit-post-overflow><shreddit-post author-id="t2_z">',
+      ),
+    ).toEqual({ postIds: [], postTags: 1, adTags: 0 });
+  });
+});
+
+describe("CaptureStore for Reddit", () => {
+  let root: string;
+  let store: CaptureStore;
+
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "nmc-capture-test-"));
+    store = new CaptureStore(root, () => SESSION_NOW, "reddit");
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("writes into its own folder and counts distinct shreddit-post ids per path", async () => {
+    const capture = (operation: string, bodyText: string, second: number) =>
+      store.store({
+        type: "raw-capture",
+        source: "reddit",
+        operation,
+        capturedAt: `2026-01-01T10:00:0${second}.000Z`,
+        bodyText,
+      });
+    await capture("dom-initial", shredditFragment(["t3_1", "t3_2"], 1), 1);
+    // The next page overlaps by one post; one JSON body carries none.
+    await capture(
+      "/svc/shreddit/community-more-posts/hot/",
+      shredditFragment(["t3_2", "t3_3"]),
+      2,
+    );
+    await capture("gql.reddit.com/", '{"data":{}}', 3);
+
+    const sessionDir = store.sessionDir ?? "";
+    expect(sessionDir).toBe(join(root, "2026-01-01T10-00-00-000Z-reddit"));
+    expect((await readdir(sessionDir)).sort()).toEqual([
+      "0001-2026-01-01T10-00-01-000Z-dom-initial.html",
+      "0002-2026-01-01T10-00-02-000Z-_svc_shreddit_community-more-posts_hot_.html",
+      "0003-2026-01-01T10-00-03-000Z-gql_reddit_com_.json",
+      "summary.json",
+    ]);
+    expect(store.stats).toEqual({
+      responseCount: 3,
+      postCount: 4,
+      uniquePostCount: 3,
+      promotedCount: 1,
+      oversizedCount: 0,
+    });
+    const summary = JSON.parse(
+      await readFile(join(sessionDir, "summary.json"), "utf8"),
+    ) as CaptureSummary;
+    expect(CollectionMetricsSchema.parse(summary)).toMatchObject({ uniquePostCount: 3 });
+    expect(summary.source).toBe("reddit");
+    expect(summary.paths).toEqual({
+      "dom-initial": { responses: 1, json: 0, html: 1, other: 0 },
+      "/svc/shreddit/community-more-posts/hot/": { responses: 1, json: 0, html: 1, other: 0 },
+      "gql.reddit.com/": { responses: 1, json: 1, html: 0, other: 0 },
+    });
   });
 });

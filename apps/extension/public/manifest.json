@@ -30,6 +30,18 @@
       "js": ["content.js"],
       "world": "ISOLATED",
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.reddit.com/*"],
+      "js": ["reddit-injected.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.reddit.com/*"],
+      "js": ["reddit-content.js"],
+      "world": "ISOLATED",
+      "run_at": "document_start"
     }
   ]
 }

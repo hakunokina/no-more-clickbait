@@ -12,9 +12,15 @@ await rm(dist, { recursive: true, force: true });
 await mkdir(dist, { recursive: true });
 
 await build({
-  entryPoints: ["injected", "content", "background", "options", "popup"].map((name) =>
-    join(root, "src", `${name}.ts`),
-  ),
+  entryPoints: [
+    "injected",
+    "content",
+    "reddit-injected",
+    "reddit-content",
+    "background",
+    "options",
+    "popup",
+  ].map((name) => join(root, "src", `${name}.ts`)),
   outdir: dist,
   bundle: true,
   format: "esm",
