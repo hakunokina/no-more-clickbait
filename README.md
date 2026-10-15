@@ -43,23 +43,50 @@ Design rules:
 - **Mode A — passive (default).** While you browse X yourself, the extension
   keeps the timeline responses your browser already fetched. No extra
   requests are made.
-- **Mode B — automatic, opt-in, OFF by default.** A hidden tab scrolls your
-  timeline automatically until enough posts are gathered.
+- **Mode B — automatic, opt-in, OFF by default.** "Collect feed (N)" in the
+  extension popup or options opens x.com/home in your own browser session,
+  somewhere you do not look at, and scrolls it until N distinct posts were
+  collected. The page's own timeline responses are picked up exactly as in
+  Mode A; the extension never calls X's API itself, and no external or
+  headless browser is involved.
 
 ### Mode B and its risks
 
 Mode B is **disabled by default** and must be switched on explicitly in the
-extension options. Automated browsing sits in a grey area of X's Terms of
-Service: enabling it may lead to rate limiting, account locks, or suspension.
-It also makes requests you did not personally initiate. If that risk is not
-acceptable to you, leave it off — Mode A is the intended default experience.
-You are responsible for how you use it.
+extension options. Read this before you do:
+
+- **X's Terms of Service.** Automated browsing sits in a grey area of X's
+  Terms of Service. Mode B scrolls your timeline with a script, so X sees
+  timeline requests you did not personally make.
+- **Your account.** That traffic is tied to your logged-in account. X may
+  answer it with rate limits, temporary locks or suspension. Mode B stops
+  as soon as it sees a rate-limit answer, a login page or an error page,
+  but it cannot rule these out.
+- **You are responsible for how you use it.** If that risk is not
+  acceptable to you, leave Mode B off — Mode A is the intended default
+  experience.
+
+How a run behaves:
+
+- It waits between scrolls at a reading pace (about 2–3.5 s) and ends at
+  the first of: N distinct organic posts, 10 minutes, 8 scrolls in a row
+  without a new post, a login/error/rate-limit page, or the tab being
+  closed. The hidden tab or window then closes and a notification says why.
+- Switching Mode B on asks for the `alarms` permission (no install
+  warning). It only lets a run resume if the browser stops the extension's
+  background worker mid-run.
+- Browsers stop rendering pages nobody can see and slow their timers, and
+  X may then load no further posts. The options page therefore offers
+  three hidden surfaces — a minimized window, a background tab, and a small
+  window pushed off-screen — and shows the numbers of the last run (posts,
+  scrolls, how often the page was hidden, why it stopped). With developer
+  capture on, the same counts are added to that capture's `summary.json`.
 
 ## Layout
 
 | Path                   | What it is                                                              |
 | ---------------------- | ----------------------------------------------------------------------- |
-| `apps/extension`       | MV3 extension for Chrome/Brave (Mode A listener, Mode B toggle)         |
+| `apps/extension`       | MV3 extension for Chrome/Brave (Mode A listener, Mode B auto-scroll)    |
 | `apps/desktop`         | Electron tray app with a compact token-monitor window                   |
 | `packages/core`        | Shared zod schemas, pipeline interfaces + run metrics, LLM CLI provider |
 | `packages/native-host` | Native Messaging host (browser ⇄ desktop bridge, stdio only)            |

@@ -45,6 +45,7 @@ function dispatch(raw: string): void {
     onRawCapture: async (capture) => ({ sequence: await captureStore.store(capture) }),
     onOversizedCapture: (capture) => captureStore.recordOversized(capture),
     captureStats: () => captureStore.stats,
+    onModeBRun: (run) => captureStore.recordModeBRun(run),
   })
     .then((reply) => {
       process.stdout.write(encodeMessage(reply));

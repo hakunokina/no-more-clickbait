@@ -125,10 +125,30 @@ export const RankedPostSchema = z.object({
 });
 export type RankedPost = z.infer<typeof RankedPostSchema>;
 
+/**
+ * How Mode B keeps its X tab out of the user's sight. Chromium stops
+ * rendering hidden pages and throttles their timers, so which surface
+ * still lets X load more posts is measured, not assumed:
+ * - `minimized-window`: a new window created minimized;
+ * - `background-tab`: an inactive tab in the user's current window;
+ * - `offscreen-window`: a small unfocused window pushed past the corner
+ *   of the user's window (the OS may keep a sliver of it on screen).
+ */
+export const ModeBStrategySchema = z.enum([
+  "minimized-window",
+  "background-tab",
+  "offscreen-window",
+]);
+export type ModeBStrategy = z.infer<typeof ModeBStrategySchema>;
+
 /** User settings shared between the extension options page and desktop. */
 export const SettingsSchema = z.object({
   /** Mode B: auto-scroll a hidden tab to gather posts. OFF by default. */
   modeBEnabled: z.boolean().default(false),
+  /** Mode B stops once this many distinct organic posts were collected. */
+  modeBTarget: z.number().int().min(1).max(1000).default(100),
+  /** Developer choice of the hidden surface Mode B scrolls in. */
+  modeBStrategy: ModeBStrategySchema.default("minimized-window"),
   /** How many posts a finished timeline shows before it ends. */
   timelineSize: z.number().int().min(1).max(100).default(20),
   /**
@@ -187,12 +207,61 @@ export const CaptureStatsSchema = z.object({
 });
 export type CaptureStats = z.infer<typeof CaptureStatsSchema>;
 
+/** Why a Mode B run ended. */
+export const ModeBStopReasonSchema = z.enum([
+  "target-reached",
+  "timeout",
+  /** Several scroll steps in a row brought no new distinct post. */
+  "stalled",
+  "not-logged-in",
+  "error-page",
+  /** The tab left x.com/home (redirect or the user navigated it). */
+  "navigated-away",
+  "rate-limited",
+  /** The page stopped answering scroll steps (frozen, crashed, not loaded). */
+  "page-unresponsive",
+  "tab-closed",
+  "cancelled",
+  /** Mode B or developer capture was toggled while the run was going. */
+  "settings-changed",
+  "permission-missing",
+  "failed-to-open",
+]);
+export type ModeBStopReason = z.infer<typeof ModeBStopReasonSchema>;
+
+/**
+ * Counts and times of one Mode B run — never content. `counter` says
+ * which side counted `uniquePostCount`: the host (developer capture on)
+ * or the extension's own session counter; both run the same hard filter.
+ */
+export const ModeBRunSummarySchema = z.object({
+  strategy: ModeBStrategySchema,
+  counter: z.enum(["host", "extension"]),
+  target: z.number().int().min(1),
+  startedAt: z.string().datetime(),
+  endedAt: z.string().datetime(),
+  durationMs: z.number().int().nonnegative(),
+  /** Scroll steps the page carried out. */
+  scrollCount: z.number().int().nonnegative(),
+  /** Steps after which the page's scroll position had actually moved. */
+  scrollMovedCount: z.number().int().nonnegative(),
+  /** Steps during which the page reported `document.hidden`. */
+  hiddenStepCount: z.number().int().nonnegative(),
+  /** HomeTimeline responses captured from the run's tab. */
+  responseCount: z.number().int().nonnegative(),
+  uniquePostCount: z.number().int().nonnegative(),
+  stopReason: ModeBStopReasonSchema,
+});
+export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
+
 /** Messages from the browser extension to the desktop app (via native host). */
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("post-batch"), batch: PostBatchSchema }),
   RawCaptureSchema,
   OversizedCaptureSchema,
+  /** A finished Mode B run, recorded in the capture session's summary. */
+  z.object({ type: z.literal("mode-b-run"), run: ModeBRunSummarySchema }),
 ]);
 export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 
@@ -210,6 +279,7 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
     message: z.string(),
     stats: CaptureStatsSchema,
   }),
+  z.object({ type: z.literal("mode-b-run-recorded") }),
   z.object({ type: z.literal("error"), message: z.string() }),
 ]);
 export type BridgeReply = z.infer<typeof BridgeReplySchema>;

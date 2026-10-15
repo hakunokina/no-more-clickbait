@@ -16,12 +16,13 @@ function operationOf(url: string): string | null {
   return match?.[1] ?? null;
 }
 
-function forward(operation: string, bodyText: string): void {
+function forward(operation: string, bodyText: string, status: number): void {
   const message: TimelineCaptureMessage = {
     source: PAGE_MESSAGE_SOURCE,
     kind: "timeline-response",
     operation,
     bodyText,
+    status,
   };
   window.postMessage(message, window.location.origin);
 }
@@ -44,7 +45,7 @@ function patchFetch(): void {
       void response
         .clone()
         .text()
-        .then((bodyText) => forward(operation, bodyText))
+        .then((bodyText) => forward(operation, bodyText, response.status))
         .catch(() => undefined);
     }
     return response;
@@ -77,7 +78,7 @@ function patchXhr(): void {
       this.addEventListener("load", () => {
         try {
           if (this.responseType === "" || this.responseType === "text") {
-            forward(operation, this.responseText);
+            forward(operation, this.responseText, this.status);
           }
         } catch {
           // Response not readable as text; nothing to forward.

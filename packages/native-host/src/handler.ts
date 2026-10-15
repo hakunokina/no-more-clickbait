@@ -2,6 +2,7 @@ import {
   BridgeMessageSchema,
   type BridgeReply,
   type CaptureStats,
+  type ModeBRunSummary,
   type OversizedCapture,
   type PostBatch,
   type RawCapture,
@@ -16,6 +17,8 @@ export interface BridgeHandlers {
   onOversizedCapture?: (capture: OversizedCapture) => Promise<void> | void;
   /** Cumulative capture counts, reported back to the extension. */
   captureStats?: () => CaptureStats;
+  /** Records a finished Mode B run's counts in the session summary. */
+  onModeBRun?: (run: ModeBRunSummary) => Promise<void> | void;
 }
 
 const EMPTY_STATS: CaptureStats = {
@@ -75,6 +78,16 @@ export async function handleBridgeMessage(
         message: `oversized ${parsed.data.operation} response (${parsed.data.byteLength} bytes framed) exceeds the bridge ceiling and was not captured`,
         stats: handlers.captureStats?.() ?? EMPTY_STATS,
       };
+    }
+    case "mode-b-run": {
+      if (!handlers.onModeBRun) {
+        return {
+          type: "error",
+          message: "Mode B run recording is not configured on this host",
+        };
+      }
+      await handlers.onModeBRun(parsed.data.run);
+      return { type: "mode-b-run-recorded" };
     }
   }
 }
