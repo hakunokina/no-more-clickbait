@@ -1,9 +1,4 @@
-import {
-  EXTENSION_SETTING_FIELDS,
-  ManagedSettingsSchema,
-  SYNCED_SETTING_FIELDS,
-  type ManagedSettings,
-} from "@nmc/core";
+import { MANAGED_SETTING_FIELDS, ManagedSettingsSchema, type ManagedSettings } from "@nmc/core";
 
 /**
  * The desktop Settings form: fields, bounds and copy come straight from
@@ -64,10 +59,7 @@ function toModel(key: string, field: unknown): SettingFieldModel {
 
 /** Pipeline + collection fields, in core's table order. */
 export function settingFieldModels(): SettingFieldModel[] {
-  return [
-    ...Object.entries(SYNCED_SETTING_FIELDS),
-    ...Object.entries(EXTENSION_SETTING_FIELDS),
-  ].map(([key, field]) => toModel(key, field));
+  return Object.entries(MANAGED_SETTING_FIELDS).map(([key, field]) => toModel(key, field));
 }
 
 /** Raw form values keyed by setting (text for integers/choices, checkbox booleans). */

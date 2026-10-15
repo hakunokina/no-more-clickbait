@@ -1,4 +1,6 @@
 export * from "./schemas.js";
+export * from "./i18n.js";
+export * from "./setting-copy.js";
 export * from "./feed-item.js";
 export * from "./pipeline.js";
 export * from "./metrics.js";
