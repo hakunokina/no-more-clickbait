@@ -6,7 +6,12 @@ import {
   BridgeMessageSchema,
   bridgeMessageByteLength,
   BridgeReplySchema,
+  EXTENSION_SETTING_FIELDS,
+  isNewerStamp,
+  ManagedSettingsSchema,
   MAX_BRIDGE_MESSAGE_BYTES,
+  ModeBPacingSchema,
+  ModeBSurfaceSchema,
   PostBatchSchema,
   SettingsFieldsSchema,
   SettingsSchema,
@@ -253,7 +258,7 @@ describe("collection and settings bridge messages", () => {
     expect(BridgeMessageSchema.safeParse({ ...message, target: 0 }).success).toBe(false);
   });
 
-  it("syncs only the pipeline settings and the collection target", () => {
+  it("keeps the synced set to the pipeline settings and the collection target", () => {
     expect(Object.keys(synced).sort()).toEqual(Object.keys(SYNCED_SETTING_FIELDS).sort());
     expect(synced).toEqual({
       collectTarget: 250,
@@ -264,18 +269,61 @@ describe("collection and settings bridge messages", () => {
       maxVerifications: 20,
       verifyEnabled: true,
     });
-    const parsed = BridgeMessageSchema.parse({
+  });
+
+  it("settings-sync carries the managed settings and an optional stamp", () => {
+    const managed = ManagedSettingsSchema.parse({ modeBEnabled: true, modeBPacing: "fast" });
+    expect(Object.keys(managed).sort()).toEqual(
+      [...Object.keys(SYNCED_SETTING_FIELDS), ...Object.keys(EXTENSION_SETTING_FIELDS)].sort(),
+    );
+    const stamp = { updatedAt: "2026-10-15T10:00:00.000Z", source: "desktop" } as const;
+    // Deprecated targets stay in the extension.
+    expect(
+      BridgeMessageSchema.parse({
+        type: "settings-sync",
+        settings: { ...managed, modeBTarget: 50, captureTarget: 40 },
+        stamp,
+      }),
+    ).toEqual({ type: "settings-sync", settings: managed, stamp });
+    // An older extension sends the synced set only: the rest are defaults.
+    expect(BridgeMessageSchema.parse({ type: "settings-sync", settings: synced })).toEqual({
       type: "settings-sync",
-      settings: { ...synced, modeBEnabled: true },
+      settings: ManagedSettingsSchema.parse({}),
     });
-    expect(parsed).toEqual({ type: "settings-sync", settings: synced });
     expect(
       BridgeMessageSchema.safeParse({
         type: "settings-sync",
         settings: { ...synced, maxClickbait: 0 },
       }).success,
     ).toBe(false);
+    expect(
+      BridgeMessageSchema.safeParse({
+        type: "settings-sync",
+        settings: synced,
+        stamp: { ...stamp, source: "cloud" },
+      }).success,
+    ).toBe(false);
     expect(BridgeReplySchema.parse({ type: "settings-synced" }).type).toBe("settings-synced");
+  });
+
+  it("accepts the desktop's settings-push and the extension's answer", () => {
+    const settings = ManagedSettingsSchema.parse({ maxClickbait: 4 });
+    const stamp = { updatedAt: "2026-10-15T10:00:00.000Z", source: "desktop" };
+    expect(BridgeReplySchema.parse({ type: "settings-push", settings, stamp })).toEqual({
+      type: "settings-push",
+      settings,
+      stamp,
+    });
+    expect(BridgeReplySchema.safeParse({ type: "settings-push", settings }).success).toBe(false);
+    const result = {
+      type: "settings-push-result",
+      outcome: "applied",
+      settings,
+      stamp,
+      modeBPermissionMissing: true,
+    };
+    expect(BridgeMessageSchema.parse(result)).toEqual(result);
+    expect(BridgeMessageSchema.safeParse({ ...result, outcome: "maybe" }).success).toBe(false);
   });
 
   it("accepts the desktop's start-collection and link-status pushes", () => {
@@ -299,6 +347,34 @@ describe("collection and settings bridge messages", () => {
     expect(
       BridgeReplySchema.safeParse({ type: "link-status", desktopConnected: true }).success,
     ).toBe(false);
+  });
+});
+
+describe("extension setting fields", () => {
+  it("offer exactly the schema's choices, defaults included", () => {
+    const values = (field: { options: readonly { value: string }[] }) =>
+      field.options.map((option) => option.value);
+    expect(values(EXTENSION_SETTING_FIELDS.modeBStrategy)).toEqual(ModeBSurfaceSchema.options);
+    expect(values(EXTENSION_SETTING_FIELDS.modeBPacing)).toEqual(ModeBPacingSchema.options);
+    const defaults = SettingsSchema.parse({});
+    for (const [key, field] of Object.entries(EXTENSION_SETTING_FIELDS)) {
+      expect(defaults[key as keyof typeof EXTENSION_SETTING_FIELDS]).toBe(field.default);
+    }
+  });
+});
+
+describe("settings stamps", () => {
+  it("is newer only when saved strictly later", () => {
+    const at = (updatedAt: string) => ({ updatedAt, source: "desktop" as const });
+    expect(isNewerStamp(at("2026-10-15T10:00:01.000Z"), at("2026-10-15T10:00:00.000Z"))).toBe(
+      true,
+    );
+    expect(isNewerStamp(at("2026-10-15T10:00:00.000Z"), at("2026-10-15T10:00:00.000Z"))).toBe(
+      false,
+    );
+    expect(isNewerStamp(at("2026-10-15T09:00:00.000Z"), at("2026-10-15T10:00:00.000Z"))).toBe(
+      false,
+    );
   });
 });
 

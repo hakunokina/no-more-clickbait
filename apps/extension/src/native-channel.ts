@@ -11,6 +11,7 @@ const PUSHES: ReadonlySet<string> = new Set([
   "start-collection",
   "stop-collection",
   "link-status",
+  "settings-push",
 ]);
 
 function isPush(reply: unknown): boolean {

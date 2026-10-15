@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'"
+    />
+    <title>No More Clickbait — Settings</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; line-height: 1.5; }
+      h1 { font-size: 1.05rem; margin: 0 0 0.25rem; }
+      .sub { margin: 0 0 1rem; opacity: 0.75; font-size: 0.9rem; }
+      section { border: 1px solid #8884; border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 0.75rem; }
+      h2 { font-size: 0.9rem; margin: 0 0 0.5rem; }
+      button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
+      :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
+      .ok { color: #1c7c3c; }
+      .bad { color: #b3261e; }
+      @media (prefers-color-scheme: dark) {
+        .ok { color: #72d39c; }
+        .bad { color: #f2b8b5; }
+        :focus-visible { outline-color: #8ab4f8; }
+      }
+      .note { font-size: 0.85rem; margin: 0.5rem 0 0; }
+      .note:empty { display: none; }
+      .setting-field { margin-bottom: 0.9rem; }
+      .setting-field label { display: block; font-size: 0.9rem; margin-bottom: 0.25rem; }
+      .setting-field input[type="number"], .setting-field select {
+        width: 100%; box-sizing: border-box; min-height: 2.5rem; padding: 0.35rem 0.5rem;
+      }
+      .setting-field input[type="checkbox"] { width: 1.4rem; height: 1.4rem; vertical-align: middle; }
+      .hint { font-size: 0.8rem; opacity: 0.75; margin: 0.25rem 0 0; }
+      .error { font-size: 0.8rem; color: #b3261e; margin: 0.25rem 0 0; }
+      .error:empty { display: none; }
+      [aria-invalid="true"] { outline: 0.15rem solid #b3261e; }
+      @media (prefers-color-scheme: dark) {
+        .error { color: #f2b8b5; }
+        [aria-invalid="true"] { outline-color: #f2b8b5; }
+      }
+      select#browser-choice { width: 100%; min-height: 2.5rem; padding: 0.35rem 0.5rem; box-sizing: border-box; }
+    </style>
+  </head>
+  <body>
+    <h1>Settings</h1>
+    <p class="sub">
+      The same settings as the extension's options page — a change here is sent to the
+      browser extension, and a change there shows up here.
+    </p>
+
+    <section aria-labelledby="browser-h">
+      <h2 id="browser-h">Browser for collecting</h2>
+      <label for="browser-choice">Collect in</label>
+      <select id="browser-choice"></select>
+      <p id="browser-note" class="note" aria-live="polite"></p>
+    </section>
+
+    <section aria-labelledby="settings-h">
+      <h2 id="settings-h">Collection, filter and checks</h2>
+      <div id="settings-form"></div>
+      <button id="save" type="button">Save settings</button>
+      <p id="save-note" class="note" role="status" aria-live="polite"></p>
+      <p id="pending-note" class="note" aria-live="polite"></p>
+      <p id="mode-b-note" class="note bad" role="alert"></p>
+    </section>
+
+    <script src="settings-page.js"></script>
+  </body>
+</html>

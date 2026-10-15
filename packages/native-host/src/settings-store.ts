@@ -1,7 +1,14 @@
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { SyncedSettingsSchema, type SyncedSettings } from "@nmc/core";
+import {
+  isNewerStamp,
+  ManagedSettingsSchema,
+  UNSTAMPED,
+  type ManagedSettings,
+  type SettingsStamp,
+} from "@nmc/core";
+import { loadSettings } from "@nmc/core/settings-file";
 
 /**
  * Where the desktop pipeline reads the user's settings:
@@ -33,24 +40,47 @@ async function renameWithRetry(from: string, to: string): Promise<void> {
   }
 }
 
+/** What settings.json holds after a save attempt. */
+export interface SettingsFileState {
+  /** False when the file already held a later save, which was kept. */
+  written: boolean;
+  settings: ManagedSettings;
+  stamp: SettingsStamp;
+}
+
 /**
- * Saves the synced settings atomically: written to a temp file in the
- * same folder, then renamed over the target, so a reader never sees a
- * half-written file. UTF-8 without BOM. Only the validated synced
- * fields are written — the file belongs to the extension's sync.
+ * Saves the managed settings with their stamp, unless the file already
+ * holds a later save (last writer wins: the extension and the desktop
+ * app can both change settings). Unstamped settings count as older than
+ * any stamped save. Written atomically: a temp file in the same folder,
+ * then renamed over the target, so a reader never sees a half-written
+ * file. UTF-8 without BOM. Only validated managed fields are written.
  */
-export async function saveSyncedSettings(
-  settings: SyncedSettings,
+export async function saveSettingsFile(
+  settings: ManagedSettings,
+  stamp: SettingsStamp | undefined,
   path: string = defaultSettingsPath(),
-): Promise<void> {
-  const valid = SyncedSettingsSchema.parse(settings);
+): Promise<SettingsFileState> {
+  const valid = ManagedSettingsSchema.parse(settings);
+  const incoming = stamp ?? UNSTAMPED;
+  const current = await loadSettings(path);
+  const currentStamp = current.stamp ?? UNSTAMPED;
+  if (current.found && isNewerStamp(currentStamp, incoming)) {
+    return {
+      written: false,
+      settings: ManagedSettingsSchema.parse(current.settings),
+      stamp: currentStamp,
+    };
+  }
   await mkdir(dirname(path), { recursive: true });
   const temp = `${path}.${process.pid}-${Date.now()}.tmp`;
   try {
-    await writeFile(temp, `${JSON.stringify(valid, null, 2)}\n`, "utf8");
+    const content = stamp ? { ...valid, ...stamp } : valid;
+    await writeFile(temp, `${JSON.stringify(content, null, 2)}\n`, "utf8");
     await renameWithRetry(temp, path);
   } catch (error) {
     await rm(temp, { force: true });
     throw error;
   }
+  return { written: true, settings: valid, stamp: incoming };
 }

@@ -298,6 +298,8 @@ export class SessionController {
       }));
       return;
     }
+    // Settings are the settings manager's (main routes them there).
+    if (event.type === "settings-state") return;
     this.#deps.log?.(
       `collection complete: mode ${event.mode}, ${event.uniquePostCount} posts, reason ${event.reason}`,
     );
