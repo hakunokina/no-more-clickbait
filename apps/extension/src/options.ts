@@ -20,6 +20,9 @@ import {
 } from "./pipeline-form.js";
 import { loadSettings, saveSettings, SETTINGS_STAMP_KEY } from "./settings.js";
 import { createSettingsSyncer, describeSyncResult, sendNativeOnce } from "./settings-sync.js";
+import { SitesSection } from "./sites/sites-section.js";
+import { fetchText } from "./sites/fetch-text.js";
+import { SITE_NEW_RULE_KEY, SITE_RULES_KEY, SITE_STATES_KEY } from "./sites/storage-keys.js";
 
 const modeB = document.querySelector<HTMLInputElement>("#mode-b");
 const modeBStrategy = document.querySelector<HTMLSelectElement>("#mode-b-strategy");
@@ -137,3 +140,44 @@ async function init(): Promise<void> {
 }
 
 void init();
+
+// --- Sites (custom site rules) ------------------------------------------
+
+async function initSites(): Promise<void> {
+  const container = document.querySelector<HTMLElement>("#sites");
+  if (!container) return;
+  const sites = new SitesSection(container, {
+    doc: document,
+    local: chrome.storage.local,
+    session: chrome.storage.session,
+    permissions: chrome.permissions,
+    send: (message) => chrome.runtime.sendMessage(message),
+    fetchText,
+    now: () => new Date().toISOString(),
+    download: (fileName, text) => {
+      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    },
+    copy: (text) => navigator.clipboard.writeText(text),
+  });
+  await sites.refresh();
+  // The picker saves through the worker; the list follows storage.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    const keys = Object.keys(changes);
+    if (
+      (area === "local" && (keys.includes(SITE_RULES_KEY) || keys.includes(SITE_STATES_KEY))) ||
+      (area === "session" &&
+        keys.includes(SITE_NEW_RULE_KEY) &&
+        changes[SITE_NEW_RULE_KEY]?.newValue)
+    ) {
+      void sites.refresh();
+    }
+  });
+  if (location.hash === "#sites") container.scrollIntoView();
+}
+
+void initSites();

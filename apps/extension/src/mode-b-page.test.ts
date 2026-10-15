@@ -69,5 +69,4 @@ describe("scrollStep", () => {
       scrolled: true,
     });
   });
-
 });

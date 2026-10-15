@@ -856,6 +856,18 @@ export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
  * The extension finished collecting for a run (target reached, or the
  * collection stopped). Counts only — never content.
  */
+/** How one custom site's part of a collection went. */
+export const SiteCollectOutcomeSchema = z.object({
+  siteId: z.string().min(1).max(300),
+  /** ok: items arrived; empty: the site answered with none; error/timeout/skipped: see `message`. */
+  status: z.enum(["ok", "empty", "error", "timeout", "skipped"]),
+  /** The method that produced the result ("rss", "static", "request", "page"). */
+  method: z.string().min(1).max(16).optional(),
+  itemCount: z.number().int().nonnegative(),
+  message: z.string().max(300).optional(),
+});
+export type SiteCollectOutcome = z.infer<typeof SiteCollectOutcomeSchema>;
+
 export const CollectionCompleteSchema = z.object({
   type: z.literal("collection-complete"),
   /** Capture/collection session the counts belong to, when there is one. */
@@ -869,6 +881,8 @@ export const CollectionCompleteSchema = z.object({
   reason: z.string().min(1).max(64),
   /** Distinct posts the collection was working towards. */
   target: z.number().int().min(1).max(10_000).optional(),
+  /** Custom sites collected alongside X, one outcome each (a failed site never fails the rest). */
+  sites: z.array(SiteCollectOutcomeSchema).max(100).optional(),
 });
 export type CollectionComplete = z.infer<typeof CollectionCompleteSchema>;
 
@@ -880,6 +894,21 @@ export const CollectionProgressSchema = z.object({
   target: z.number().int().min(1).max(10_000),
 });
 export type CollectionProgress = z.infer<typeof CollectionProgressSchema>;
+
+/**
+ * Items from a source other than the X home timeline (a custom site
+ * rule, `siteId` = its id). It joins the open collection session next
+ * to the X `post-batch`es, but never touches the X counters (badge,
+ * target, Mode B). The host stores it in the same session folder.
+ */
+export const FeedBatchSchema = z.object({
+  /** The site rule's id (host + path, e.g. "news.example/world"). */
+  siteId: z.string().min(1).max(300).optional(),
+  /** ISO 8601 timestamp of when the batch was collected. */
+  capturedAt: z.string().datetime(),
+  items: z.array(FeedItemSchema).max(500),
+});
+export type FeedBatch = z.infer<typeof FeedBatchSchema>;
 
 /** The extension's answer to the desktop's `start-collection` push. */
 export const CollectionStartResultSchema = z.object({
@@ -918,6 +947,8 @@ export type SettingsPushResult = z.infer<typeof SettingsPushResultSchema>;
 export const BridgeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("ping") }),
   z.object({ type: z.literal("post-batch"), batch: PostBatchSchema }),
+  /** Non-X items (custom sites); acked with `feed-accepted`. */
+  z.object({ type: z.literal("feed-batch"), batch: FeedBatchSchema }),
   RawCaptureSchema,
   OversizedCaptureSchema,
   /** A finished Mode B run, recorded in the capture session's summary. */
@@ -947,6 +978,12 @@ export type BridgeMessage = z.infer<typeof BridgeMessageSchema>;
 export const BridgeReplySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("pong") }),
   z.object({ type: z.literal("batch-accepted"), postCount: z.number().int().nonnegative() }),
+  /** Ack of `feed-batch`: how many items were stored. */
+  z.object({
+    type: z.literal("feed-accepted"),
+    siteId: z.string().min(1).max(300).optional(),
+    itemCount: z.number().int().nonnegative(),
+  }),
   z.object({
     type: z.literal("capture-accepted"),
     /** The capture's source; `stats` are that source's session counts. */

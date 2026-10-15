@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { Post, PostBatch } from "@nmc/core";
+import type { FeedBatch, GenericItem, Post, PostBatch } from "@nmc/core";
 import {
   listSessions,
   loadSession,
@@ -28,6 +28,22 @@ function post(id: string): Post {
 
 function batch(capturedAt: string, ids: string[]): PostBatch {
   return { source: "x-home-timeline", capturedAt, posts: ids.map(post) };
+}
+
+function genericItem(id: string): GenericItem {
+  return {
+    platform: "generic",
+    id,
+    sourceLabel: "custom:news.example/world",
+    title: `synthetic title ${id}`,
+    url: `https://news.example/world/${id}`,
+    domain: "news.example",
+    promoted: false,
+  };
+}
+
+function feedBatch(capturedAt: string, ids: string[]): FeedBatch {
+  return { siteId: "news.example/world", capturedAt, items: ids.map(genericItem) };
 }
 
 describe("PostSessionStore", () => {
@@ -94,6 +110,36 @@ describe("PostSessionStore", () => {
     expect(loaded.posts).toHaveLength(1);
     expect(loaded.invalidBatchCount).toBe(1);
     await expect(loadSession(root, "..\\..\\Windows")).rejects.toThrow();
+  });
+
+  it("stores feed batches beside X batches, outside the X counts", async () => {
+    const store = new PostSessionStore(root, () => clock);
+    await store.addBatch(batch("2026-01-01T10:00:01.000Z", ["1"]));
+    await expect(
+      store.addFeedBatch(feedBatch("2026-01-01T10:00:02.000Z", ["a", "b"])),
+    ).resolves.toBe(2);
+    const id = store.sessionId as string;
+    const files = (await readdir(join(root, id, "batches"))).sort();
+    expect(files).toEqual(["0001.json", "f0002.json"]);
+
+    const loaded = await loadSession(root, id);
+    expect(loaded.posts.map((p) => p.id)).toEqual(["1"]);
+    expect(loaded.batchCount).toBe(1);
+    expect(loaded.feedBatchCount).toBe(1);
+    expect(loaded.feedItems.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(loaded.invalidBatchCount).toBe(0);
+  });
+
+  it("refuses feed batches after completion and skips tampered ones", async () => {
+    const store = new PostSessionStore(root, () => clock);
+    await store.addFeedBatch(feedBatch(clock, ["a"]));
+    const id = store.sessionId as string;
+    await writeFile(join(root, id, "batches", "f0002.json"), '{"items": "nope"}', "utf8");
+    await store.complete({ mode: "A", reason: "x", uniquePostCount: 0, responseCount: 0 });
+    await expect(store.addFeedBatch(feedBatch(clock, ["b"]))).resolves.toBe(0);
+    const loaded = await loadSession(root, id);
+    expect(loaded.feedItems.map((item) => item.id)).toEqual(["a"]);
+    expect(loaded.invalidBatchCount).toBe(1);
   });
 
   it("lists sessions with their complete/processed state", async () => {

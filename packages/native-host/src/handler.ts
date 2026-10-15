@@ -6,6 +6,7 @@ import {
   type CollectionComplete,
   type CollectionProgress,
   type CollectionStartResult,
+  type FeedBatch,
   type ManagedSettings,
   type ModeBRunSummary,
   type OversizedCapture,
@@ -20,6 +21,8 @@ export interface BridgeHandlers {
   onPing?: () => void;
   /** Called with every validated post batch from the extension. */
   onPostBatch(batch: PostBatch): Promise<void> | void;
+  /** Called with every validated non-X batch (custom sites). */
+  onFeedBatch?: (batch: FeedBatch) => Promise<void> | void;
   /** Stores one raw developer capture; returns its sequence number. */
   onRawCapture?: (capture: RawCapture) => Promise<{ sequence: number }>;
   /** Records a refused oversized capture (counter + summary only). */
@@ -80,6 +83,18 @@ export async function handleBridgeMessage(
     case "post-batch":
       await handlers.onPostBatch(parsed.data.batch);
       return { type: "batch-accepted", postCount: parsed.data.batch.posts.length };
+    case "feed-batch": {
+      if (!handlers.onFeedBatch) {
+        return { type: "error", message: "feed batches are not configured on this host" };
+      }
+      const { batch } = parsed.data;
+      await handlers.onFeedBatch(batch);
+      return {
+        type: "feed-accepted",
+        ...(batch.siteId ? { siteId: batch.siteId } : {}),
+        itemCount: batch.items.length,
+      };
+    }
     case "raw-capture": {
       if (!handlers.onRawCapture) {
         return { type: "error", message: "developer capture is not configured on this host" };
