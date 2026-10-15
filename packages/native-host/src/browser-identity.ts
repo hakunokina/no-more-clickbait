@@ -21,7 +21,7 @@ import { z } from "zod";
  *   not a launcher shell.
  */
 
-export const BrowserFamilySchema = z.enum(["brave", "chrome", "edge", "vivaldi", "other"]);
+export const BrowserFamilySchema = z.enum(["brave", "chrome", "edge", "vivaldi", "opera", "other"]);
 export type BrowserFamily = z.infer<typeof BrowserFamilySchema>;
 
 export const BrowserIdentitySchema = z.object({
@@ -38,6 +38,7 @@ const EXE_FAMILIES: Readonly<Record<string, BrowserFamily>> = {
   "chrome.exe": "chrome",
   "msedge.exe": "edge",
   "vivaldi.exe": "vivaldi",
+  "opera.exe": "opera",
 };
 
 /** Programs between the browser and the host: never the browser itself. */
