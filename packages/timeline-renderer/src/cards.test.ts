@@ -23,7 +23,8 @@ const mixed = load("timeline-doc-mixed.json");
 const xOnly = load("timeline-doc.json");
 const render = (doc: TimelineDoc) => renderTimeline(doc, { timeZone: "Europe/Istanbul" });
 const count = (html: string, needle: string) => html.split(needle).length - 1;
-const hash = (text: string) => `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;
+const hash = (text: string) =>
+  `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;
 const csp = (html: string) =>
   html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]*)">/)?.[1] ?? "";
 const article = (html: string, id: string) =>
@@ -79,7 +80,9 @@ describe("mixed feed", () => {
   it("puts a source line on X and Instagram cards only, and names the sources", () => {
     expect(count(html, '<div class="src">')).toBe(4);
     expect(article(html, "p1")).toContain('<span class="sr-only">Kaynak: </span>X</span>');
-    expect(article(html, "p4")).toContain('<span class="sr-only">Kaynak: </span>Instagram</span>');
+    expect(article(html, "p4")).toContain(
+      '<span class="sr-only">Kaynak: </span>Instagram</span>',
+    );
     expect(article(html, "p2")).not.toContain('class="src"');
     // The run's sources in the funnel's order; a custom site by its host.
     expect(html).toContain(
@@ -98,9 +101,15 @@ describe("mixed feed", () => {
       ...mixed,
       cards: [],
       bySource: undefined,
-      status: { state: "error", reason: "Claude yanıt vermedi.", detail: "scorer: zaman aşımı" },
+      status: {
+        state: "error",
+        reason: "Claude yanıt vermedi.",
+        detail: "scorer: zaman aşımı",
+      },
     });
-    expect(error).toContain("<pre>scorer: zaman aşımı\nToplanamayan kaynak: blog (Site yanıt vermedi)</pre>");
+    expect(error).toContain(
+      "<pre>scorer: zaman aşımı\nToplanamayan kaynak: blog (Site yanıt vermedi)</pre>",
+    );
     expect(error).not.toContain('class="short-note"');
   });
 
@@ -171,10 +180,14 @@ describe("Instagram card", () => {
     expect(art).toContain('<span class="car__count" aria-hidden="true">1/3</span>');
     expect(count(art, " inert>")).toBe(2);
     expect(art).toContain('data-car-step="-1" aria-label="Önceki görsel" hidden>');
-    expect(art).toContain('<div class="car__dots" aria-hidden="true"><i data-on></i><i></i><i></i></div>');
+    expect(art).toContain(
+      '<div class="car__dots" aria-hidden="true"><i data-on></i><i></i><i></i></div>',
+    );
     // 1080×1350 = 4:5: every frame in the first frame's ratio.
     expect(count(art, 'viewBox="0 0 1000 1250"')).toBe(3);
-    expect(art).toContain('<p class="ig__caption" id="p1-text" lang="tr"><b>synthetic_ig_1</b> ');
+    expect(art).toContain(
+      '<p class="ig__caption" id="p1-text" lang="tr"><b>synthetic_ig_1</b> ',
+    );
     expect(art).toContain(
       ' ve <a class="ig__handle" href="https://www.instagram.com/synthetic_ig_partner/" target="_blank" rel="noopener noreferrer">synthetic_ig_partner</a>',
     );
@@ -191,15 +204,23 @@ describe("Instagram card", () => {
   it("falls back gracefully when a frame or the avatar does not load", () => {
     expect(count(art, '<p class="ig__fallback" aria-hidden="true">')).toBe(2);
     expect(art).toContain("Görsel yüklenemedi: Sentetik domates fideleri");
-    expect(art).toMatch(/<img class="avatar" src="https:\/\/scontent\.cdninstagram\.com\/[^"]+"[^>]* data-fallback><span class="avatar avatar--h\d" aria-hidden="true" hidden>/);
+    expect(art).toMatch(
+      /<img class="avatar" src="https:\/\/scontent\.cdninstagram\.com\/[^"]+"[^>]* data-fallback><span class="avatar avatar--h\d" aria-hidden="true" hidden>/,
+    );
   });
 
   it("plays a reel only when asked, in a 9:16 frame", () => {
     const reel = cardOf<InstagramPost>((p) => isInstagramPost(p) && p.kind === "reel");
     const out = article(render(single(reel)), "p1");
-    expect(out).toContain('<div class="media ig__media reel-wrap"><div class="reel video" data-state="idle">');
-    expect(out).toMatch(/<video width="1080" height="1920" preload="none" playsinline poster="https:\/\/scontent\.cdninstagram\.com\//);
-    expect(out).toContain('<source src="https://scontent.cdninstagram.com/v/synthetic-spoon.mp4" type="video/mp4">');
+    expect(out).toContain(
+      '<div class="media ig__media reel-wrap"><div class="reel video" data-state="idle">',
+    );
+    expect(out).toMatch(
+      /<video width="1080" height="1920" preload="none" playsinline poster="https:\/\/scontent\.cdninstagram\.com\//,
+    );
+    expect(out).toContain(
+      '<source src="https://scontent.cdninstagram.com/v/synthetic-spoon.mp4" type="video/mp4">',
+    );
     expect(out).toContain('aria-label="Reel&#39;i oynat, süre 0:42"');
     expect(out).toContain('data-k="views"');
     expect(out).not.toContain("autoplay");
@@ -226,11 +247,23 @@ describe("Instagram card", () => {
           caption: evil,
           url: "javascript:alert(3)",
           media: [
-            { type: "image", url: "https://scontent.cdninstagram.com.evil.example/1.jpg", altText: evil },
+            {
+              type: "image",
+              url: "https://scontent.cdninstagram.com.evil.example/1.jpg",
+              altText: evil,
+            },
             { type: "image", url: "https://evilfbcdn.net/2.jpg" },
             { type: "image", url: "http://scontent.cdninstagram.com/3.jpg" },
-            { type: "image", url: "https://scontent-ist1-1.cdninstagram.com/4.jpg", altText: evil },
-            { type: "video", url: "https://cdn.evil.example/p.jpg", videoUrl: "https://cdn.evil.example/v.mp4" },
+            {
+              type: "image",
+              url: "https://scontent-ist1-1.cdninstagram.com/4.jpg",
+              altText: evil,
+            },
+            {
+              type: "video",
+              url: "https://cdn.evil.example/p.jpg",
+              videoUrl: "https://cdn.evil.example/v.mp4",
+            },
           ],
         },
       }),
@@ -257,7 +290,9 @@ describe("generic card", () => {
   const custom = article(render(single(site)), "p1");
 
   it("leads with the place row and an uncut title (Reddit)", () => {
-    expect(reddit).toContain('<span class="site-badge site-badge--reddit" aria-hidden="true">r/</span>');
+    expect(reddit).toContain(
+      '<span class="site-badge site-badge--reddit" aria-hidden="true">r/</span>',
+    );
     expect(reddit).toContain(
       '<span class="gen__place" id="p1-place"><span class="sr-only">Reddit, </span>r/synthetic_science</span>',
     );
@@ -272,9 +307,14 @@ describe("generic card", () => {
       '<a class="gen__domain" href="https://science.example.invalid/2026/yuruyus-uyku" target="_blank" rel="noopener noreferrer">',
     );
     expect(reddit).toContain("<span>science.example.invalid</span>");
-    expect(reddit).toMatch(/href="https:\/\/www\.reddit\.com\/r\/synthetic_science\/[^"]*"[^>]*>Kaynağa git</);
+    expect(reddit).toMatch(
+      /href="https:\/\/www\.reddit\.com\/r\/synthetic_science\/[^"]*"[^>]*>Kaynağa git</,
+    );
     // A self post (no outside link): the place row already says where it is.
-    const self = article(render(single({ ...genCard, post: { ...genCard.post, linkUrl: undefined } })), "p1");
+    const self = article(
+      render(single({ ...genCard, post: { ...genCard.post, linkUrl: undefined } })),
+      "p1",
+    );
     expect(self).not.toContain("gen__domain");
     expect(reddit).toContain('data-k="score"');
   });
@@ -307,10 +347,12 @@ describe("generic card", () => {
       ),
       "p1",
     );
-    expect(out).toContain("<span class=\"sr-only\">Puan: </span>−312</li>");
-    expect(out).toContain("<span class=\"sr-only\">Yorum: </span>0</li>");
+    expect(out).toContain('<span class="sr-only">Puan: </span>−312</li>');
+    expect(out).toContain('<span class="sr-only">Yorum: </span>0</li>');
     expect(out).toContain('aria-labelledby="p1-place"');
-    expect(out).toContain('class="gen__text gen__text--lead is-clamped" id="p1-text" lang="und"');
+    expect(out).toContain(
+      'class="gen__text gen__text--lead is-clamped" id="p1-text" lang="und"',
+    );
     expect(out).toContain("Devamını oku");
   });
 

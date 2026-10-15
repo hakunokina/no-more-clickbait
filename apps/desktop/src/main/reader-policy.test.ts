@@ -14,8 +14,12 @@ describe("reading window request policy", () => {
     expect(isAllowedReaderUrl(file(sessions, "s1", "timeline.html"), roots)).toBe(true);
     expect(isAllowedReaderUrl("https://pbs.twimg.com/media/a.jpg", roots)).toBe(true);
     expect(isAllowedReaderUrl("https://video.twimg.com/v.mp4", roots)).toBe(true);
-    expect(isAllowedReaderUrl("https://scontent-ist1-1.cdninstagram.com/v/a.jpg", roots)).toBe(true);
-    expect(isAllowedReaderUrl("https://instagram.fist4-1.fna.fbcdn.net/v/b.mp4", roots)).toBe(true);
+    expect(isAllowedReaderUrl("https://scontent-ist1-1.cdninstagram.com/v/a.jpg", roots)).toBe(
+      true,
+    );
+    expect(isAllowedReaderUrl("https://instagram.fist4-1.fna.fbcdn.net/v/b.mp4", roots)).toBe(
+      true,
+    );
     expect(isAllowedReaderUrl("data:image/svg+xml,%3Csvg/%3E", roots)).toBe(true);
   });
 
@@ -23,7 +27,9 @@ describe("reading window request policy", () => {
     expect(isAllowedReaderUrl("https://evil.example/pixel.gif", roots)).toBe(false);
     expect(isAllowedReaderUrl("http://pbs.twimg.com/media/a.jpg", roots)).toBe(false);
     expect(isAllowedReaderUrl("https://pbs.twimg.com.evil.example/a.jpg", roots)).toBe(false);
-    expect(isAllowedReaderUrl("https://scontent.cdninstagram.com.evil.example/a.jpg", roots)).toBe(false);
+    expect(
+      isAllowedReaderUrl("https://scontent.cdninstagram.com.evil.example/a.jpg", roots),
+    ).toBe(false);
     expect(isAllowedReaderUrl("https://evilfbcdn.net/a.jpg", roots)).toBe(false);
     expect(isAllowedReaderUrl("http://scontent.cdninstagram.com/a.jpg", roots)).toBe(false);
     expect(isAllowedReaderUrl(file(process.cwd(), "secrets.txt"), roots)).toBe(false);

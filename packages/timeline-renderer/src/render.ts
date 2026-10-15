@@ -90,7 +90,11 @@ export const TIMELINE_CSP = buildCsp(TIMELINE_CSS, TIMELINE_SCRIPT, false);
  * X-era assets; Instagram/generic cards add their CSS and script, and
  * Instagram cards add Instagram's CDNs to the CSP.
  */
-function pageAssets(cards: readonly TimelineCard[]): { css: string; script: string; csp: string } {
+function pageAssets(cards: readonly TimelineCard[]): {
+  css: string;
+  script: string;
+  csp: string;
+} {
   if (cards.every(isXCard)) {
     return { css: TIMELINE_CSS, script: TIMELINE_SCRIPT, csp: TIMELINE_CSP };
   }
@@ -130,7 +134,9 @@ export function safeUrl(raw: string | undefined, hosts?: ReadonlySet<string>): U
 /** An https URL on one of Instagram's media CDNs; else undefined. */
 export function igMediaUrl(raw: string | undefined): URL | undefined {
   const url = safeUrl(raw);
-  return url && IG_MEDIA_DOMAINS.some((domain) => url.hostname.endsWith(domain)) ? url : undefined;
+  return url && IG_MEDIA_DOMAINS.some((domain) => url.hostname.endsWith(domain))
+    ? url
+    : undefined;
 }
 
 /* ── Icons (decorative, aria-hidden) ─────────────────────────── */
@@ -155,7 +161,8 @@ const ICON = {
   left: '<path d="M15 5l-7 7 7 7"/>',
   right: '<path d="M9 5l7 7-7 7"/>',
   refresh: '<path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/>',
-  camera: '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/>',
+  camera:
+    '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><path d="M17.5 6.5v.01"/>',
   reel: '<rect x="3" y="3" width="18" height="18" rx="4"/><path d="M3 8h18M8 3l3 5M14 3l3 5"/><path d="M10 11.5v5l4.5-2.5z"/>',
   plays: '<circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
@@ -729,7 +736,9 @@ function igVideo(
   const what = reel ? "Reel'i oynat" : "Videoyu oynat";
   const label = `${what}${length ? `, süre ${length}` : ""}${alt ? `. ${alt}` : ""}`;
   const dims = m.width && m.height ? ` width="${m.width}" height="${m.height}"` : "";
-  const tag = reel ? `<span class="reel__tag" aria-hidden="true">${icon("reel")}Reel</span>` : "";
+  const tag = reel
+    ? `<span class="reel__tag" aria-hidden="true">${icon("reel")}Reel</span>`
+    : "";
   const chip = length
     ? `<span class="chip chip--dur" aria-hidden="true">${esc(length)}</span>`
     : "";
@@ -961,7 +970,11 @@ function renderCard(ctx: Ctx, card: TimelineCard, total: number, mixed: boolean)
   return renderXCard(ctx, { ...card, post }, total, mixed);
 }
 
-const SOURCE_NAMES: Record<string, string> = { x: "X", instagram: "Instagram", reddit: "Reddit" };
+const SOURCE_NAMES: Record<string, string> = {
+  x: "X",
+  instagram: "Instagram",
+  reddit: "Reddit",
+};
 
 /**
  * A source label ("x", "instagram", "reddit", "custom:<rule>") as the
@@ -971,13 +984,19 @@ const SOURCE_NAMES: Record<string, string> = { x: "X", instagram: "Instagram", r
 function sourceName(label: string, cards: readonly TimelineCard[]): string {
   const known = SOURCE_NAMES[label];
   if (known) return known;
-  const item = cards.find(({ post }) => isGenericItem(post) && post.sourceLabel === label)?.post;
-  return item && isGenericItem(item) ? genericHost(item, item.url) : label.replace(/^custom:/, "");
+  const item = cards.find(
+    ({ post }) => isGenericItem(post) && post.sourceLabel === label,
+  )?.post;
+  return item && isGenericItem(item)
+    ? genericHost(item, item.url)
+    : label.replace(/^custom:/, "");
 }
 
 /** "X, Instagram ve Reddit". */
 function listNames(names: readonly string[]): string {
-  return names.length > 1 ? `${names.slice(0, -1).join(", ")} ve ${names.at(-1)}` : (names[0] ?? "");
+  return names.length > 1
+    ? `${names.slice(0, -1).join(", ")} ve ${names.at(-1)}`
+    : (names[0] ?? "");
 }
 
 /** The run's sources: the funnel's split when the doc has one, else the shown cards'. */
@@ -990,7 +1009,8 @@ function sourceLabels(doc: TimelineDoc, cards: readonly TimelineCard[]): string[
 function missingNames(doc: TimelineDoc, cards: readonly TimelineCard[]): string {
   return listNames(
     (doc.missingSources ?? []).map(
-      ({ label, reason }) => `${sourceName(label, cards)}${reason?.trim() ? ` (${reason.trim()})` : ""}`,
+      ({ label, reason }) =>
+        `${sourceName(label, cards)}${reason?.trim() ? ` (${reason.trim()})` : ""}`,
     ),
   );
 }
@@ -1027,17 +1047,19 @@ function tallyRows(f: FunnelCounts, timelineSize: number, scannedHint: string): 
 }
 
 function renderTally(f: FunnelCounts, timelineSize: number, scannedHint: string): string {
-  const rows = tallyRows(f, timelineSize, scannedHint).map(([op, label, hint, value, mod = ""]) => {
-    const cls = mod
-      .split(" ")
-      .filter(Boolean)
-      .map((m) => ` tally__row--${m}`)
-      .join("");
-    return (
-      `<div class="tally__row${cls}"><dt><span class="tally__op" aria-hidden="true">${op}</span>` +
-      `<span>${label}${hint ? `<span class="tally__hint">${esc(hint)}</span>` : ""}</span></dt><dd>${value}</dd></div>`
-    );
-  });
+  const rows = tallyRows(f, timelineSize, scannedHint).map(
+    ([op, label, hint, value, mod = ""]) => {
+      const cls = mod
+        .split(" ")
+        .filter(Boolean)
+        .map((m) => ` tally__row--${m}`)
+        .join("");
+      return (
+        `<div class="tally__row${cls}"><dt><span class="tally__op" aria-hidden="true">${op}</span>` +
+        `<span>${label}${hint ? `<span class="tally__hint">${esc(hint)}</span>` : ""}</span></dt><dd>${value}</dd></div>`
+      );
+    },
+  );
   return `<dl class="tally" aria-label="Döküm">${rows.join("")}</dl>`;
 }
 
@@ -1089,7 +1111,9 @@ function renderError(
 ): string {
   const scanned = doc.funnel?.scanned;
   const missing = missingNames(doc, []);
-  const details = [detail, missing && `Toplanamayan kaynak: ${missing}`].filter(Boolean).join("\n");
+  const details = [detail, missing && `Toplanamayan kaynak: ${missing}`]
+    .filter(Boolean)
+    .join("\n");
   const kept =
     scanned !== undefined
       ? ` Toplanan ${scanned} gönderi duruyor; yeniden denemek için yeniden toplamak gerekmez.`
@@ -1135,7 +1159,9 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
   const mixed = new Set(cards.map((card) => platformOf(card.post))).size > 1;
   const sources = sourceLabels(doc, cards);
   const sourceList =
-    sources.length > 1 ? ` Kaynaklar: ${esc(listNames(sources.map((l) => sourceName(l, cards))))}.` : "";
+    sources.length > 1
+      ? ` Kaynaklar: ${esc(listNames(sources.map((l) => sourceName(l, cards))))}.`
+      : "";
   // Some sources brought nothing, the others made the feed: said up front.
   const missing = missingNames(doc, cards);
   const missingNote = missing

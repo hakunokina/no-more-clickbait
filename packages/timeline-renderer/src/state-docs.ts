@@ -1,4 +1,9 @@
-import { errorTimelineDoc, feedSourceLabel, TimelineDocSchema, type TimelineDoc } from "@nmc/core";
+import {
+  errorTimelineDoc,
+  feedSourceLabel,
+  TimelineDocSchema,
+  type TimelineDoc,
+} from "@nmc/core";
 
 /**
  * The renderer's four states derived from one full (ok) document, for
@@ -16,7 +21,8 @@ function withShown(doc: TimelineDoc, shown: number): TimelineDoc {
   if (!doc.funnel) throw new Error("the source doc needs a funnel");
   const dropped = doc.cards.length - shown + doc.funnel.rankedOut;
   const cards = doc.cards.slice(0, shown);
-  const shownOf = (label: string) => cards.filter((c) => feedSourceLabel(c.post) === label).length;
+  const shownOf = (label: string) =>
+    cards.filter((c) => feedSourceLabel(c.post) === label).length;
   return TimelineDocSchema.parse({
     ...doc,
     cards,
