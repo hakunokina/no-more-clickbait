@@ -4,7 +4,12 @@ import { join } from "node:path";
 import {
   countTimelineEntries,
   createHardFilter,
+  INSTAGRAM_FEED_SLOTS,
   parseHomeTimeline,
+  parseInstagramBody,
+  parseInstagramTimelineWithStats,
+  type InstagramPost,
+  type InstagramTimelineParseStats,
   type CaptureSource,
   type CaptureStats,
   type CollectionMetrics,
@@ -38,6 +43,14 @@ import {
  * number of distinct post ids, `promotedCount` the `<shreddit-ad-post>`
  * tags — and `paths` lists which capture labels (URL paths, DOM
  * snapshots) arrived and what their bodies looked like.
+ *
+ * Instagram bodies (the document's embedded feed blob, `/graphql/query`
+ * pages) are parsed with core's `parseInstagramTimeline` and run through
+ * the same session-long hard filter as X: `uniquePostCount` is distinct
+ * organic posts (ads and repeats dropped), and `instagram` adds the
+ * feed's slot mix and how many kept posts have no caption at all or a
+ * short one — the share of posts text judging cannot see. Counts only,
+ * never a name, caption or id.
  */
 
 /** Per capture label: responses received, by sniffed body kind. */
@@ -55,6 +68,38 @@ export interface CaptureSummary extends CollectionMetrics {
   /** Non-X sources only. */
   source?: CaptureSource;
   paths?: Record<string, CapturePathCounts>;
+  /** Instagram only. */
+  instagram?: InstagramCaptureCounts;
+}
+
+/** Captions at most this long (trimmed, in characters) count as short. */
+export const INSTAGRAM_SHORT_CAPTION_MAX = 20;
+
+export interface InstagramCaptureCounts {
+  /** Bodies that carried a non-null feed connection. */
+  responsesWithFeed: number;
+  /** Edges seen, by filled slot (see core `parseInstagramTimeline`). */
+  edges: number;
+  slots: InstagramTimelineParseStats["slots"];
+  /** Posts the parser could not read, and repeats inside one body. */
+  skipped: InstagramTimelineParseStats["skipped"];
+  /** Distinct organic posts (= `uniquePostCount`), by kind. */
+  kept: number;
+  kinds: Record<InstagramPost["kind"], number>;
+  /** Kept posts from accounts not followed ("Suggested for you"). */
+  suggested: number;
+  /** Kept posts with an empty caption: never scored, not shown. */
+  captionless: number;
+  /** Kept posts with a caption of 1..INSTAGRAM_SHORT_CAPTION_MAX characters. */
+  shortCaption: number;
+  /** captionless / kept, 3 decimals (0 when nothing was kept). */
+  captionlessRatio: number;
+  /** (captionless + shortCaption) / kept, 3 decimals. */
+  captionlessOrShortRatio: number;
+}
+
+function ratio(part: number, whole: number): number {
+  return whole > 0 ? Math.round((part / whole) * 1000) / 1000 : 0;
 }
 
 /** Distinct labels kept in `paths`; the rest are tallied under OTHER_PATHS. */
@@ -65,7 +110,8 @@ type BodyKind = "json" | "html" | "other";
 
 function bodyKindOf(bodyText: string): BodyKind {
   try {
-    JSON.parse(bodyText);
+    // Instagram prefixes some JSON with an anti-hijacking `for (;;);`.
+    JSON.parse(bodyText.replace(/^\s*for \(;;\);/, ""));
     return "json";
   } catch {
     return bodyText.trimStart().startsWith("<") ? "html" : "other";
@@ -129,6 +175,18 @@ export class CaptureStore {
   readonly #uniqueFilter = createHardFilter();
   readonly #redditPostIds = new Set<string>();
   readonly #paths = new Map<string, CapturePathCounts>();
+  readonly #instagram = {
+    responsesWithFeed: 0,
+    edges: 0,
+    slots: Object.fromEntries(
+      [...INSTAGRAM_FEED_SLOTS, "unknown", "empty"].map((slot) => [slot, 0]),
+    ) as InstagramTimelineParseStats["slots"],
+    skipped: { "invalid-media": 0, repeated: 0 } as InstagramTimelineParseStats["skipped"],
+    kinds: { post: 0, reel: 0, carousel: 0 } as Record<InstagramPost["kind"], number>,
+    suggested: 0,
+    captionless: 0,
+    shortCaption: 0,
+  };
   #modeBRun: ModeBRunSummary | null = null;
   /** Serialises file writes; handler calls may arrive concurrently. */
   #queue: Promise<unknown> = Promise.resolve();
@@ -172,6 +230,25 @@ export class CaptureStore {
       ...(this.#source === "x"
         ? {}
         : { source: this.#source, paths: Object.fromEntries(this.#paths) }),
+      ...(this.#source === "instagram" ? { instagram: this.#instagramCounts() } : {}),
+    };
+  }
+
+  #instagramCounts(): InstagramCaptureCounts {
+    const ig = this.#instagram;
+    const kept = this.#uniqueFilter.stats.kept;
+    return {
+      responsesWithFeed: ig.responsesWithFeed,
+      edges: ig.edges,
+      slots: { ...ig.slots },
+      skipped: { ...ig.skipped },
+      kept,
+      kinds: { ...ig.kinds },
+      suggested: ig.suggested,
+      captionless: ig.captionless,
+      shortCaption: ig.shortCaption,
+      captionlessRatio: ratio(ig.captionless, kept),
+      captionlessOrShortRatio: ratio(ig.captionless + ig.shortCaption, kept),
     };
   }
 
@@ -228,7 +305,7 @@ export class CaptureStore {
   }
 
   #uniqueCount(): number {
-    return this.#source === "x" ? this.#uniqueFilter.stats.kept : this.#redditPostIds.size;
+    return this.#source === "reddit" ? this.#redditPostIds.size : this.#uniqueFilter.stats.kept;
   }
 
   #countOther(operation: string, kind: BodyKind, bodyText: string): void {
@@ -238,11 +315,37 @@ export class CaptureStore {
     counts.responses += 1;
     counts[kind] += 1;
     this.#paths.set(label, counts);
+    if (this.#source === "instagram") {
+      this.#countInstagram(bodyText);
+      return;
+    }
     if (this.#source !== "reddit") return;
     const { postIds, postTags, adTags } = countShredditPosts(bodyText);
     this.#postCount += postTags;
     this.#promotedCount += adTags;
     for (const id of postIds) this.#redditPostIds.add(id);
+  }
+
+  #countInstagram(bodyText: string): void {
+    const { posts, stats } = parseInstagramTimelineWithStats(parseInstagramBody(bodyText));
+    const ig = this.#instagram;
+    if (stats.connections > 0) ig.responsesWithFeed += 1;
+    ig.edges += stats.edges;
+    for (const slot of Object.keys(stats.slots) as (keyof typeof stats.slots)[]) {
+      ig.slots[slot] += stats.slots[slot];
+    }
+    ig.skipped["invalid-media"] += stats.skipped["invalid-media"];
+    ig.skipped.repeated += stats.skipped.repeated;
+    this.#postCount += stats.posts;
+    for (const post of posts) {
+      if (post.promoted) this.#promotedCount += 1;
+      if (!this.#uniqueFilter.keep(post)) continue;
+      ig.kinds[post.kind] += 1;
+      if (post.suggested) ig.suggested += 1;
+      const length = [...post.caption.trim()].length;
+      if (length === 0) ig.captionless += 1;
+      else if (length <= INSTAGRAM_SHORT_CAPTION_MAX) ig.shortCaption += 1;
+    }
   }
 
   #enqueue<T>(work: () => Promise<T>): Promise<T> {

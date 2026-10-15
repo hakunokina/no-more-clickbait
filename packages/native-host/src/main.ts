@@ -28,7 +28,7 @@ import { saveSettingsFile } from "./settings-store.js";
  *   file holds a later save, and relayed to the desktop.
  * - Raw developer captures go through the CaptureStore (capture-store.ts):
  *   outside the repo, per-session folders with a counts/times-only
- *   summary.json (`NMC_INBOX_DIR` moves them). Each source (X, Reddit)
+ *   summary.json (`NMC_INBOX_DIR` moves them). Each source (X, Reddit, Instagram)
  *   has its own store and folder.
  * - The browser closes stdin and stdout together when the port closes.
  *   Messages already received are still handled (their files written,

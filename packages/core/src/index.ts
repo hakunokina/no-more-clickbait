@@ -4,6 +4,7 @@ export * from "./pipeline.js";
 export * from "./metrics.js";
 export * from "./hard-filter.js";
 export * from "./x/home-timeline.js";
+export * from "./instagram/timeline.js";
 export * from "./timeline-doc.js";
 export * from "./rules/index.js";
 export * from "./feeds/index.js";

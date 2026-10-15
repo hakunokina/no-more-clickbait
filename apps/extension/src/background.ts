@@ -19,6 +19,7 @@ import { CaptureSession } from "./capture-session.js";
 import {
   isModeBCommandMessage,
   isWorkerCaptureMessage,
+  isWorkerInstagramCaptureMessage,
   isWorkerRedditCaptureMessage,
   type WorkerCaptureMessage,
 } from "./messages.js";
@@ -82,6 +83,11 @@ import {
  * snapshots go to the host as `source: "reddit"`, into their own
  * folder; their counts stay in that folder's summary.json and never
  * touch the badge, Mode B or the X target.
+ *
+ * Instagram (developer capture only) works the same way, as
+ * `source: "instagram"`: the document's embedded first feed page and the
+ * home feed's `/graphql/query` responses; the host parses them for its
+ * folder's counts only.
  */
 
 export { NATIVE_HOST_NAME };
@@ -514,14 +520,15 @@ chrome.runtime.onMessage.addListener(
       runCommand(message.command === "start" ? startModeB : () => modeB.stop("cancelled"));
       return;
     }
-    if (isWorkerRedditCaptureMessage(message)) {
+    if (isWorkerRedditCaptureMessage(message) || isWorkerInstagramCaptureMessage(message)) {
       const { operation, bodyText } = message;
+      const devSource = message.kind === "reddit-capture" ? "reddit" : "instagram";
       void loadSettings()
         .then((settings) => {
-          if (settings.devCaptureEnabled) forwardDevCapture({ operation, bodyText }, "reddit");
+          if (settings.devCaptureEnabled) forwardDevCapture({ operation, bodyText }, devSource);
         })
         .catch((error: unknown) => {
-          console.error(`[nmc] Reddit capture handling failed: ${String(error)}`);
+          console.error(`[nmc] ${devSource} capture handling failed: ${String(error)}`);
         });
       return;
     }

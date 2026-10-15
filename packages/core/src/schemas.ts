@@ -154,6 +154,16 @@ export const InstagramMediaSchema = z.object({
   url: z.string().url(),
   /** video: a playable rendition. */
   videoUrl: z.string().url().optional(),
+  /** video: every delivered rendition (`videoUrl` is the widest), widest first. */
+  videoVariants: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional(),
+      }),
+    )
+    .optional(),
   altText: z.string().optional(),
   /** Original pixel size (aspect ratio before load). */
   width: z.number().int().positive().optional(),
@@ -195,6 +205,11 @@ export const InstagramPostSchema = z.object({
     .optional(),
   /** True when Instagram labelled the post "Sponsored" (an ad). */
   promoted: z.boolean().default(false),
+  /**
+   * True when Instagram slipped the post in as "Suggested for you" (an
+   * account the user does not follow), not a post of the followed feed.
+   */
+  suggested: z.boolean().optional(),
   /** Detected language of the caption, as `Post.lang` ("und" when undetermined). */
   lang: z.string().optional(),
   /** Co-authors of a collab post (the main author is `authorHandle`), in order. */
