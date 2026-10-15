@@ -282,6 +282,23 @@ describe("Instagram card", () => {
     expect(out).not.toContain("instagram.com/a");
     expect(article(out, "p1")).not.toContain("Instagram'da aç");
   });
+
+  it("counts only the frames it shows in the reading time", () => {
+    const blocked = { type: "video" as const, url: "https://cdn.evil.example/p.jpg" };
+    const doc = single({
+      ...igCard,
+      post: {
+        ...igCard.post,
+        media: [
+          { type: "image", url: "https://scontent-ist1-1.cdninstagram.com/1.jpg" },
+          ...Array.from({ length: 20 }, () => blocked),
+        ],
+      },
+    });
+    // 20 dropped videos would be 5 min; one shown image is under one.
+    const out = render({ ...doc, header: { ...doc.header, wordCount: 0 } });
+    expect(out).toContain("≈ 1 dk okuma");
+  });
 });
 
 describe("generic card", () => {
@@ -329,6 +346,28 @@ describe("generic card", () => {
     expect(custom).not.toContain("sentetik-faiz.jpg");
     // No engagement on a custom site: no fake zeros.
     expect(custom).toContain('<ul class="stats" aria-label="Etkileşimler"></ul>');
+  });
+
+  it("names two rules on one site by their rule names", () => {
+    const rule = (name: string, rank: number): TimelineCard => ({
+      ...site,
+      rank,
+      post: { ...site.post, id: name, sourceLabel: `custom:${name}` },
+    });
+    const doc = single(rule("Ekonomi", 1));
+    const out = render({
+      ...doc,
+      cards: [rule("Ekonomi", 1), rule("Spor", 2)],
+      header: { ...doc.header, timelineSize: 2 },
+      funnel: doc.funnel && { ...doc.funnel, shown: 2 },
+      bySource: [
+        { label: "custom:Ekonomi", in: 5, shown: 1 },
+        { label: "custom:Spor", in: 4, shown: 1 },
+      ],
+    });
+    expect(out).toContain("Kaynaklar: Ekonomi ve Spor.");
+    expect(out).toContain('<span class="tally__hint">Ekonomi 5 · Spor 4</span>');
+    expect(out).not.toContain("Kaynaklar: news.example.invalid");
   });
 
   it("writes zero and negative scores; names an untitled item by its place", () => {
