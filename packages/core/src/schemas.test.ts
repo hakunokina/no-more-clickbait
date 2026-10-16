@@ -298,6 +298,21 @@ describe("collection and settings bridge messages", () => {
       source: "instagram",
     };
     expect(BridgeMessageSchema.parse(progress)).toEqual(progress);
+    // Custom sites ride along as a whole list; a progress without them stays valid.
+    const withSites = {
+      ...progress,
+      sites: [
+        { siteId: "news.example/world", name: "News", status: "collecting", itemCount: 0 },
+        { siteId: "broken.example/feed", status: "error", itemCount: 0 },
+      ],
+    };
+    expect(BridgeMessageSchema.parse(withSites)).toEqual(withSites);
+    expect(
+      BridgeMessageSchema.safeParse({
+        ...progress,
+        sites: [{ siteId: "news.example/world", status: "done", itemCount: 0 }],
+      }).success,
+    ).toBe(false);
     const refused = { type: "collection-start-result", outcome: "no-sources", target: 250 };
     expect(BridgeMessageSchema.parse(refused)).toEqual(refused);
     const started = {

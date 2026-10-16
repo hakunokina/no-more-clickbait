@@ -3,6 +3,7 @@ import {
   urlMatchesPattern,
   type FeedBatch,
   type SiteCollectOutcome,
+  type SiteProgress,
   type SiteRule,
 } from "@nmc/core";
 import { isSiteRequestCaptureMessage } from "./hook-protocol.js";
@@ -267,10 +268,12 @@ export async function syncSites(): Promise<void> {
 /**
  * Collects every enabled, permitted custom site in parallel (each with
  * its own time limit); items go out as `feed-batch` on the current
- * session. Never rejects: a failing site only shows in its outcome.
+ * session, and every site's progress to `onProgress` as it changes.
+ * Never rejects: a failing site only shows in its outcome.
  */
 export async function collectSitesForCollection(
   sendBatch: (batch: FeedBatch) => boolean,
+  onProgress?: (sites: SiteProgress[]) => void,
 ): Promise<SiteCollectOutcome[]> {
   try {
     const rules = await loadSiteRules(local);
@@ -281,6 +284,7 @@ export async function collectSitesForCollection(
       updateState: (id, change) => mutateSiteState(local, id, change),
       restoreRequestBuffer,
       now: () => new Date().toISOString(),
+      ...(onProgress ? { onProgress } : {}),
     });
   } catch (error) {
     console.error(`[nmc] custom site collection failed: ${String(error)}`);

@@ -14,6 +14,7 @@ import {
   type Post,
   type PostBatch,
   type SiteCollectOutcome,
+  type SiteProgress,
 } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
@@ -1067,6 +1068,137 @@ describe("SessionController", () => {
     expect(describeRun({ ...c.status, lang: "tr" })).toBe(
       "Tarayıcıda toplanıyor… X 100 / 100 · Instagram 12 / 100",
     );
+  });
+
+  it("shows each custom site's progress next to the feed's count, then its outcome", async () => {
+    const id = await completeSession(root, "2026-01-01T10:00:00.000Z", ["1"]);
+    const c = controller();
+    await c.startCollection();
+    const progress = (uniquePostCount: number, sites?: SiteProgress[]) => ({
+      type: "collection-progress" as const,
+      mode: "B" as const,
+      uniquePostCount,
+      target: 100,
+      ...(sites ? { sites } : {}),
+    });
+    const news = { siteId: "news.example/world", name: "News" };
+    const broken = { siteId: "broken.example/feed" };
+    // The run's own host may relay a site's progress before the start's answer.
+    c.handleHostEvent(
+      progress(0, [
+        { ...news, status: "waiting", itemCount: 0 },
+        { ...broken, status: "waiting", itemCount: 0 },
+      ]),
+    );
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 100 });
+    expect(c.status.collection.sites).toEqual([
+      { ...news, status: "waiting", itemCount: 0 },
+      // No name from the extension: the id stands in.
+      { ...broken, name: broken.siteId, status: "waiting", itemCount: 0 },
+    ]);
+    const seen: string[][] = [];
+    const record = (): void => {
+      seen.push((c.status.collection.sites ?? []).map((site) => site.status));
+    };
+    c.handleHostEvent(
+      progress(10, [
+        { ...news, status: "collecting", itemCount: 0 },
+        { ...broken, status: "collecting", itemCount: 0 },
+      ]),
+    );
+    record();
+    c.handleHostEvent(
+      progress(20, [
+        { ...news, status: "collecting", itemCount: 0 },
+        { ...broken, status: "error", itemCount: 0 },
+      ]),
+    );
+    record();
+    // An X count alone (no list) keeps the sites as last reported.
+    c.handleHostEvent(progress(30));
+    record();
+    c.handleHostEvent(
+      progress(40, [
+        { ...news, status: "ok", itemCount: 2 },
+        { ...broken, status: "error", itemCount: 0 },
+      ]),
+    );
+    record();
+    expect(seen).toEqual([
+      ["collecting", "collecting"],
+      ["collecting", "error"],
+      ["collecting", "error"],
+      ["ok", "error"],
+    ]);
+    expect(c.status.collection).toMatchObject({ state: "collecting", count: 40 });
+    expect(c.status.collection.sites?.[0]).toEqual({ ...news, status: "ok", itemCount: 2 });
+
+    // The completion's outcomes stay on the monitor after the collection ends.
+    c.handleHostEvent({
+      ...completeEvent(id, "target-reached", 100),
+      sites: [
+        { ...news, status: "ok", method: "rss", itemCount: 2 },
+        { ...broken, status: "error", method: "static", itemCount: 0, message: "HTTP 404" },
+      ],
+    });
+    expect(c.status.collection).toMatchObject({ state: "idle", count: null });
+    expect(c.status.collection.sites).toEqual([
+      { ...news, status: "ok", itemCount: 2 },
+      { ...broken, name: broken.siteId, status: "error", itemCount: 0 },
+    ]);
+    await expect.poll(() => c.status.run.stage).toBe("ready");
+
+    // A new collection starts without the old sites.
+    await c.startCollection();
+    expect(c.status.collection).not.toHaveProperty("sites");
+  });
+
+  it("shows the custom sites alone without a feed count; an older extension sends no list", async () => {
+    const c = controller();
+    await c.startCollection();
+    c.handleHostEvent({
+      type: "collection-start-result",
+      outcome: "started",
+      target: 100,
+      sources: [],
+    });
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 0,
+      target: 100,
+      sites: [
+        { siteId: "news.example/world", name: "News", status: "collecting", itemCount: 0 },
+      ],
+    });
+    expect(c.status.collection).toEqual({
+      state: "collecting",
+      message: null,
+      target: 100,
+      count: null,
+      sources: [],
+      sites: [
+        { siteId: "news.example/world", name: "News", status: "collecting", itemCount: 0 },
+      ],
+    });
+    // No "0 / 100" for a collection without a feed.
+    expect(describeRun(c.status)).not.toContain("0 / 100");
+
+    // An older extension (or host) sends counts only: no sites appear.
+    await c.startCollection();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "started", target: 100 });
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 7,
+      target: 100,
+    });
+    expect(c.status.collection).toEqual({
+      state: "collecting",
+      message: null,
+      target: 100,
+      count: 7,
+    });
   });
 
   it("says nothing can be collected when every source is off, and the Mode A places", () => {
