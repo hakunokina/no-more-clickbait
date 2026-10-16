@@ -593,11 +593,9 @@ export class SessionController {
     const { target, reason } = done;
     // Over several feeds, each feed's count and stop is named.
     const feeds = done.sources && done.sources.length > 0 ? done.sources : null;
-    // Every feed turned off: only custom sites' stored items go in.
-    const count =
-      done.sources && !feeds
-        ? (stored ?? 0)
-        : collectedCount(done.uniquePostCount, done.sources);
+    // No X posts counted (every feed turned off, or X gave none): the
+    // stored items the run takes in (e.g. custom sites') are the count.
+    const count = stored ?? collectedCount(done.uniquePostCount, done.sources);
     let message: DesktopStatus["collection"]["message"] = null;
     if (empty) {
       message = feeds ? note("feedsEndedEmpty", feeds) : note("endedEmpty", reason);

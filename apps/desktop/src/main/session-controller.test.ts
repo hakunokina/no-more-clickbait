@@ -496,13 +496,13 @@ describe("SessionController", () => {
     expect(html).toContain('<article class="post" ');
     expect(html).toContain('<article class="post post--ig" ');
     expect(html).toContain('<article class="post post--gen" ');
-    expect(html).toContain(`Broken News (${messages("en").siteError})`);
+    // The page drops the reason's own full stop inside the brackets (#2125).
+    expect(html).toContain(`Broken News (${messages("en").siteError.replace(/\.$/, "")})`);
     expect(html).not.toContain("broken.example/feed");
-    expect(html).toContain(messages("en").siteError);
 
     // The broken site's note follows the language, with its own reason.
     await expect(c.setLang("tr")).resolves.toBe(true);
-    expect(await page()).toContain(messages("tr").siteError);
+    expect(await page()).toContain(`(${messages("tr").siteError.replace(/\.$/, "")})`);
     expect(await page()).not.toContain(messages("tr").nothingFromSource);
   });
 
@@ -622,6 +622,24 @@ describe("SessionController", () => {
       "generic:g1",
       "generic:g2",
     ]);
+  });
+
+  it("counts the custom sites' items when X alone gave no posts", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch(
+      feedBatch("news.example/world", [genericItem("g1"), genericItem("g2")]),
+    );
+    const id = (await store.complete({
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 0,
+      responseCount: 1,
+    })) as string;
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    c.handleHostEvent({ ...completeEvent(id, "finished-early", 0), mode: "A" as const });
+    await expect.poll(() => c.status.pending?.sessionId).toBe(id);
+    expect(c.status.pending).toMatchObject({ uniquePostCount: 2 });
   });
 
   it("names a site that said it delivered items but stored none as missing", async () => {
@@ -1101,7 +1119,7 @@ describe("SessionController", () => {
       { label: "x", reason: messages("en").sourceNotLoggedInX },
     ]);
     const html = await readFile(join(root, id, TIMELINE_FILE), "utf8");
-    expect(html).toContain(messages("en").sourceNotLoggedInX);
+    expect(html).toContain(`(${messages("en").sourceNotLoggedInX.replace(/\.$/, "")})`);
   });
 
   it("leaves out the stored items of a feed whose tick was turned off before completion", async () => {
