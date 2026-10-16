@@ -266,6 +266,28 @@ function cardsScript(s: ScriptMessages): string {
 `;
 }
 
+/**
+ * Only on a page that shows generic cards' images: one the app could not
+ * fetch (or refused) leaves no frame behind, the card reads on without it.
+ */
+export const GENERIC_IMAGE_SCRIPT = `"use strict";
+(() => {
+  const doc = document;
+  function gone(img) {
+    const box = img.closest(".gen__thumb, .gen__media");
+    if (!box) return;
+    const body = box.closest(".gen__body");
+    if (body) body.classList.remove("gen__body--thumb");
+    box.remove();
+  }
+  const watched = ".gen__thumb img, .gen__media img";
+  doc.addEventListener("error", (e) => {
+    if (e.target instanceof HTMLImageElement && e.target.matches(watched)) gone(e.target);
+  }, true);
+  doc.querySelectorAll(watched).forEach((img) => { if (img.complete && !img.naturalWidth) gone(img); });
+})();
+`;
+
 export const TIMELINE_SCRIPTS: Readonly<Record<UiLang, string>> = {
   en: timelineScript(RENDER_MESSAGES.en.script),
   tr: timelineScript(RENDER_MESSAGES.tr.script),

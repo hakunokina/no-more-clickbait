@@ -10,10 +10,10 @@ import {
   type TimelineDoc,
 } from "@nmc/core";
 import { describe, expect, it } from "vitest";
-import { CARDS_SCRIPTS, TIMELINE_SCRIPTS } from "./client-script.js";
-import { renderTimeline, TIMELINE_CSPS } from "./render.js";
+import { CARDS_SCRIPTS, GENERIC_IMAGE_SCRIPT, TIMELINE_SCRIPTS } from "./client-script.js";
+import { desktopImageSources, nmcImageKey, renderTimeline, TIMELINE_CSPS } from "./render.js";
 import { stateDocs } from "./state-docs.js";
-import { CARDS_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
+import { CARDS_CSS, GENERIC_IMAGE_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
 
 const load = (name: string) =>
   TimelineDocSchema.parse(
@@ -135,7 +135,7 @@ describe("mixed feed", () => {
     );
   });
 
-  it("never loads a generic item's image or site icon", () => {
+  it("never loads a generic item's image or site icon outside the desktop app", () => {
     expect(html).not.toContain("news.example.invalid/img/");
     expect(html).not.toContain("favicon");
     expect(html).not.toContain("icons.example.invalid");
@@ -484,5 +484,125 @@ describe("generic card", () => {
     expect(article(out, "p1")).not.toContain("Kaynağa git");
     expect(out).toContain("&lt;img src=x onerror=alert(1)&gt;&quot;&#39;&amp;");
     expect(out).not.toMatch(/(href|src)="(?!https:)/);
+  });
+});
+
+describe("generic images in the desktop app (nmc-img:)", () => {
+  const desktop = (doc: TimelineDoc) =>
+    renderTimeline(doc, { timeZone: "Europe/Istanbul", lang: "tr", imageMode: "desktop" });
+  const site = cardOf<GenericItem>((p) => isGenericItem(p) && p.sourceLabel !== "reddit");
+  const imageUrl = "https://news.example.invalid/img/sentetik-faiz.jpg";
+  const src = `nmc-img://img/${nmcImageKey(imageUrl)}`;
+  const page = desktop(single(site));
+
+  it("shows the image beside the text by its key, never by its URL", () => {
+    const art = article(page, "p1");
+    expect(art).toContain('<div class="gen__body gen__body--thumb">');
+    expect(art).toContain(
+      `<div class="media gen__thumb"><button class="media__zoom" type="button"><img src="${src}" alt="Sentetik bir banka binasının cephesi" width="1200" height="630" loading="lazy" decoding="async">`,
+    );
+    expect(art).toContain('<span class="sr-only"> — büyüt</span>');
+    // No ALT chip at 88px: the alt text is the image's and the lightbox caption.
+    expect(art).not.toContain("data-alt");
+    expect(page).not.toContain("news.example.invalid/img/");
+    expect(page).not.toContain("favicon");
+    expect(page).not.toMatch(/(href|src)="(?!https:|nmc-img:\/\/img\/[0-9a-f]{64}")/);
+  });
+
+  it("opens nmc-img: in the CSP and adds the images' style and script, nothing else", () => {
+    const css = TIMELINE_CSS + CARDS_CSS + GENERIC_IMAGE_CSS;
+    const script = TIMELINE_SCRIPT + CARDS_SCRIPT + GENERIC_IMAGE_SCRIPT;
+    expect(csp(page)).toBe(
+      [
+        "default-src 'none'",
+        "img-src https://pbs.twimg.com data: nmc-img:",
+        "media-src https://video.twimg.com",
+        `style-src ${hash(css)}`,
+        `script-src ${hash(script)}`,
+        "base-uri 'none'",
+        "form-action 'none'",
+      ].join("; "),
+    );
+    expect(page).toContain(`<style>${css}</style>`);
+    expect(page).toContain(`<script>${script}</script>`);
+    expect(page).not.toMatch(/\sstyle="/);
+    expect(handlerAttribute(page)).toBeUndefined();
+    expect(() => new Function(script)).not.toThrow();
+    expect(csp(desktop(mixed))).toContain(
+      "img-src https://pbs.twimg.com https://*.cdninstagram.com https://*.fbcdn.net data: nmc-img:",
+    );
+  });
+
+  it("shows an image that is the content full width, with its ALT chip", () => {
+    const art = article(
+      desktop(single({ ...site, post: { ...site.post, kind: "image" } })),
+      "p1",
+    );
+    expect(art).toContain('<div class="gen__body">');
+    expect(art).not.toContain("gen__thumb");
+    expect(art).toContain(
+      `<div class="media media--1 gen__media"><div class="media__cell"><button class="media__zoom" type="button"><img src="${src}"`,
+    );
+    expect(art).toContain('aria-controls="p1-alt-1" data-alt>');
+    const noSize = article(
+      desktop(
+        single({ ...site, post: { ...site.post, kind: "image", image: { url: imageUrl } } }),
+      ),
+      "p1",
+    );
+    expect(noSize).toContain('<div class="media__cell media__cell--nodims">');
+    expect(noSize).toContain(`<img src="${src}" alt="" loading="lazy"`);
+    expect(noSize).toContain('<span class="sr-only">Görsel — büyüt</span>');
+  });
+
+  it("changes nothing on a page without a shown generic image", () => {
+    expect(desktop(xOnly)).toBe(render(xOnly));
+    expect(desktop(single(igCard))).toBe(render(single(igCard)));
+    const bare = single({ ...site, post: { ...site.post, image: undefined } });
+    expect(desktop(bare)).toBe(render(bare));
+    // Only https images: an http one is not fetched either.
+    const plain = single({
+      ...site,
+      post: { ...site.post, image: { url: "http://news.example.invalid/a.jpg" } },
+    });
+    expect(desktop(plain)).toBe(render(plain));
+    expect(csp(render(single(site)))).not.toContain("nmc-img");
+  });
+
+  it("lists exactly the shown images for the app to fetch", () => {
+    expect(desktopImageSources(single(site))).toEqual(
+      new Map([[nmcImageKey(imageUrl), imageUrl]]),
+    );
+    const sources = desktopImageSources(mixed);
+    expect([...sources.values()]).toEqual([imageUrl]);
+    const contradicted = single({
+      ...site,
+      verification: site.verification && { ...site.verification, status: "false_or_disputed" },
+    });
+    expect(desktopImageSources(contradicted).size).toBe(0);
+    const keys = [...desktop(mixed).matchAll(/nmc-img:\/\/img\/([0-9a-f]{64})/g)].map(
+      (m) => m[1],
+    );
+    expect(new Set(keys)).toEqual(new Set(sources.keys()));
+  });
+
+  it("counts a shown image in the reading time", () => {
+    const wordy = (doc: TimelineDoc): TimelineDoc => ({
+      ...doc,
+      header: { ...doc.header, wordCount: 175 },
+    });
+    // 175 words = 52.5 s: one minute without the image, two with its glance.
+    expect(render(wordy(single(site)))).toContain("≈ 1 dk okuma");
+    expect(desktop(wordy(single(site)))).toContain("≈ 1 dk okuma");
+    const many = wordy({
+      ...single(site),
+      cards: [1, 2, 3, 4, 5].map((rank) => ({
+        ...site,
+        rank,
+        post: { ...site.post, id: `i${rank}`, image: { url: `${imageUrl}?${rank}` } },
+      })),
+    });
+    expect(render(many)).toContain("≈ 1 dk okuma");
+    expect(desktop(many)).toContain("≈ 2 dk okuma");
   });
 });

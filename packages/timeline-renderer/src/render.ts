@@ -19,9 +19,9 @@ import {
   type VerificationResult,
   type XTimelineCard,
 } from "@nmc/core";
-import { CARDS_SCRIPTS, TIMELINE_SCRIPTS } from "./client-script.js";
+import { CARDS_SCRIPTS, GENERIC_IMAGE_SCRIPT, TIMELINE_SCRIPTS } from "./client-script.js";
 import { RENDER_MESSAGES, type RenderMessages } from "./messages.js";
-import { CARDS_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
+import { CARDS_CSS, GENERIC_IMAGE_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
 
 /**
  * TimelineDoc → one self-contained HTML page (the approved mockups,
@@ -32,8 +32,10 @@ import { CARDS_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
  * parsed and allow-listed (media only from X's and Instagram's CDNs,
  * links https only), the CSP admits nothing but those CDNs and the
  * page's own style/script by hash, and there are no inline handlers or
- * style attributes. Generic (Reddit, custom site) images are not shown
- * at all: the page would have to admit every site's host.
+ * style attributes. Generic (Reddit, custom site) images would need
+ * every site's host: they are shown only in the desktop app, which
+ * fetches them itself and serves them as `nmc-img:` (imageMode
+ * "desktop"); the page never names their URLs.
  *
  * The page's own words are English or Turkish (`lang`); the Turkish
  * page is the mockups' original copy.
@@ -51,6 +53,44 @@ export interface RenderOptions {
    * by default.
    */
   actions?: boolean;
+  /**
+   * Generic cards' images: "desktop" writes them as `nmc-img://img/<key>`
+   * for the desktop app's reading window to fetch and serve
+   * (desktopImageSources tells it which); a plain file opened anywhere
+   * else could not load them, so "none" (the default) leaves them out.
+   */
+  imageMode?: "desktop" | "none";
+}
+
+/** The desktop app's scheme for generic cards' images. */
+export const NMC_IMAGE_SCHEME = "nmc-img";
+
+/** An image's key in `nmc-img://img/<key>`: its URL's SHA-256, hex. */
+export function nmcImageKey(url: string): string {
+  return createHash("sha256").update(url, "utf8").digest("hex");
+}
+
+function nmcImageSrc(url: URL): string {
+  return `${NMC_IMAGE_SCHEME}://img/${nmcImageKey(url.href)}`;
+}
+
+/** The image a generic card would show: https, no credentials. */
+function genericImageUrl(item: GenericItem): URL | undefined {
+  return safeUrl(item.image?.url);
+}
+
+/**
+ * key → URL of every image the "desktop" page of `doc` shows: all that
+ * the app may fetch for it. The page only carries the keys.
+ */
+export function desktopImageSources(doc: TimelineDoc): Map<string, string> {
+  const sources = new Map<string, string>();
+  for (const { post, verification } of doc.cards) {
+    if (verification?.status === "false_or_disputed" || !isGenericItem(post)) continue;
+    const url = genericImageUrl(post);
+    if (url) sources.set(nmcImageKey(url.href), url.href);
+  }
+  return sources;
 }
 
 const IMAGE_HOSTS = new Set(["pbs.twimg.com"]);
@@ -76,11 +116,11 @@ function sha256(text: string): string {
   return `'sha256-${createHash("sha256").update(text, "utf8").digest("base64")}'`;
 }
 
-function buildCsp(css: string, script: string, instagram: boolean): string {
+function buildCsp(css: string, script: string, instagram: boolean, nmcImages = false): string {
   const ig = instagram ? IG_MEDIA_DOMAINS.map((d) => ` https://*${d}`).join("") : "";
   return [
     "default-src 'none'",
-    `img-src https://pbs.twimg.com${ig} data:`,
+    `img-src https://pbs.twimg.com${ig} data:${nmcImages ? ` ${NMC_IMAGE_SCHEME}:` : ""}`,
     `media-src https://video.twimg.com${ig}`,
     `style-src ${sha256(css)}`,
     `script-src ${sha256(script)}`,
@@ -98,11 +138,13 @@ export const TIMELINE_CSPS: Readonly<Record<UiLang, string>> = {
 /**
  * The page's style, script and CSP. An X-only page gets exactly the
  * X-era assets; Instagram/generic cards add their CSS and script, and
- * Instagram cards add Instagram's CDNs to the CSP; a suggested one, its badge's style.
+ * Instagram cards add Instagram's CDNs to the CSP; a suggested one, its badge's style;
+ * shown generic images (`nmcImages`), their style, script and `nmc-img:`.
  */
 function pageAssets(
   cards: readonly TimelineCard[],
   lang: UiLang,
+  nmcImages: boolean,
 ): {
   css: string;
   script: string;
@@ -112,10 +154,15 @@ function pageAssets(
     return { css: TIMELINE_CSS, script: TIMELINE_SCRIPTS[lang], csp: TIMELINE_CSPS[lang] };
   }
   const suggested = cards.some((card) => isInstagramPost(card.post) && card.post.suggested);
-  const css = TIMELINE_CSS + CARDS_CSS + (suggested ? SUGGESTED_CSS : "");
-  const script = TIMELINE_SCRIPTS[lang] + CARDS_SCRIPTS[lang];
+  const css =
+    TIMELINE_CSS +
+    CARDS_CSS +
+    (suggested ? SUGGESTED_CSS : "") +
+    (nmcImages ? GENERIC_IMAGE_CSS : "");
+  const script =
+    TIMELINE_SCRIPTS[lang] + CARDS_SCRIPTS[lang] + (nmcImages ? GENERIC_IMAGE_SCRIPT : "");
   const instagram = cards.some((card) => isInstagramPost(card.post));
-  return { css, script, csp: buildCsp(css, script, instagram) };
+  return { css, script, csp: buildCsp(css, script, instagram, nmcImages) };
 }
 
 const ESCAPES: Record<string, string> = {
@@ -208,6 +255,8 @@ interface Ctx {
   title: Intl.DateTimeFormat;
   compact: Intl.NumberFormat;
   actions: boolean;
+  /** Generic cards' images, as `nmc-img:` (imageMode "desktop"). */
+  images: boolean;
 }
 
 function makeCtx(doc: TimelineDoc, lang: UiLang, opts: RenderOptions): Ctx {
@@ -234,6 +283,7 @@ function makeCtx(doc: TimelineDoc, lang: UiLang, opts: RenderOptions): Ctx {
     }),
     compact: new Intl.NumberFormat(locale, { notation: "compact", maximumFractionDigits: 1 }),
     actions: opts.actions ?? false,
+    images: opts.imageMode === "desktop",
   };
 }
 
@@ -906,6 +956,40 @@ function genericHost(item: GenericItem, raw: string): string {
   }
 }
 
+/** The generic image the page shows (`nmc-img:` in the desktop app), else undefined. */
+function genericImage(ctx: Ctx, item: GenericItem): URL | undefined {
+  return ctx.images ? genericImageUrl(item) : undefined;
+}
+
+/**
+ * The image beside the text (88px, no ALT chip: it would not fit), or,
+ * when the image is the content (`kind: "image"`), full width like an X
+ * photo. Either opens in the lightbox; a failed load removes it.
+ */
+function genericMedia(
+  ctx: Ctx,
+  pid: string,
+  item: GenericItem,
+  url: URL,
+  big: boolean,
+): string {
+  const alt = item.image?.altText?.trim() ?? "";
+  const { width, height } = item.image ?? {};
+  const dims = width && height ? ` width="${width}" height="${height}"` : "";
+  const zoom =
+    `<button class="media__zoom" type="button"><img src="${esc(nmcImageSrc(url))}" alt="${esc(alt)}"${dims} loading="lazy" decoding="async">` +
+    `<span class="sr-only">${alt ? ctx.m.zoomWithAlt("") : ctx.m.zoomImage("")}</span></button>`;
+  if (!big) return `<div class="media gen__thumb">${zoom}</div>`;
+  const altId = `${pid}-alt-1`;
+  return (
+    `<div class="media media--1 gen__media"><div class="media__cell${dims ? "" : " media__cell--nodims"}">${zoom}` +
+    (alt
+      ? altChip(ctx, altId) + `<p class="alt-pop" id="${altId}" hidden>${esc(alt)}</p>`
+      : "") +
+    `</div></div>`
+  );
+}
+
 function renderGenericCard(
   ctx: Ctx,
   card: TimelineCard & { post: GenericItem },
@@ -948,6 +1032,9 @@ function renderGenericCard(
     ? `<span class="flair"><span class="sr-only">${ctx.m.flair}</span>${esc(post.flair.trim())}</span>`
     : "";
   const { score, comments } = post.engagement ?? {};
+  const image = genericImage(ctx, post);
+  const big = image !== undefined && post.kind === "image";
+  const thumb = image && !big ? genericMedia(ctx, pid, post, image, false) : "";
   return (
     `<article class="post post--gen" id="${pid}" tabindex="0" aria-posinset="${card.rank}" aria-setsize="${total}" aria-labelledby="${title ? titleId : `${pid}-place`}"${text ? ` aria-describedby="${textId}"` : ""}>` +
     `<div class="post__grid">${badge}<div class="post__main">` +
@@ -956,13 +1043,14 @@ function renderGenericCard(
       ? `<span class="gen__dot" aria-hidden="true">·</span><span class="gen__meta">${meta.join(` <span aria-hidden="true">·</span> `)}</span>`
       : "") +
     `</div>` +
-    `<div class="gen__body"><div>` +
+    `<div class="gen__body${thumb ? " gen__body--thumb" : ""}"><div>` +
     (title ? `<p class="gen__title" id="${titleId}"${lang}>${esc(title)}${flair}</p>` : "") +
     (text
       ? `<p class="gen__text${title ? "" : " gen__text--lead"}${long ? " is-clamped" : ""}" id="${textId}"${lang}>${esc(text)}</p>`
       : "") +
     (long ? moreButton(ctx, textId) : "") +
-    `</div></div>` +
+    `</div>${thumb}</div>` +
+    (big ? genericMedia(ctx, pid, post, image, true) : "") +
     domain +
     renderVerify(ctx, pid, card.verification) +
     cardFoot(
@@ -1175,13 +1263,16 @@ function renderError(
 }
 
 /**
- * Words at 200/min plus a glance per photo, video/GIF and link (X) or
- * image and video (Instagram) the card shows. Generic cards show no media.
+ * Words at 200/min plus a glance per photo, video/GIF and link (X),
+ * image and video (Instagram) or image (generic, desktop only) the card shows.
  */
-function readingMinutes(doc: TimelineDoc, cards: TimelineCard[]): number {
+function readingMinutes(ctx: Ctx, doc: TimelineDoc, cards: TimelineCard[]): number {
   let seconds = (doc.header.wordCount / 200) * 60;
   for (const { post } of cards) {
-    if (isGenericItem(post)) continue;
+    if (isGenericItem(post)) {
+      if (genericImage(ctx, post)) seconds += 8;
+      continue;
+    }
     for (const m of isInstagramPost(post) ? igShownMedia(post) : post.media) {
       seconds += m.type === "photo" || m.type === "image" ? 8 : m.type === "link" ? 5 : 15;
     }
@@ -1216,7 +1307,8 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
   const missingNote = missing
     ? `<p class="short-note">${ctx.m.missingNote(esc(missing))}</p>`
     : "";
-  const assets = pageAssets(cards, lang);
+  const nmcImages = cards.some(({ post }) => isGenericItem(post) && genericImage(ctx, post));
+  const assets = pageAssets(cards, lang, nmcImages);
   const state = doc.status.state;
   const scanned = doc.funnel?.scanned;
 
@@ -1231,7 +1323,7 @@ export function renderTimeline(doc: TimelineDoc, opts: RenderOptions = {}): stri
   } else {
     meta =
       ctx.m.metaPostsHtml(total) +
-      ctx.m.metaReading(readingMinutes(doc, cards)) +
+      ctx.m.metaReading(readingMinutes(ctx, doc, cards)) +
       (scanned !== undefined ? ctx.m.metaPickedFrom(scanned) : "");
     main =
       missingNote +
