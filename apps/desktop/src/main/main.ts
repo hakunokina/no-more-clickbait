@@ -7,6 +7,7 @@ import {
   Notification,
   protocol,
   Tray,
+  type IpcMainEvent,
   type IpcMainInvokeEvent,
 } from "electron";
 import { dirname, join } from "node:path";
@@ -52,6 +53,7 @@ import { SessionController } from "./session-controller.js";
 import { loadDesktopSettings } from "./settings-file.js";
 import { liveContents, sendToAll } from "./window-contents.js";
 import { SettingsManager } from "./settings-manager.js";
+import { FlushBeforeClose, requestFlush } from "./settings-close.js";
 import {
   defaultBrowserFamily,
   installedBrowsers,
@@ -102,6 +104,8 @@ protocol.registerSchemesAsPrivileged([
 
 let monitor: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
+/** Holds the Settings window's close (and an app quit) until its page saved. */
+let settingsClose: FlushBeforeClose | null = null;
 let tray: Tray | null = null;
 let link: LinkServer | null = null;
 let lastStage: RunStage = "idle";
@@ -179,6 +183,7 @@ function settingsStatus(): SettingsStatus {
     pending: state.pending,
     browserConnected: state.browserConnected,
     modeBPermissionMissing: state.modeBPermissionMissing,
+    extensionMissing: state.extensionMissing,
     choice: browserChoice,
     browsers: installed.map((browser) => ({
       family: browser.family,
@@ -339,8 +344,31 @@ function createSettingsWindow(): BrowserWindow {
 
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
+  // Changes save as they are made; one still typed is saved before the window goes.
+  const contents = win.webContents;
+  const close = new FlushBeforeClose(
+    () =>
+      contents.isDestroyed() || contents.isCrashed()
+        ? Promise.resolve()
+        : requestFlush({
+            request: () => contents.send("nmc:flush-settings"),
+            onDone(listener) {
+              const onFlushed = (event: IpcMainEvent): void => {
+                if (event.sender === contents) listener();
+              };
+              ipcMain.on("nmc:settings-flushed", onFlushed);
+              return () => ipcMain.off("nmc:settings-flushed", onFlushed);
+            },
+          }),
+    () => {
+      if (!win.isDestroyed()) win.close();
+    },
+  );
+  settingsClose = close;
+  win.on("close", (event) => close.hold(event));
   win.on("closed", () => {
     if (settingsWindow === win) settingsWindow = null;
+    if (settingsClose === close) settingsClose = null;
   });
 
   void win.loadFile(join(rendererDir, "settings.html"));
@@ -538,7 +566,12 @@ void app.whenReady().then(async () => {
   });
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
+  // The Settings page saves what waits first; the quit then goes on.
+  if (settingsClose && !settingsClose.flushed) {
+    settingsClose.hold(event, () => app.quit());
+    return;
+  }
   controller.cancel();
   void link?.close();
 });

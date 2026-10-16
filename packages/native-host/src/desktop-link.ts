@@ -8,6 +8,7 @@ import {
   CollectionProgressSchema,
   CollectionStartResultSchema,
   CollectSourceOutcomeSchema,
+  ManagedSettingKeySchema,
   ManagedSettingsSchema,
   SettingsStampSchema,
   SiteCollectOutcomeSchema,
@@ -118,6 +119,11 @@ export const SettingsStateEventSchema = z.object({
   /** push-result: whether the push was applied or the extension's own save was later. */
   outcome: z.enum(["applied", "kept-newer"]).optional(),
   modeBPermissionMissing: z.boolean().optional(),
+  /**
+   * Settings the extension did not send: it is older than this app and
+   * does not know them, so `settings` holds their defaults.
+   */
+  extensionMissing: z.array(ManagedSettingKeySchema).optional(),
 });
 export type SettingsStateEvent = z.infer<typeof SettingsStateEventSchema>;
 

@@ -344,11 +344,10 @@ const en = {
   settingsWindowTitle: "No More Clickbait — Settings",
   settingsTitle: "Settings",
   settingsSub:
-    "The same settings as the extension's options page — a change here is sent to the browser extension, and a change there shows up here.",
+    "The same settings as the extension's options page — a change here is sent to the browser extension, and a change there shows up here. Changes are saved as you make them.",
   browserForCollecting: "Browser for collecting",
   collectIn: "Collect in",
   settingsSection: "Collection, filter and checks",
-  saveSettings: "Save settings",
   browserSystemDefault: "System default browser",
   browserIsDefault: (label: string) => `${label} (system default)`,
   collectsIn: (label: string, connected: boolean) =>
@@ -357,7 +356,9 @@ const en = {
   pendingSavedHere: "Saved here — it will be applied when the browser connects.",
   modeBStayedOff:
     "Mode B stayed off: only the extension's options page can ask the browser for its “alarms” permission. Turn Mode B on there once.",
-  saveInvalid: "Nothing saved — check the marked fields.",
+  extensionOutdated: (settings: string[]) =>
+    `The browser extension is older than this app and does not know ${new Intl.ListFormat(INTL_LOCALES.en).format(settings.map((s) => `“${s}”`))}: changes to them do not reach the browser. Reload the extension on the browser's extensions page (for example brave://extensions), then make the change again.`,
+  saveInvalid: "The marked fields are not saved — they keep their last valid value.",
   saving: "Saving…",
   saved: "Saved.",
   saveFailed: (error: string) => `Could not save: ${error}`,
@@ -634,11 +635,10 @@ const tr: MessageTable<DesktopMessages> = {
   settingsWindowTitle: "No More Clickbait — Ayarlar",
   settingsTitle: "Ayarlar",
   settingsSub:
-    "Eklentinin seçenekler sayfasındaki ayarların aynısı — burada yapılan değişiklik tarayıcı eklentisine gönderilir, orada yapılan burada görünür.",
+    "Eklentinin seçenekler sayfasındaki ayarların aynısı — burada yapılan değişiklik tarayıcı eklentisine gönderilir, orada yapılan burada görünür. Değişiklikler yapıldığı anda kaydedilir.",
   browserForCollecting: "Toplama tarayıcısı",
   collectIn: "Toplanacak tarayıcı",
   settingsSection: "Toplama, filtre ve kontroller",
-  saveSettings: "Ayarları kaydet",
   browserSystemDefault: "Sistemin varsayılan tarayıcısı",
   browserIsDefault: (label) => `${label} (sistem varsayılanı)`,
   collectsIn: (label, connected) =>
@@ -647,7 +647,9 @@ const tr: MessageTable<DesktopMessages> = {
   pendingSavedHere: "Burada kaydedildi — tarayıcı bağlanınca uygulanacak.",
   modeBStayedOff:
     "B modu kapalı kaldı: tarayıcıdan “alarms” iznini yalnız eklentinin seçenekler sayfası isteyebilir. B modunu bir kez orada aç.",
-  saveInvalid: "Hiçbir şey kaydedilmedi — işaretli alanlara bak.",
+  extensionOutdated: (settings) =>
+    `Tarayıcı eklentisi bu uygulamadan eski ve ${new Intl.ListFormat(INTL_LOCALES.tr).format(settings.map((s) => `“${s}”`))} ayarlarını bilmiyor: bunlardaki değişiklik tarayıcıya ulaşmaz. Eklentiyi tarayıcının uzantılar sayfasında (örneğin brave://extensions) yeniden yükle, sonra değişikliği tekrar yap.`,
+  saveInvalid: "İşaretli alanlar kaydedilmedi — son geçerli değerleri duruyor.",
   saving: "Kaydediliyor…",
   saved: "Kaydedildi.",
   saveFailed: (error) => `Kaydedilemedi: ${error}`,

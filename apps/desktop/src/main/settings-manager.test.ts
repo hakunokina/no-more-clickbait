@@ -224,4 +224,29 @@ describe("SettingsManager", () => {
     expect(mgr.state.pending).toBe(false);
     expect(await pendingExists()).toBe(false);
   });
+
+  it("tracks what the linked extension is too old to know, until it goes away", async () => {
+    const mgr = manager();
+    await mgr.init();
+    mgr.setBrowserConnected(true);
+    expect(mgr.state.extensionMissing).toEqual([]);
+    await mgr.handleSettingsState(stateEvent({ extensionMissing: ["collectFromInstagram"] }));
+    expect(mgr.state.extensionMissing).toEqual(["collectFromInstagram"]);
+    mgr.setBrowserConnected(false);
+    expect(mgr.state.extensionMissing).toEqual([]);
+  });
+
+  it("keeps quick changes in order: the last one is pending and sent", async () => {
+    const mgr = manager();
+    await mgr.init();
+    mgr.setBrowserConnected(true);
+    const first = { ...defaults, collectFromInstagram: true };
+    const second = { ...first, collectFromX: false };
+    await Promise.all([mgr.change(first), mgr.change(second)]);
+    expect(mgr.state.settings).toEqual(second);
+    expect(pushes.at(-1)?.settings).toEqual(second);
+    const restarted = manager();
+    await restarted.init();
+    expect(restarted.state.settings).toEqual(second);
+  });
 });

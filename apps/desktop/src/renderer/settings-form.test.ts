@@ -1,7 +1,7 @@
 import { ManagedSettingsSchema } from "@nmc/core";
 import { describe, expect, it } from "vitest";
 import { say } from "../shared/i18n.js";
-import { parseSettingForm, settingFieldModels, settingFormValues } from "./settings-form.js";
+import { readSettingForm, settingFieldModels, settingFormValues } from "./settings-form.js";
 
 describe("settings form model", () => {
   it("covers exactly the managed settings, with core's copy and bounds", () => {
@@ -43,29 +43,35 @@ describe("settings form model", () => {
       modeBPacing: "fast",
       devCaptureEnabled: true,
     });
-    expect(parseSettingForm(settingFormValues(settings))).toEqual({ ok: true, settings });
+    expect(
+      readSettingForm(settingFormValues(settings), ManagedSettingsSchema.parse({})),
+    ).toEqual({ settings, errors: {} });
   });
 
-  it("reports each bad field on its own", () => {
-    const values = settingFormValues(ManagedSettingsSchema.parse({}));
-    const result = parseSettingForm({
-      ...values,
-      maxClickbait: "11",
-      collectTarget: "2.5",
-      timelineSize: "",
-      modeBStrategy: "background-tab",
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(Object.keys(result.errors).sort()).toEqual([
-        "collectTarget",
-        "maxClickbait",
-        "modeBStrategy",
-        "timelineSize",
-      ]);
-      const error = result.errors["maxClickbait"] ?? null;
-      expect(say("en", error)).toContain("between 1 and 10");
-      expect(say("tr", error)).toBe("1 ile 10 arasında bir tam sayı gir.");
-    }
+  it("reports each bad field on its own and keeps its last valid value", () => {
+    const base = ManagedSettingsSchema.parse({ maxClickbait: 6, collectTarget: 90 });
+    const values = settingFormValues(base);
+    const result = readSettingForm(
+      {
+        ...values,
+        maxClickbait: "11",
+        collectTarget: "2.5",
+        timelineSize: "",
+        modeBStrategy: "background-tab",
+        // A valid change next to the bad ones is still taken.
+        collectFromInstagram: true,
+      },
+      base,
+    );
+    expect(Object.keys(result.errors).sort()).toEqual([
+      "collectTarget",
+      "maxClickbait",
+      "modeBStrategy",
+      "timelineSize",
+    ]);
+    expect(result.settings).toEqual({ ...base, collectFromInstagram: true });
+    const error = result.errors["maxClickbait"] ?? null;
+    expect(say("en", error)).toContain("between 1 and 10");
+    expect(say("tr", error)).toBe("1 ile 10 arasında bir tam sayı gir.");
   });
 });

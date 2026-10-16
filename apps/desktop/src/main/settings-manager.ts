@@ -37,6 +37,11 @@ export interface DesktopSettingsState {
   browserConnected: boolean;
   /** Mode B asked for from here, but its browser permission is missing. */
   modeBPermissionMissing: boolean;
+  /**
+   * Settings the linked extension does not know (it is older than this
+   * app): it reports their defaults and cannot apply a change to them.
+   */
+  extensionMissing: (keyof ManagedSettings)[];
 }
 
 export interface SettingsManagerDeps {
@@ -72,6 +77,9 @@ export class SettingsManager {
   #pending: StampedSettings | null = null;
   #browserConnected = false;
   #modeBPermissionMissing = false;
+  #extensionMissing: (keyof ManagedSettings)[] = [];
+  /** Pending-file writes, one at a time (quick changes must not race on the temp file). */
+  #writes: Promise<void> = Promise.resolve();
 
   constructor(deps: SettingsManagerDeps) {
     this.#deps = deps;
@@ -84,6 +92,7 @@ export class SettingsManager {
       pending: this.#pending !== null,
       browserConnected: this.#browserConnected,
       modeBPermissionMissing: this.#modeBPermissionMissing,
+      extensionMissing: this.#extensionMissing,
     };
   }
 
@@ -129,7 +138,9 @@ export class SettingsManager {
     this.#current = next;
     this.#pending = next;
     this.#modeBPermissionMissing = false;
-    await this.#writePending(next);
+    const write = this.#writes.then(() => this.#writePending(next));
+    this.#writes = write.catch(() => undefined);
+    await write;
     this.#trySendPending();
     this.#emit();
   }
@@ -138,6 +149,8 @@ export class SettingsManager {
   setBrowserConnected(connected: boolean): void {
     const cameUp = connected && !this.#browserConnected;
     this.#browserConnected = connected;
+    // Whoever links up next says for itself what it knows.
+    if (!connected) this.#extensionMissing = [];
     if (cameUp) this.#trySendPending();
     this.#emit();
   }
@@ -145,6 +158,7 @@ export class SettingsManager {
   /** The host relayed the extension's settings (its report, or its push answer). */
   async handleSettingsState(event: SettingsStateEvent): Promise<void> {
     const incoming: StampedSettings = { settings: event.settings, stamp: event.stamp };
+    this.#extensionMissing = event.extensionMissing ?? [];
     if (event.origin === "push-result") {
       // An answer to an older push while a later change is still
       // pending: that change stays (and goes out again, in case its own

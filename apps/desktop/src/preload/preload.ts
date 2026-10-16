@@ -28,10 +28,23 @@ export interface DesktopApi {
   onSettingsStatus(listener: (status: SettingsStatus) => void): () => void;
   /** Saves settings changed in the Settings window (synced to the extension). */
   updateSettings(settings: ManagedSettings): Promise<void>;
+  /**
+   * The Settings page's save-what-waits, run when main asks before the
+   * window closes; main lets the window go once it resolves.
+   */
+  onFlushSettings(flush: () => Promise<void>): void;
   /** Picks the browser collections run in ("default" = system default). */
   setBrowserChoice(choice: BrowserChoice): Promise<void>;
   openSettings(): Promise<void>;
 }
+
+let flushSettings: (() => Promise<void>) | null = null;
+// Answered even before the page registers (nothing waits then), so a close is never held long.
+ipcRenderer.on("nmc:flush-settings", () => {
+  void (flushSettings?.() ?? Promise.resolve())
+    .catch(() => undefined)
+    .then(() => ipcRenderer.send("nmc:settings-flushed"));
+});
 
 const api: DesktopApi = {
   checkLlmStatus: () => ipcRenderer.invoke("nmc:llm-status") as Promise<LlmAvailability>,
@@ -56,6 +69,9 @@ const api: DesktopApi = {
   },
   updateSettings: (settings) =>
     ipcRenderer.invoke("nmc:update-settings", settings) as Promise<void>,
+  onFlushSettings(flush) {
+    flushSettings = flush;
+  },
   setBrowserChoice: (choice) =>
     ipcRenderer.invoke("nmc:set-browser-choice", choice) as Promise<void>,
   openSettings: () => ipcRenderer.invoke("nmc:open-settings") as Promise<void>,
