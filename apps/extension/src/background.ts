@@ -20,6 +20,7 @@ import {
   type PostBatch,
   type Settings,
   type SiteCollectOutcome,
+  type SiteProgress,
   type SettingsStamp,
 } from "@nmc/core";
 import { CaptureSession, INSTAGRAM_SESSION_KEY } from "./capture-session.js";
@@ -273,14 +274,31 @@ function reportProgress(run: ModeBRun | null, count: number): void {
   sendProgress(runSource(run), count, run.target);
 }
 
+/**
+ * What a collection the desktop app shows (a Mode B run, or the custom
+ * sites alone) last reported, and its custom sites' progress: a site's
+ * change goes out as the same `collection-progress` with the new list,
+ * and the feed's counts carry the list too. Cleared with the counting
+ * session (Mode A reports none).
+ */
+let progressSent: { source: CollectSource; count: number; target: number } | null = null;
+let sitesProgress: SiteProgress[] | null = null;
+
 function sendProgress(source: CollectSource, count: number, target: number): void {
+  progressSent = { source, count, target };
   sendToDesktop({
     type: "collection-progress",
     mode: "B",
     uniquePostCount: count,
     target: Math.min(target, 10_000),
     ...(source === "x" ? {} : { source }),
+    ...(sitesProgress ? { sites: sitesProgress } : {}),
   });
+}
+
+function sendSitesProgress(sites: SiteProgress[]): void {
+  sitesProgress = sites;
+  if (progressSent) sendProgress(progressSent.source, progressSent.count, progressSent.target);
 }
 
 async function updateBadge(count: number): Promise<void> {
@@ -612,12 +630,17 @@ let siteRun: Promise<SiteCollectOutcome[]> | null = null;
  */
 const SITE_RUN_OUTCOMES_KEY = "nmc.siteRunOutcomes";
 
-function startSiteRun(): void {
+/**
+ * `shown`: the desktop app shows this collection (Mode B, or the sites
+ * alone) — the sites' progress goes out with the count of `source`.
+ */
+function startSiteRun(shown?: { source: CollectSource; target: number }): void {
   if (siteRun) return;
+  if (shown) progressSent = { ...shown, count: 0 };
   siteRun = chrome.storage.session
     .remove(SITE_RUN_OUTCOMES_KEY)
     .catch(() => undefined)
-    .then(() => collectSitesForCollection(sendFeedBatch))
+    .then(() => collectSitesForCollection(sendFeedBatch, shown ? sendSitesProgress : undefined))
     .then(async (outcomes) => {
       await chrome.storage.session
         .set({ [SITE_RUN_OUTCOMES_KEY]: outcomes })
@@ -826,7 +849,7 @@ async function completeWithoutFeeds(settings: Settings): Promise<void> {
  */
 async function collectSitesOnly(target: number): Promise<void> {
   await startNewCountingSession();
-  startSiteRun();
+  startSiteRun({ source: "x", target });
   await completeCollection({
     mode: "B",
     reason: "sites-collected",
@@ -849,6 +872,8 @@ async function startNewCountingSession(): Promise<void> {
   // Cleared with the port it belongs to, before any await: a batch sent
   // on the next port meanwhile marks the new session, not this one.
   postsSent = false;
+  progressSent = null;
+  sitesProgress = null;
   const sentCleared = chrome.storage.session.remove(FEED_POSTS_SENT_KEY).catch(() => undefined);
   await session.reset();
   await igSession.reset();
@@ -1009,7 +1034,7 @@ async function startModeB(target?: number): Promise<StartOutcome> {
   await alarms()?.create(MODE_B_WATCHDOG_ALARM, { periodInMinutes: 0.5 });
   await chrome.action.setBadgeBackgroundColor({ color: RUNNING_BADGE_COLOR });
   // Custom sites are collected alongside the run, into its session.
-  startSiteRun();
+  startSiteRun({ source: sources[0] ?? "x", target: start.target });
   await modeB.start(start).catch(async (error: unknown) => {
     // Thrown before a run existed: nothing else will complete this
     // collection. It ends as a run that failed to open, which closes the

@@ -1,4 +1,10 @@
-import type { CollectSource, CollectSourceOutcome, FunnelCounts, UiLang } from "@nmc/core";
+import type {
+  CollectSource,
+  CollectSourceOutcome,
+  FunnelCounts,
+  SiteProgress,
+  UiLang,
+} from "@nmc/core";
 import type { Note } from "./i18n.js";
 
 /**
@@ -67,6 +73,19 @@ export interface FeedProgress {
   count: number | null;
 }
 
+/**
+ * One custom site's part of a collection: `waiting`, `collecting`, then
+ * its outcome ("ok", "empty", "error", "timeout", "skipped") with the
+ * items it delivered.
+ */
+export interface CollectionSite {
+  siteId: string;
+  /** The rule's name (its id when the extension sent none). */
+  name: string;
+  status: SiteProgress["status"];
+  itemCount: number;
+}
+
 /** `cancelling`: "Cancel" was pressed; waiting for the extension to end the run. */
 export type CollectionState = "idle" | "requested" | "collecting" | "cancelling" | "refused";
 
@@ -94,6 +113,12 @@ export interface DesktopStatus {
      * collection is not X alone (absent: X alone; `[]`: custom sites only).
      */
     sources?: FeedProgress[];
+    /**
+     * Each custom site of the collection, in rule order, as the extension
+     * last reported it (absent: none reported). The finished collection's
+     * outcomes stay until the next one starts.
+     */
+    sites?: CollectionSite[];
   };
   /**
    * A finished collection waiting for the user's "Build timeline" (no

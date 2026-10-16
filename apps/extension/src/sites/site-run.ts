@@ -1,4 +1,4 @@
-import type { FeedBatch, SiteCollectOutcome, SiteRule } from "@nmc/core";
+import type { FeedBatch, SiteCollectOutcome, SiteProgress, SiteRule } from "@nmc/core";
 import {
   collectSite,
   type CollectContext,
@@ -34,6 +34,8 @@ export interface SiteRunDeps {
   restoreRequestBuffer?(siteId: string, buffer: RequestBuffer): Promise<void>;
   now(): string;
   timeoutMs?: number;
+  /** Every site's progress, in rule order, whenever one changes (`runSites`). */
+  onProgress?(sites: SiteProgress[]): void;
 }
 
 /** Rules a collection includes: enabled and permitted. */
@@ -164,16 +166,40 @@ function outcomeOf(
   return outcome;
 }
 
-/** Every collectable site in parallel; outcomes in rule order. */
+/**
+ * Every collectable site in parallel; outcomes in rule order. Progress:
+ * all `waiting`, then all `collecting` (they start together), then each
+ * site's outcome as it ends.
+ */
 export async function runSites(
   rules: readonly SiteRule[],
   states: Readonly<Record<string, SiteState>>,
   deps: SiteRunDeps,
 ): Promise<SiteCollectOutcome[]> {
-  const runs = collectableRules(rules, states).map((rule) =>
+  const collectable = collectableRules(rules, states);
+  const progress: SiteProgress[] = collectable.map((rule) => ({
+    siteId: rule.id,
+    name: rule.name,
+    status: "waiting",
+    itemCount: 0,
+  }));
+  const report = (): void => deps.onProgress?.(progress.map((site) => ({ ...site })));
+  if (progress.length > 0) report();
+  for (const site of progress) site.status = "collecting";
+  const runs = collectable.map((rule, i) =>
     runOneSite(rule, stateOf(states as Record<string, SiteState>, rule.id), deps).then(
-      (run) => run.outcome,
+      ({ outcome }) => {
+        progress[i] = {
+          siteId: outcome.siteId,
+          name: rule.name,
+          status: outcome.status,
+          itemCount: outcome.itemCount,
+        };
+        report();
+        return outcome;
+      },
     ),
   );
+  if (progress.length > 0) report();
   return Promise.all(runs);
 }

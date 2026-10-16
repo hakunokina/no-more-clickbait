@@ -1696,7 +1696,14 @@ describe("custom sites in the background worker's collections", () => {
     });
     expect(fake.chrome.windows.create).not.toHaveBeenCalled();
     const sitesPort = fake.ports[1] as FakePort;
-    expect(postedTypes(sitesPort)).toEqual(["ping", "feed-batch", "collection-complete"]);
+    expect(postedTypes(sitesPort)).toEqual([
+      "ping",
+      "collection-progress",
+      "collection-progress",
+      "feed-batch",
+      "collection-progress",
+      "collection-complete",
+    ]);
     expect(sitesPort.posted.at(-1)).toEqual({
       type: "collection-complete",
       mode: "B",
@@ -1715,6 +1722,126 @@ describe("custom sites in the background worker's collections", () => {
         },
       ],
     });
+  });
+
+  async function storeBrokenSite(): Promise<void> {
+    fake.granted.add("https://broken.example.invalid/*");
+    const rules = fake.local.get("nmc.siteRules") as Record<string, unknown>;
+    await fake.chrome.storage.local.set({
+      "nmc.siteRules": {
+        ...rules,
+        "broken.example.invalid/feed": {
+          nmcRule: 1,
+          id: "broken.example.invalid/feed",
+          name: "Broken",
+          url: "https://broken.example.invalid/feed",
+          match: ["broken.example.invalid/*"],
+          collect: { method: "rss", rssUrl: "https://broken.example.invalid/feed.xml" },
+          origin: "manual",
+          createdAt: "2026-10-15T11:00:00.000Z",
+          updatedAt: "2026-10-15T11:00:00.000Z",
+        },
+      },
+      "nmc.siteState.broken.example.invalid/feed": { enabled: true, permissionGranted: true },
+    });
+  }
+
+  function sitesOf(port: FakePort): unknown[] {
+    return port.posted
+      .filter((message) => (message as { type: string }).type === "collection-progress")
+      .map((message) => (message as { sites?: unknown }).sites);
+  }
+
+  it("reports each site's progress to the desktop: waiting, collecting, then its outcome", async () => {
+    await storeFeedSite();
+    await storeBrokenSite();
+    await setSettings({ collectTarget: 100, collectFromX: false });
+    await settle();
+    currentPort().onMessage.emit({ type: "start-collection" });
+    await settle();
+    await settle();
+    const sitesPort = fake.ports[1] as FakePort;
+    // Custom sites alone: no feed count, X's slot stays 0 of the target.
+    for (const message of sitesPort.posted.filter(
+      (m) => (m as { type: string }).type === "collection-progress",
+    )) {
+      expect(message).toMatchObject({ mode: "B", uniquePostCount: 0, target: 100 });
+      expect(message).not.toHaveProperty("source");
+    }
+    const world = { siteId: "news.example.invalid/world", name: "World" };
+    const broken = { siteId: "broken.example.invalid/feed", name: "Broken" };
+    const progress = sitesOf(sitesPort);
+    expect(progress).toHaveLength(4);
+    expect(progress.slice(0, 2)).toEqual([
+      [
+        { ...broken, status: "waiting", itemCount: 0 },
+        { ...world, status: "waiting", itemCount: 0 },
+      ],
+      [
+        { ...broken, status: "collecting", itemCount: 0 },
+        { ...world, status: "collecting", itemCount: 0 },
+      ],
+    ]);
+    // In rule order (by id). One site ends first; the other is still collecting then.
+    const third = (progress[2] as { status: string }[]).map((site) => site.status);
+    expect(third.filter((status) => status === "collecting")).toHaveLength(1);
+    expect(progress[3]).toEqual([
+      { ...broken, status: "error", itemCount: 0 },
+      { ...world, status: "ok", itemCount: 3 },
+    ]);
+    // The progress agrees with the completion's outcomes.
+    const complete = sitesPort.posted.at(-1) as {
+      sites: { siteId: string; status: string; itemCount: number }[];
+    };
+    expect(
+      complete.sites.map(({ siteId, status, itemCount }) => [siteId, status, itemCount]),
+    ).toEqual([
+      [broken.siteId, "error", 0],
+      [world.siteId, "ok", 3],
+    ]);
+  });
+
+  it("sends a Mode B run's site progress with the feed's count; Mode A sends none", async () => {
+    await storeFeedSite();
+    await setSettings({
+      modeBEnabled: true,
+      collectTarget: 100,
+      modeBStrategy: "minimized-window",
+    });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    await settle();
+    const runPort = currentPort();
+    const progress = runPort.posted.filter(
+      (message) => (message as { type: string }).type === "collection-progress",
+    );
+    expect(progress.at(-1)).toEqual({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 0,
+      target: 100,
+      sites: [
+        {
+          siteId: "news.example.invalid/world",
+          name: "World",
+          status: "ok",
+          itemCount: 3,
+        },
+      ],
+    });
+    modeBCommand("stop");
+    await settle();
+
+    // Mode A: the sites are collected at the target, with no progress.
+    await setSettings({ modeBEnabled: false, collectTarget: 4 });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    await settle();
+    await settle();
+    expect(postedTypes(port)).toContain("collection-complete");
+    expect(postedTypes(port)).not.toContain("collection-progress");
   });
 
   it("still reports the sites when the worker restarted during a Mode B run", async () => {

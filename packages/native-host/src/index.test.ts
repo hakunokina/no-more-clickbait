@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MessageDecoder, encodeMessage } from "./framing.js";
+import { HostEventSchema } from "./desktop-link.js";
 import { handleBridgeMessage } from "./handler.js";
 
 describe("native messaging framing", () => {
@@ -269,5 +270,28 @@ describe("handleBridgeMessage", () => {
       type: "error",
       message: "collection sessions are not configured on this host",
     });
+  });
+
+  it("relays a progress with its custom sites to the desktop; one without them stays valid", async () => {
+    const old = { type: "collection-progress", mode: "B", uniquePostCount: 4, target: 100 };
+    const withSites = {
+      ...old,
+      sites: [
+        { siteId: "news.example/world", name: "News", status: "ok", itemCount: 2 },
+        { siteId: "broken.example/feed", status: "collecting", itemCount: 0 },
+      ],
+    };
+    const seen: unknown[] = [];
+    for (const message of [old, withSites]) {
+      await expect(
+        handleBridgeMessage(JSON.stringify(message), {
+          onPostBatch: () => {},
+          onCollectionProgress: (progress) => void seen.push(progress),
+        }),
+      ).resolves.toEqual({ type: "collection-recorded" });
+    }
+    expect(seen).toEqual([old, withSites]);
+    // The desktop link's event schema keeps the list as it is.
+    expect(HostEventSchema.parse(withSites)).toEqual(withSites);
   });
 });

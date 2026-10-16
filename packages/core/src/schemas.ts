@@ -1002,6 +1002,20 @@ export const SiteCollectOutcomeSchema = z.object({
 export type SiteCollectOutcome = z.infer<typeof SiteCollectOutcomeSchema>;
 
 /**
+ * One custom site's part of a collection while it runs: `waiting` (not
+ * started), `collecting`, then its outcome's `status` with the items it
+ * delivered (0 until it ends).
+ */
+export const SiteProgressSchema = SiteCollectOutcomeSchema.pick({
+  siteId: true,
+  name: true,
+  itemCount: true,
+}).extend({
+  status: z.enum(["waiting", "collecting", ...SiteCollectOutcomeSchema.shape.status.options]),
+});
+export type SiteProgress = z.infer<typeof SiteProgressSchema>;
+
+/**
  * How one scrolled feed's part of a collection went: its own distinct
  * posts against its own target, and why it stopped ("target-reached",
  * a ModeBStopReason, or the collection's own end such as "finished-early").
@@ -1038,7 +1052,7 @@ export const CollectionCompleteSchema = z.object({
 });
 export type CollectionComplete = z.infer<typeof CollectionCompleteSchema>;
 
-/** A Mode B run's count so far, so the desktop app can show "x / N". */
+/** A Mode B run's count so far (and its custom sites'), so the desktop app can show "x / N". */
 export const CollectionProgressSchema = z.object({
   type: z.literal("collection-progress"),
   mode: z.literal("B"),
@@ -1046,6 +1060,12 @@ export const CollectionProgressSchema = z.object({
   target: z.number().int().min(1).max(10_000),
   /** The feed being scrolled (absent: X). */
   source: CollectSourceSchema.optional(),
+  /**
+   * Every custom site of the collection as it stands now, in rule order
+   * (absent: no site run, or an older extension). A whole list each time,
+   * so a lost message is made up by the next.
+   */
+  sites: z.array(SiteProgressSchema).max(100).optional(),
 });
 export type CollectionProgress = z.infer<typeof CollectionProgressSchema>;
 

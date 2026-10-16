@@ -10,6 +10,7 @@ import {
   type MissingSource,
   type Settings,
   type SiteCollectOutcome,
+  type SiteProgress,
   type SourceCount,
   type TimelineDoc,
   type UiLang,
@@ -28,6 +29,7 @@ import {
   EMPTY_USAGE,
   initialStatus,
   isRunActive,
+  type CollectionSite,
   type DesktopStatus,
   type FeedProgress,
   type PendingCollection,
@@ -496,13 +498,16 @@ export class SessionController {
       const feeds = sources ? { sources } : {};
       this.#setCollection((status) => {
         const target = event.target ?? status.collection.target;
+        // A site progress may come first (it travels over the run's own host).
+        const { sites } = status.collection;
+        const running = { ...feeds, ...(sites ? { sites } : {}) };
         switch (event.outcome) {
           case "busy":
             // A run that began before our request: its session is older.
             this.#requestedAt = null;
-            return { state: "collecting", message: null, target, count: null, ...feeds };
+            return { state: "collecting", message: null, target, count: null, ...running };
           case "started":
-            return { state: "collecting", message: null, target, count: null, ...feeds };
+            return { state: "collecting", message: null, target, count: null, ...running };
           case "mode-b-off":
             return {
               state: "refused",
@@ -537,13 +542,24 @@ export class SessionController {
       // A collection the silence timeout gave up on comes back to life.
       const { state } = this.#status.collection;
       if (state === "idle" || (state === "refused" && !this.#silent)) return;
-      this.#setCollection((status) => ({
-        state: "collecting",
-        message: null,
-        target: event.target,
-        count: event.uniquePostCount,
-        ...withFeedCount(status.collection.sources, event.source ?? "x", event.uniquePostCount),
-      }));
+      this.#setCollection((status) => {
+        const { sources } = status.collection;
+        const sites = event.sites?.map(collectionSite) ?? status.collection.sites;
+        // Custom sites alone (no feed): their progress carries no count.
+        const sitesOnly = sources?.length === 0 && !event.source;
+        return {
+          state: "collecting",
+          message: null,
+          target: event.target,
+          ...(sitesOnly
+            ? { count: null, sources }
+            : {
+                count: event.uniquePostCount,
+                ...withFeedCount(sources, event.source ?? "x", event.uniquePostCount),
+              }),
+          ...(sites ? { sites } : {}),
+        };
+      });
       return;
     }
     // Settings are the settings manager's (main routes them there).
@@ -558,6 +574,7 @@ export class SessionController {
       uniquePostCount: event.uniquePostCount,
       target: event.target ?? this.#status.collection.target,
       ...(event.sources ? { sources: event.sources } : {}),
+      ...(event.sites ? { sites: event.sites } : {}),
       live: true,
     }).catch((error: unknown) => this.#deps.log?.(`completion failed: ${String(error)}`));
   }
@@ -571,6 +588,8 @@ export class SessionController {
     target: number | null;
     /** Each feed's outcome, when the collection was not X alone. */
     sources?: CollectSourceOutcome[];
+    /** Each custom site's outcome. */
+    sites?: SiteCollectOutcome[];
     /** Announced just now (not found on disk at start-up): notify the user. */
     live: boolean;
   }): Promise<void> {
@@ -615,7 +634,14 @@ export class SessionController {
     // A session found on disk must not end a collection that is running now.
     const { state } = this.#status.collection;
     if (done.live || !isCollecting(state)) {
-      this.#setCollection(() => ({ state: "idle", message, target: null, count: null }));
+      const sites = done.sites?.map(collectionSite);
+      this.#setCollection(() => ({
+        state: "idle",
+        message,
+        target: null,
+        count: null,
+        ...(sites ? { sites } : {}),
+      }));
     }
     if (done.sessionId === null) return;
     const dir = join(this.#deps.sessionsRoot, done.sessionId);
@@ -817,6 +843,7 @@ export class SessionController {
       uniquePostCount: newest.completion.uniquePostCount,
       target: newest.completion.target ?? null,
       ...(newest.completion.sources ? { sources: newest.completion.sources } : {}),
+      ...(newest.completion.sites ? { sites: newest.completion.sites } : {}),
       live: false,
     });
   }
@@ -1044,6 +1071,16 @@ function withFeedCount(
   if (at === -1) list.push({ source, count });
   else list[at] = { source, count };
   return { sources: list };
+}
+
+/** A custom site as the monitor shows it (progress or outcome). */
+function collectionSite(site: SiteProgress | SiteCollectOutcome): CollectionSite {
+  return {
+    siteId: site.siteId,
+    name: site.name ?? site.siteId,
+    status: site.status,
+    itemCount: site.itemCount,
+  };
 }
 
 /** A collection this app asked for may still be running. */

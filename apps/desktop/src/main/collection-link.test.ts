@@ -319,6 +319,118 @@ describe("collection over the real host, pipe and controller", () => {
     ]);
   }, 20_000);
 
+  it("brings each custom site's progress from the worker to the monitor, then its outcome", async () => {
+    const startRequests: unknown[] = [];
+    const channel: NativeChannel<HostPort> = new NativeChannel(() => {
+      const port = open();
+      port.onMessage((message) => {
+        channel.received(port, message);
+        if ((message as { type: string }).type === "start-collection")
+          startRequests.push(message);
+      });
+      return port;
+    });
+    const linkPort = channel.port();
+    await until(() => server.hostCount === 1, "the worker's host to link up");
+    await controller.startCollection();
+    await until(() => startRequests.length === 1, "start-collection to reach the worker");
+    channel.send({ type: "collection-start-result", outcome: "started", target: 100 });
+    channel.retire();
+    const runPort = channel.port();
+    await until(
+      () => controller.status.collection.state === "collecting",
+      "the answer to reach the desktop",
+    );
+    expect(await linkPort.exited, linkPort.stderr).toBe(0);
+    await until(() => server.hostCount === 1, "the run's host to link up");
+
+    const news = { siteId: "news.example/world", name: "News" };
+    const broken = { siteId: "broken.example/feed", name: "Broken" };
+    channel.send(batchMessage(0, 3));
+    channel.send({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 3,
+      target: 100,
+      sites: [
+        { ...news, status: "collecting", itemCount: 0 },
+        { ...broken, status: "collecting", itemCount: 0 },
+      ],
+    });
+    await until(
+      () => controller.status.collection.sites?.length === 2,
+      "the sites on the monitor",
+    );
+    expect(controller.status.collection).toMatchObject({
+      count: 3,
+      sites: [
+        { ...news, status: "collecting", itemCount: 0 },
+        { ...broken, status: "collecting", itemCount: 0 },
+      ],
+    });
+    channel.send({
+      type: "feed-batch",
+      batch: {
+        siteId: news.siteId,
+        capturedAt: new Date().toISOString(),
+        items: ["a", "b"].map((id) => ({
+          platform: "generic" as const,
+          id,
+          sourceLabel: "custom:News",
+          title: `synthetic headline ${id}`,
+          url: `https://news.example/world/${id}`,
+          domain: "news.example",
+          promoted: false,
+        })),
+      },
+    });
+    channel.send({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 3,
+      target: 100,
+      sites: [
+        { ...news, status: "ok", itemCount: 2 },
+        { ...broken, status: "error", itemCount: 0 },
+      ],
+    });
+    await until(
+      () => controller.status.collection.sites?.[1]?.status === "error",
+      "the sites' outcomes on the monitor",
+    );
+    expect(controller.status.collection.sites?.[0]).toEqual({
+      ...news,
+      status: "ok",
+      itemCount: 2,
+    });
+
+    channel.send({
+      type: "collection-complete",
+      mode: "B",
+      reason: "stalled",
+      uniquePostCount: 3,
+      responseCount: 1,
+      target: 100,
+      sites: [
+        { ...news, status: "ok", method: "rss", itemCount: 2 },
+        { ...broken, status: "error", method: "static", itemCount: 0, message: "HTTP 404" },
+      ],
+    });
+    channel.retire();
+    channel.port();
+    expect(await runPort.exited, runPort.stderr).toBe(0);
+    await until(() => controller.status.run.stage === "ready", "the run to finish");
+    // The finished collection's outcomes stay, as the completion had them.
+    expect(controller.status.collection).toMatchObject({
+      state: "idle",
+      sites: [
+        { ...news, status: "ok", itemCount: 2 },
+        { ...broken, status: "error", itemCount: 0 },
+      ],
+    });
+    expect(controller.status.run.counts.postsIn).toBe(5);
+  }, 20_000);
+
   it("relays the desktop's language to the worker as a push", async () => {
     const channel: NativeChannel<HostPort> = new NativeChannel(() => {
       const port = open();
