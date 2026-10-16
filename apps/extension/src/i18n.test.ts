@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { format, t, tm } from "./i18n.js";
+import { format, setUiLang, t, tm, uiLang, watchUiLang } from "./i18n.js";
 import { EN, TR, type MessageKey } from "./i18n/messages.js";
 import {
   paginationHints,
@@ -9,11 +9,37 @@ import {
 } from "./picker/page-hints.js";
 import { newsPageHtml } from "./sites/test-fixtures.js";
 
+type Changes = Record<string, chrome.storage.StorageChange>;
+
+/** chrome.storage holding these settings (the desktop's push lands via `push`). */
+function storage(settings?: unknown, read: Promise<void> = Promise.resolve()) {
+  const listeners: ((changes: Changes, area: string) => void)[] = [];
+  vi.stubGlobal("chrome", {
+    storage: {
+      local: {
+        get: async () => {
+          await read;
+          return settings === undefined ? {} : { "nmc-settings": settings };
+        },
+      },
+      onChanged: { addListener: (fn: (typeof listeners)[number]) => listeners.push(fn) },
+    },
+  });
+  return {
+    push(next: unknown, area = "local", key = "nmc-settings"): void {
+      for (const fn of listeners) fn({ [key]: { newValue: next } }, area);
+    },
+  };
+}
+
 const placeholders = (text: string): string[] =>
   [...text.matchAll(/\$([1-9])/g)].map((m) => m[1] ?? "").sort();
 
 describe("UI messages", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setUiLang("en");
+  });
 
   it("has every English key in Turkish, with the same arguments", () => {
     const keys = Object.keys(EN) as MessageKey[];
@@ -28,7 +54,7 @@ describe("UI messages", () => {
     }
   });
 
-  it("falls back to English outside the extension and fills arguments", () => {
+  it("fills arguments (English before any language is read)", () => {
     expect(t("pickFieldCoverage", "Title", 2, 3)).toBe("Title: found in 2/3 cards.");
     expect(tm({ key: "pickFieldCoverage", args: [{ key: "roleTitle" }, 1, 1] })).toBe(
       "Title: found in 1/1 cards.",
@@ -36,15 +62,53 @@ describe("UI messages", () => {
     expect(format("$2 and $1, $3", ["a", "b"])).toBe("b and a, ");
   });
 
-  it("uses chrome.i18n when it answers", () => {
-    vi.stubGlobal("chrome", {
-      i18n: {
-        getMessage: (key: string, subs: string[]) =>
-          key === "save" ? "Kaydet" : `${key}:${subs.join(",")}`,
-      },
-    });
-    expect(t("save")).toBe("Kaydet");
-    expect(t("cursorSimilar", 4)).toBe("cursorSimilar:4");
+  it.each([
+    ["tr", ["en-US"], "tr"],
+    ["en", ["tr-TR"], "en"],
+    ["system", ["de-DE", "en"], "en"],
+    ["system", ["tr-TR", "en"], "tr"],
+    [undefined, ["tr"], "tr"],
+    [undefined, ["fr-FR"], "en"],
+  ] as const)(
+    "speaks the desktop's language: uiLanguage %s, browser %j → %s",
+    async (uiLanguage, languages, expected) => {
+      vi.stubGlobal("navigator", { languages });
+      storage(uiLanguage === undefined ? undefined : { uiLanguage });
+      await watchUiLang(() => undefined);
+      expect(uiLang()).toBe(expected);
+      expect(t("save")).toBe(expected === "tr" ? "Kaydet" : "Save");
+    },
+  );
+
+  it("reports a pushed language once, and nothing for other changes", async () => {
+    vi.stubGlobal("navigator", { languages: ["de-DE"] });
+    const store = storage({ uiLanguage: "en" });
+    const changes: string[] = [];
+    await watchUiLang((lang) => changes.push(lang));
+    store.push({ uiLanguage: "tr", collectTarget: 9 });
+    store.push({ uiLanguage: "tr", collectTarget: 8 });
+    store.push({ uiLanguage: "en" }, "session");
+    store.push({ uiLanguage: "en" }, "local", "nmc.siteRules");
+    expect(changes).toEqual(["tr"]);
+    // Whether the page switches now is the caller's choice.
+    expect(uiLang()).toBe("en");
+    store.push({ uiLanguage: "system" });
+    expect(changes).toEqual(["tr", "en"]);
+  });
+
+  it("takes a push that lands while the stored language is being read", async () => {
+    let finishRead: () => void = () => undefined;
+    const store = storage(
+      { uiLanguage: "en" },
+      new Promise<void>((resolve) => (finishRead = resolve)),
+    );
+    const changes: string[] = [];
+    const ready = watchUiLang((lang) => changes.push(lang));
+    store.push({ uiLanguage: "tr" });
+    finishRead();
+    await ready;
+    expect(uiLang()).toBe("tr");
+    expect(changes).toEqual([]);
   });
 });
 

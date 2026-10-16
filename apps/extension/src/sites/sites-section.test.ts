@@ -17,6 +17,8 @@ interface Harness {
   permissions: PermissionsApi & { requested: string[][]; removed: string[][]; accept: boolean };
   sent: SiteWorkerMessage[];
   pages: Record<string, string>;
+  /** Times the section said its busy work may have ended. */
+  settles: number;
 }
 
 let t: Harness;
@@ -68,9 +70,12 @@ async function setup(pages: Record<string, string> = {}): Promise<Harness> {
     download: vi.fn(),
     copy: vi.fn(() => Promise.resolve()),
     undoMs: 50,
+    onSettle: () => {
+      t.settles += 1;
+    },
   });
+  t = { section, local, session, permissions, sent, pages, settles: 0 };
   await section.refresh();
-  t = { section, local, session, permissions, sent, pages };
   return t;
 }
 
@@ -403,5 +408,42 @@ describe("Options › Sites", () => {
     expect(q(".rule").classList.contains("is-new")).toBe(true);
     expect((document.activeElement as HTMLElement | null)?.dataset["act"]).toBe("toggle");
     expect(t.session.data["nmc.siteNewRule"]).toBeUndefined();
+  });
+
+  it("is busy while a reload would cut work short, and says when that may have ended", async () => {
+    const rule = siteRule();
+    await saveSiteRule(t.local, rule);
+    await updateSiteState(t.local, rule.id, { enabled: true, permissionGranted: true });
+    await t.section.refresh();
+    expect(t.section.busy()).toBe(false);
+
+    // The open "Add site" form, and the permission request it started.
+    let answer: (granted: boolean) => void = () => undefined;
+    t.permissions.request = vi.fn(() => new Promise<boolean>((resolve) => (answer = resolve)));
+    click(q("#add-btn"));
+    expect(t.section.busy()).toBe(true);
+    type(q<HTMLInputElement>("#url-in"), "https://blog.example.invalid/");
+    submit(q<HTMLFormElement>("#addform"));
+    click(q("[data-act='add-cancel']"));
+    expect(t.section.busy()).toBe(true);
+    const settles = t.settles;
+    answer(false);
+    await vi.waitFor(() => expect(t.settles).toBeGreaterThan(settles));
+    expect(t.section.busy()).toBe(false);
+
+    // A delete's Undo window.
+    click(q("[data-act='delete']"));
+    await vi.waitFor(() => expect(q(".toast button").hidden).toBe(false));
+    expect(t.section.busy()).toBe(true);
+    await vi.waitFor(() => expect(t.permissions.removed).toHaveLength(1));
+    expect(t.section.busy()).toBe(false);
+
+    // An open dialog.
+    click(q("[data-act='import']"));
+    expect(t.section.busy()).toBe(true);
+    const beforeClose = t.settles;
+    t.section.importDlg.close();
+    expect(t.section.busy()).toBe(false);
+    await vi.waitFor(() => expect(t.settles).toBeGreaterThan(beforeClose));
   });
 });
