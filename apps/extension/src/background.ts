@@ -1,15 +1,20 @@
 import {
   bridgeMessageByteLength,
   BridgeReplySchema,
+  enabledCollectSources,
   ManagedSettingsSchema,
   MAX_BRIDGE_MESSAGE_BYTES,
   parseHomeTimeline,
+  parseInstagramBody,
+  parseInstagramTimeline,
   SettingsStampSchema,
   type BridgeMessage,
   type CaptureSource,
   type CaptureStats,
   type CollectionComplete,
   type CollectionStartResult,
+  type CollectSource,
+  type CollectSourceOutcome,
   type FeedBatch,
   type ModeBRunSummary,
   type PostBatch,
@@ -17,24 +22,36 @@ import {
   type SiteCollectOutcome,
   type SettingsStamp,
 } from "@nmc/core";
-import { CaptureSession } from "./capture-session.js";
+import { CaptureSession, INSTAGRAM_SESSION_KEY } from "./capture-session.js";
+import {
+  COLLECTION_PROGRESS_KEY,
+  readProgress,
+  type CollectionProgressRecord,
+} from "./collection-progress.js";
 import { installDevCaptureScripts } from "./dev-capture-scripts.js";
 import { setUiLang, t, watchUiLang } from "./i18n.js";
 import {
+  isCollectionFinishMessage,
   isModeBCommandMessage,
   isWorkerCaptureMessage,
   isWorkerInstagramCaptureMessage,
   isWorkerRedditCaptureMessage,
   type WorkerCaptureMessage,
+  type WorkerInstagramCaptureMessage,
 } from "./messages.js";
 import {
   describeStopReason,
   errorText,
   isRateLimited,
+  legsOf,
+  legsText,
   MODE_B_LAST_RUN_KEY,
   MODE_B_PERMISSIONS,
   ModeBRunner,
   refusedRun,
+  runSource,
+  runStopReason,
+  sourceName,
   type ModeBBrowser,
   type ModeBRun,
   type ModeBStart,
@@ -54,7 +71,11 @@ import {
   sendNativeOnce,
   syncSettings,
 } from "./settings-sync.js";
-import { collectSitesForCollection, installSiteWorker } from "./sites/site-worker.js";
+import {
+  collectSitesForCollection,
+  hasCollectableSites,
+  installSiteWorker,
+} from "./sites/site-worker.js";
 
 /**
  * Service worker: receives captured timeline responses, converts them
@@ -91,10 +112,20 @@ import { collectSitesForCollection, installSiteWorker } from "./sites/site-worke
  * folder; their counts stay in that folder's summary.json and never
  * touch the badge, Mode B or the X target.
  *
- * Instagram (developer capture only) works the same way, as
+ * With developer capture on, Instagram is captured the same way, as
  * `source: "instagram"`: the document's embedded first feed page and the
  * home feed's `/graphql/query` responses; the host parses them for its
  * folder's counts only.
+ *
+ * Instagram as a collection source (its own tick, next to X's): the same
+ * bodies are parsed here into Instagram posts and join the collection's
+ * host session as `feed-batch` (outside X's counts), counted by their own
+ * session counter (never the host's). Every scrolled feed has its own
+ * count against the same "Posts to collect": in Mode A the collection
+ * completes once every feed reached it (a feed that did is closed: its
+ * later posts stay out), or when the user finishes it from the popup;
+ * Mode B scrolls the feeds one after the other in its window. The badge
+ * shows the count of the feed counted last, its tooltip every feed's.
  */
 
 export { NATIVE_HOST_NAME };
@@ -131,7 +162,13 @@ const RUNNING_BADGE_COLOR = "#0b57d0";
 
 /** Bumped on every new counting session; work started under an older value is stale. */
 let generation = 0;
+/** X's counter (the first one, kept under its key); Instagram has its own. */
 const session = new CaptureSession(chrome.storage.session);
+const igSession = new CaptureSession(chrome.storage.session, INSTAGRAM_SESSION_KEY);
+
+function sessionOf(source: CollectSource): CaptureSession {
+  return source === "x" ? session : igSession;
+}
 let linkRetryMs = LINK_RETRY_FIRST_MS;
 let linkTimer: ReturnType<typeof setTimeout> | null = null;
 /** The current session's host is linked to the desktop app. */
@@ -180,19 +217,108 @@ function sendToDesktop(message: BridgeMessage): boolean {
   return channel.send(message);
 }
 
-/** The desktop app shows a Mode B run's count as it goes. */
+/** The desktop app shows a Mode B run's count as it goes (its feed's, when not X). */
 function reportProgress(run: ModeBRun | null, count: number): void {
   if (!run) return;
+  sendProgress(runSource(run), count, run.target);
+}
+
+function sendProgress(source: CollectSource, count: number, target: number): void {
   sendToDesktop({
     type: "collection-progress",
     mode: "B",
     uniquePostCount: count,
-    target: Math.min(run.target, 10_000),
+    target: Math.min(target, 10_000),
+    ...(source === "x" ? {} : { source }),
   });
 }
 
 async function updateBadge(count: number): Promise<void> {
   await chrome.action.setBadgeText({ text: count === 0 ? "" : String(count) });
+}
+
+// --- Per-feed progress (popup, badge tooltip) -------------------------
+
+let progress: CollectionProgressRecord = {};
+/** Read once: a restarted worker carries on with the stored counts. */
+let progressLoaded: Promise<void> | null = null;
+let progressWrites: Promise<unknown> = Promise.resolve();
+/** The tooltip shows per-feed counts (reset with the counting session). */
+let titled = false;
+
+function loadProgress(): Promise<void> {
+  progressLoaded ??= chrome.storage.session
+    .get(COLLECTION_PROGRESS_KEY)
+    .then((items) => {
+      progress = { ...readProgress(items[COLLECTION_PROGRESS_KEY]), ...progress };
+    })
+    .catch(() => undefined);
+  return progressLoaded;
+}
+
+/** Applies `change` to the record and stores it (writes in order). */
+async function changeProgress(
+  change: (record: CollectionProgressRecord) => CollectionProgressRecord,
+): Promise<void> {
+  await loadProgress();
+  progress = change(progress);
+  const snapshot = progress;
+  // An empty record (a new session) leaves nothing behind.
+  progressWrites = progressWrites
+    .then(() =>
+      Object.keys(snapshot).length === 0
+        ? chrome.storage.session.remove(COLLECTION_PROGRESS_KEY)
+        : chrome.storage.session.set({ [COLLECTION_PROGRESS_KEY]: snapshot }),
+    )
+    .catch(() => undefined);
+  await progressWrites;
+}
+
+/** A feed's new count: the badge shows it, the tooltip every feed's (several feeds only). */
+async function showCount(
+  source: CollectSource,
+  count: number,
+  settings: Settings | null,
+): Promise<void> {
+  await changeProgress((record) => ({ ...record, [source]: { ...record[source], count } }));
+  await updateBadge(count);
+  if (settings && enabledCollectSources(settings).some((feed) => feed !== "x")) {
+    titled = true;
+    await chrome.action.setTitle({ title: progressTitle(settings) });
+  }
+}
+
+function progressTitle(settings: Settings): string {
+  const parts = enabledCollectSources(settings).map((source) =>
+    t(
+      progress[source]?.closed ? "progressSourceDone" : "progressSource",
+      sourceName(source),
+      progress[source]?.count ?? 0,
+      settings.collectTarget,
+    ),
+  );
+  return t("badgeTitleSources", parts.join(" · "));
+}
+
+/** Closes a feed's part of the collection: its later posts stay out. */
+async function closeSource(source: CollectSource, reason: string): Promise<void> {
+  await sessionOf(source).close(reason);
+  await changeProgress((record) => ({
+    ...record,
+    [source]: { count: record[source]?.count ?? 0, ...record[source], closed: reason },
+  }));
+}
+
+/**
+ * A feed's count as it stands now, after every count already queued:
+ * X's is the host's while developer capture is on (it alone counts then).
+ */
+async function countOf(source: CollectSource, settings: Settings): Promise<number> {
+  if (source === "x" && settings.devCaptureEnabled) {
+    await loadProgress();
+    return progress.x?.count ?? 0;
+  }
+  return sessionOf(source).uniqueCount();
 }
 
 async function handleReply(raw: unknown, replyGeneration: number): Promise<void> {
@@ -253,9 +379,13 @@ async function reflectCaptureStats(
 ): Promise<void> {
   const settings = await loadSettings().catch(() => null);
   if (!settings?.devCaptureEnabled || replyGeneration !== generation) return;
-  await updateBadge(stats.uniquePostCount);
+  // X is not collected, or its part of this collection ended: its count stands.
+  if (!settings.collectFromX || (await session.closedReason()) !== null) return;
+  await showCount("x", stats.uniquePostCount, settings);
   const run = await modeB.current();
-  if (run?.counter === "host") reportProgress(run, stats.uniquePostCount);
+  if (run?.counter === "host" && runSource(run) === "x") {
+    reportProgress(run, stats.uniquePostCount);
+  }
   await modeB.onCount(stats.uniquePostCount, "host");
   const reached = await session.reachedTarget(stats.uniquePostCount, settings.collectTarget);
   if (!reached || replyGeneration !== generation) return;
@@ -325,6 +455,8 @@ async function handleCapture(
   if (settings?.devCaptureEnabled) {
     forwardDevCapture(message);
   }
+  // X's tick is off: its responses are only captured (above), never collected.
+  if (settings && !settings.collectFromX) return;
 
   let payload: unknown;
   try {
@@ -337,6 +469,8 @@ async function handleCapture(
 
   const posts = parseHomeTimeline(payload);
   if (posts.length === 0) return;
+  // X's part of this collection ended while another feed still collects.
+  if ((await session.closedReason()) !== null) return;
   // Stored before counting: the count may complete the collection, and
   // the batch that reached the target belongs to it.
   const batch: PostBatch = {
@@ -350,14 +484,57 @@ async function handleCapture(
   if (!settings?.devCaptureEnabled) {
     const uniqueCount = await session.countPosts(posts);
     if (captureGeneration === generation) {
-      await updateBadge(uniqueCount);
+      await showCount("x", uniqueCount, settings);
       const run = await modeB.current();
-      if (run?.counter === "extension") reportProgress(run, uniqueCount);
+      if (run?.counter === "extension" && runSource(run) === "x") {
+        reportProgress(run, uniqueCount);
+      }
       await modeB.onCount(uniqueCount, "extension");
       // Developer capture keeps its own semantics (one folder, capture
       // continues past the target), so Mode A completes only without it.
-      if (!run && settings) completeModeA(uniqueCount, settings, captureGeneration);
+      if (!run && settings) completeModeA("x", uniqueCount, settings, captureGeneration);
     }
+  }
+}
+
+/**
+ * Instagram as a collection source: the page's own feed bodies (the
+ * document's first page, then `/graphql/query` pages) become Instagram
+ * posts on the collection's host session, counted apart from X. Ads stay
+ * in the batch, as X's do: the pipeline's hard filter drops them, and so
+ * does this count; suggested posts are kept (marked `suggested`).
+ */
+async function handleInstagramCapture(
+  message: WorkerInstagramCaptureMessage,
+  tabId: number | undefined,
+): Promise<void> {
+  const captureGeneration = generation;
+  const settings: Settings | null = await loadSettings().catch(() => null);
+  if (settings?.devCaptureEnabled) {
+    forwardDevCapture(
+      { operation: message.operation, bodyText: message.bodyText },
+      "instagram",
+    );
+  }
+  if (!settings?.collectFromInstagram) return;
+  await modeB.onResponse(tabId, false, "instagram");
+  const posts = parseInstagramTimeline(parseInstagramBody(message.bodyText));
+  if (posts.length === 0 || (await igSession.closedReason()) !== null) return;
+  sendFeedBatch({ capturedAt: new Date().toISOString(), items: posts });
+  // "Only accounts I follow": suggestions still ride along (the pipeline's
+  // hard filter drops them, counted apart) but never count towards the target.
+  const counted = settings.instagramFollowedOnly
+    ? posts.filter((post) => post.suggested !== true)
+    : posts;
+  const count = await igSession.countPosts(counted);
+  if (captureGeneration !== generation) return;
+  await showCount("instagram", count, settings);
+  const run = await modeB.current();
+  if (run && runSource(run) === "instagram") reportProgress(run, count);
+  await modeB.onCount(count, "extension", "instagram");
+  // As X's: with developer capture on, Mode A never completes on its own.
+  if (!run && !settings.devCaptureEnabled) {
+    completeModeA("instagram", count, settings, captureGeneration);
   }
 }
 
@@ -421,28 +598,156 @@ async function completeCollection(complete: Omit<CollectionComplete, "type">): P
   });
   await startNewCountingSession();
   // The finished count stays on the badge until the next post is counted.
-  await updateBadge(complete.uniquePostCount);
+  await updateBadge(complete.sources?.at(-1)?.uniquePostCount ?? complete.uniquePostCount);
 }
 
-/** Mode A: the user's own scrolling reached the collection target. */
-function completeModeA(count: number, settings: Settings, countGeneration: number): void {
+/** True for a collection of X alone (its outcomes need no per-feed list). */
+function xOnly(sources: readonly CollectSource[]): boolean {
+  return sources.length === 1 && sources[0] === "x";
+}
+
+/** Each feed's outcome, for a collection that was not X alone. */
+function sourceOutcomes(
+  sources: readonly CollectSource[],
+  outcome: (source: CollectSource) => { count: number; reason: string },
+  target: number,
+): { sources?: CollectSourceOutcome[] } {
+  if (xOnly(sources)) return {};
+  return {
+    sources: sources.map((source) => {
+      const { count, reason } = outcome(source);
+      return { source, uniquePostCount: count, reason, target: Math.min(target, 10_000) };
+    }),
+  };
+}
+
+/**
+ * Mode A: a feed's count (the user's own scrolling) reached the target.
+ * The collection completes once every collected feed did; until then
+ * that feed is closed and the others go on.
+ */
+function completeModeA(
+  source: CollectSource,
+  count: number,
+  settings: Settings,
+  countGeneration: number,
+): void {
   if (count < settings.collectTarget || countGeneration !== generation) return;
-  runCommand(async () => {
-    // Another message may have completed this session already.
-    if (countGeneration !== generation || (await modeB.current())) return;
-    // The custom sites join here; completion waits for them.
-    startSiteRun();
-    // Batches that arrived while this waited in the queue went to this
-    // session too: report the count as it stands now.
-    await completeCollection({
-      mode: "A",
-      reason: "target-reached",
-      uniquePostCount: await session.uniqueCount(),
-      // The extension counter does not track responses outside a Mode B run.
-      responseCount: 0,
-      target: Math.min(settings.collectTarget, 10_000),
-    });
-    await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
+  runCommand(() => settleModeA(settings, countGeneration, source));
+}
+
+/**
+ * Completes a Mode A collection when every feed collected now (`settings`)
+ * is at the target: closed there, or `reached` (the feed whose count just
+ * got there). Otherwise `reached` is closed and the others go on. Runs in
+ * the command queue.
+ */
+async function settleModeA(
+  settings: Settings,
+  countGeneration: number,
+  reached?: CollectSource,
+): Promise<void> {
+  // Another message may have completed this session already.
+  if (countGeneration !== generation || (await modeB.current())) return;
+  const sources = enabledCollectSources(settings);
+  if (sources.length === 0) return;
+  for (const other of sources) {
+    if (other === reached || (await sessionOf(other).closedReason()) !== null) continue;
+    if ((await countOf(other, settings)) < settings.collectTarget) {
+      if (reached) await closeSource(reached, "target-reached");
+      return;
+    }
+  }
+  // The custom sites join here; completion waits for them.
+  startSiteRun();
+  // Batches that arrived while this waited in the queue went to this
+  // session too: report the counts as they stand now.
+  const counts = new Map<CollectSource, number>();
+  for (const feed of sources) counts.set(feed, await countOf(feed, settings));
+  await completeCollection({
+    mode: "A",
+    reason: "target-reached",
+    uniquePostCount: counts.get("x") ?? 0,
+    // The extension counter does not track responses outside a Mode B run.
+    responseCount: 0,
+    target: Math.min(settings.collectTarget, 10_000),
+    ...sourceOutcomes(
+      sources,
+      (feed) => ({ count: counts.get(feed) ?? 0, reason: "target-reached" }),
+      settings.collectTarget,
+    ),
+  });
+  await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
+}
+
+/**
+ * Mode A, a feed's tick changed mid-collection: what was collected is
+ * kept. The toggled feed starts over — turned on, it counts from now;
+ * turned off, it is out of this collection (the completion names only
+ * the feeds still on, and the desktop leaves out what the others
+ * stored) — and the collection completes if every feed still on is
+ * already at the target.
+ */
+async function sourcesToggled(toggled: readonly CollectSource[]): Promise<void> {
+  for (const source of toggled) await sessionOf(source).reset();
+  await changeProgress((record) => {
+    const next = { ...record };
+    for (const source of toggled) delete next[source];
+    return next;
+  });
+  const settings = await loadSettings();
+  // As a count's: with developer capture on, Mode A never completes on its own.
+  if (!settings.devCaptureEnabled) await settleModeA(settings, generation);
+}
+
+/**
+ * The popup's "Finish now": ends the user's own collection (Mode A)
+ * short of its targets; the desktop app asks before building it. Nothing
+ * happens during a Mode B run (it has its own Stop) or before any post.
+ */
+async function finishCollectionNow(): Promise<void> {
+  if (await modeB.current()) return;
+  const settings = await loadSettings();
+  const sources = enabledCollectSources(settings);
+  const counts = new Map<CollectSource, number>();
+  const closed = new Map<CollectSource, string | null>();
+  for (const source of sources) {
+    counts.set(source, await countOf(source, settings));
+    closed.set(source, await sessionOf(source).closedReason());
+  }
+  if (![...counts.values()].some((count) => count > 0)) return;
+  startSiteRun();
+  await completeCollection({
+    mode: "A",
+    reason: "finished-early",
+    uniquePostCount: counts.get("x") ?? 0,
+    responseCount: 0,
+    target: Math.min(settings.collectTarget, 10_000),
+    ...sourceOutcomes(
+      sources,
+      (source) => ({
+        count: counts.get(source) ?? 0,
+        reason: closed.get(source) ?? "finished-early",
+      }),
+      settings.collectTarget,
+    ),
+  });
+}
+
+/**
+ * X and Instagram are both off: a collection is the custom sites alone,
+ * collected at once (no window, Mode B or not) into a session of its own.
+ */
+async function collectSitesOnly(target: number): Promise<void> {
+  await startNewCountingSession();
+  startSiteRun();
+  await completeCollection({
+    mode: "B",
+    reason: "sites-collected",
+    uniquePostCount: 0,
+    responseCount: 0,
+    target: Math.min(target, 10_000),
+    sources: [],
   });
 }
 
@@ -456,6 +761,13 @@ async function startNewCountingSession(): Promise<void> {
   desktopLinked = false;
   channel.retire();
   await session.reset();
+  await igSession.reset();
+  await changeProgress(() => ({}));
+  if (titled) {
+    titled = false;
+    await uiLangReady;
+    await chrome.action.setTitle({ title: t("extName") });
+  }
   await updateBadge(0);
   await chrome.action.setBadgeBackgroundColor({ color: DEFAULT_BADGE_COLOR });
   ensureDesktopLink();
@@ -481,9 +793,15 @@ const modeBBrowser: ModeBBrowser = {
   closeWindow: (windowId) => chrome.windows.remove(windowId),
   closeTab: (tabId) => chrome.tabs.remove(tabId),
   sendStep: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
+  async navigate(tabId, url) {
+    await chrome.tabs.update(tabId, { url });
+  },
 };
 
-const modeB = new ModeBRunner(modeBBrowser, chrome.storage.session, { onFinish: finishModeB });
+const modeB = new ModeBRunner(modeBBrowser, chrome.storage.session, {
+  onFinish: finishModeB,
+  onLegFinish: finishModeBLeg,
+});
 
 /** `chrome.alarms` only exists once its optional permission is granted. */
 function alarms(): typeof chrome.alarms | undefined {
@@ -502,26 +820,57 @@ function listenToWatchdog(): void {
   });
 }
 
+/**
+ * One feed's leg of a Mode B run ended and `next` takes the window over:
+ * the feed's part of the collection is closed (its later posts stay
+ * out), and the desktop app hears the next feed start from zero.
+ * Runs inside the runner's queue: it must not call the runner.
+ */
+async function finishModeBLeg(leg: ModeBRunSummary, next: CollectSource): Promise<void> {
+  const source = leg.source ?? "x";
+  await closeSource(source, leg.stopReason);
+  // Recorded next to the run's X dumps (developer capture).
+  if (source === "x" && leg.counter === "host") sendToDesktop({ type: "mode-b-run", run: leg });
+  sendProgress(next, 0, leg.target);
+}
+
 async function finishModeB(summary: ModeBRunSummary): Promise<void> {
+  const legs = legsOf(summary);
+  const reason = runStopReason(summary);
   await chrome.storage.local.set({ [MODE_B_LAST_RUN_KEY]: summary });
   await alarms()?.clear(MODE_B_WATCHDOG_ALARM);
   // Recorded next to the run's dumps; a run that never started has none.
-  if (summary.counter === "host" && summary.stopReason !== "permission-missing") {
+  // (An X leg followed by another feed was recorded when it ended.)
+  if (
+    (summary.source ?? "x") === "x" &&
+    summary.counter === "host" &&
+    summary.stopReason !== "permission-missing"
+  ) {
     sendToDesktop({ type: "mode-b-run", run: summary });
   }
   // Every run that started ends its session, whatever stopped it; the
   // desktop app decides from the reason whether to build the timeline.
-  // A refused start (permission) never opened a session of its own.
+  // A refused start (permission) never opened a session of its own. The
+  // top-level counts stay X's; every feed's are in `sources`.
   if (summary.stopReason !== "permission-missing") {
+    const x = legs.find((leg) => leg.source === "x");
     await completeCollection({
       mode: "B",
-      reason: summary.stopReason,
-      uniquePostCount: summary.uniquePostCount,
-      responseCount: summary.responseCount,
+      reason,
+      uniquePostCount: x?.uniquePostCount ?? 0,
+      responseCount: x?.responseCount ?? 0,
       target: Math.min(summary.target, 10_000),
+      ...sourceOutcomes(
+        legs.map((leg) => leg.source),
+        (source) => {
+          const leg = legs.find((candidate) => candidate.source === source);
+          return { count: leg?.uniquePostCount ?? 0, reason: leg?.stopReason ?? reason };
+        },
+        summary.target,
+      ),
     });
   }
-  const reached = summary.stopReason === "target-reached";
+  const reached = reason === "target-reached";
   await chrome.action.setBadgeBackgroundColor({
     color: reached ? TARGET_BADGE_COLOR : DEFAULT_BADGE_COLOR,
   });
@@ -531,27 +880,40 @@ async function finishModeB(summary: ModeBRunSummary): Promise<void> {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon-128.png"),
       title: t(reached ? "notifyModeBFinished" : "notifyModeBStopped"),
-      message: t(
-        "notifyModeBBody",
-        summary.uniquePostCount,
-        summary.target,
-        Math.round(summary.durationMs / 1000),
-        summary.scrollCount,
-        describeStopReason(summary.stopReason),
-      ),
+      message:
+        summary.legs === undefined
+          ? t(
+              "notifyModeBBody",
+              summary.uniquePostCount,
+              summary.target,
+              Math.round(summary.durationMs / 1000),
+              summary.scrollCount,
+              describeStopReason(summary.stopReason, summary.source),
+            )
+          : t("notifyModeBLegsBody", legsText(summary.legs)),
     });
   } catch {
     // Notification is best-effort; the options page shows the last run.
   }
 }
 
-async function startModeB(target?: number): Promise<void> {
+/** "no-sources": X, Instagram and every custom site are off — nothing was started. */
+type StartOutcome = "no-sources" | undefined;
+
+async function startModeB(target?: number): Promise<StartOutcome> {
   const settings = await loadSettings();
   if (!settings.modeBEnabled || (await modeB.current())) return;
+  const sources = enabledCollectSources(settings);
+  if (sources.length === 0) {
+    if (!(await hasCollectableSites())) return "no-sources";
+    await collectSitesOnly(target ?? settings.collectTarget);
+    return;
+  }
   const start: ModeBStart = {
     strategy: settings.modeBStrategy,
     target: target ?? settings.collectTarget,
     counter: settings.devCaptureEnabled ? "host" : "extension",
+    ...(xOnly(sources) ? {} : { sources }),
   };
   if (!(await chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }))) {
     await finishModeB(refusedRun(start, Date.now(), "permission-missing"));
@@ -582,9 +944,23 @@ async function startModeB(target?: number): Promise<void> {
 async function startCollectionForDesktop(target: number | undefined): Promise<void> {
   const settings = await loadSettings();
   const goal = target ?? settings.collectTarget;
+  const sources = enabledCollectSources(settings);
   const answer = (outcome: CollectionStartResult["outcome"]): void => {
-    sendToDesktop({ type: "collection-start-result", outcome, target: goal });
+    sendToDesktop({
+      type: "collection-start-result",
+      outcome,
+      target: goal,
+      ...(xOnly(sources) ? {} : { sources }),
+    });
   };
+  if (sources.length === 0) {
+    if (await modeB.current()) return answer("busy");
+    if (!(await hasCollectableSites())) return answer("no-sources");
+    // Only custom sites: collected at once, whether Mode B is on or not.
+    answer("started");
+    await collectSitesOnly(goal);
+    return;
+  }
   if (!settings.modeBEnabled) return answer("mode-b-off");
   if (await modeB.current()) return answer("busy");
   if (!(await chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }))) {
@@ -606,22 +982,53 @@ function runCommand(work: () => Promise<void>): void {
 }
 
 chrome.runtime.onMessage.addListener(
-  (message: unknown, sender: chrome.runtime.MessageSender) => {
+  (
+    message: unknown,
+    sender: chrome.runtime.MessageSender,
+    sendResponse?: (response?: unknown) => void,
+  ) => {
     if (isModeBCommandMessage(message)) {
       // Only the extension's own pages (not content scripts) may start or stop a run.
       if (sender.id !== chrome.runtime.id || sender.tab) return;
-      runCommand(message.command === "start" ? startModeB : () => modeB.stop("cancelled"));
+      if (message.command === "stop") {
+        runCommand(() => modeB.stop("cancelled"));
+        return;
+      }
+      // The page learns when nothing could be collected at all.
+      runCommand(async () => {
+        let outcome: StartOutcome;
+        try {
+          outcome = await startModeB();
+        } finally {
+          sendResponse?.(outcome);
+        }
+      });
+      return true;
+    }
+    if (isCollectionFinishMessage(message)) {
+      if (sender.id !== chrome.runtime.id || sender.tab) return;
+      runCommand(finishCollectionNow);
       return;
     }
-    if (isWorkerRedditCaptureMessage(message) || isWorkerInstagramCaptureMessage(message)) {
+    if (isWorkerInstagramCaptureMessage(message)) {
+      const capture: WorkerInstagramCaptureMessage = {
+        kind: message.kind,
+        operation: message.operation,
+        bodyText: message.bodyText,
+      };
+      void handleInstagramCapture(capture, sender.tab?.id).catch((error: unknown) => {
+        console.error(`[nmc] instagram capture handling failed: ${String(error)}`);
+      });
+      return;
+    }
+    if (isWorkerRedditCaptureMessage(message)) {
       const { operation, bodyText } = message;
-      const devSource = message.kind === "reddit-capture" ? "reddit" : "instagram";
       void loadSettings()
         .then((settings) => {
-          if (settings.devCaptureEnabled) forwardDevCapture({ operation, bodyText }, devSource);
+          if (settings.devCaptureEnabled) forwardDevCapture({ operation, bodyText }, "reddit");
         })
         .catch((error: unknown) => {
-          console.error(`[nmc] ${devSource} capture handling failed: ${String(error)}`);
+          console.error(`[nmc] reddit capture handling failed: ${String(error)}`);
         });
       return;
     }
@@ -642,8 +1049,18 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void modeB.onTabRemoved(tabId);
 });
 
-function flag(value: unknown, key: "devCaptureEnabled" | "modeBEnabled"): boolean {
-  return Boolean((value as Record<string, unknown> | undefined)?.[key]);
+const SOURCE_TICKS = {
+  x: "collectFromX",
+  instagram: "collectFromInstagram",
+} as const satisfies Record<CollectSource, string>;
+
+function flag(
+  value: unknown,
+  key: "devCaptureEnabled" | "modeBEnabled" | "collectFromX" | "collectFromInstagram",
+): boolean {
+  const stored = (value as Record<string, unknown> | undefined)?.[key];
+  // X's tick defaults to on: settings saved before it existed collect X.
+  return key === "collectFromX" ? stored !== false : Boolean(stored);
 }
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -653,11 +1070,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     flag(change.oldValue, "devCaptureEnabled") !== flag(change.newValue, "devCaptureEnabled");
   const modeBTurnedOff =
     flag(change.oldValue, "modeBEnabled") && !flag(change.newValue, "modeBEnabled");
-  if (!captureToggled && !modeBTurnedOff) return;
+  // A run scrolls the feeds that were on when it started.
+  const toggled = (Object.keys(SOURCE_TICKS) as CollectSource[]).filter(
+    (source) =>
+      flag(change.oldValue, SOURCE_TICKS[source]) !==
+      flag(change.newValue, SOURCE_TICKS[source]),
+  );
+  if (!captureToggled && !modeBTurnedOff && toggled.length === 0) return;
   runCommand(async () => {
+    const running = (await modeB.current()) !== null;
     // A run's counts belong to the session it ran in: end it first.
     await modeB.stop("settings-changed");
     if (captureToggled) await startNewCountingSession();
+    else if (toggled.length > 0 && !running) await sourcesToggled(toggled);
   });
 });
 

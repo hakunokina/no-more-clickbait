@@ -51,7 +51,7 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
         unknown: 0,
         empty: 0,
       },
-      skipped: { "invalid-media": 1, repeated: 1 },
+      skipped: { "invalid-media": 1, repeated: 1, "ad-carousel-card": 0 },
     });
     for (const post of [...ssr.posts, ...page2.posts]) {
       expect(InstagramPostSchema.safeParse(post).success).toBe(true);
@@ -123,6 +123,38 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
     expect(byId(ssr.posts, "3100000000000000005").promoted).toBe(true);
   });
 
+  it("counts an ad carousel's cards apart, not as invalid posts", () => {
+    // Shape seen in a real dump (keys only): the ad lists its own media and,
+    // flat next to it, its carousel cards — no code, author or date.
+    const ad = {
+      pk: "3100000000000000090",
+      code: "AdCode90",
+      taken_at: 1791000000,
+      user: { username: "brand.synthetic" },
+      product_type: "ad",
+      image_versions2: { candidates: [{ url: "https://cdn.example/ad.jpg" }] },
+    };
+    const card = (n: number) => ({
+      pk: `310000000000000009${n}`,
+      id: `310000000000000009${n}_1`,
+      carousel_parent_id: "3100000000000000090_1",
+      image_versions2: { candidates: [{ url: `https://cdn.example/card${n}.jpg` }] },
+    });
+    const result = parseInstagramTimelineWithStats({
+      xdt_api__v1__feed__timeline__connection: {
+        edges: [{ node: { ad: { items: [ad, card(1), card(2)] } } }],
+      },
+    });
+    expect(result.posts.map((post) => [post.id, post.promoted])).toEqual([
+      ["3100000000000000090", true],
+    ]);
+    expect(result.stats.skipped).toEqual({
+      "invalid-media": 0,
+      repeated: 0,
+      "ad-carousel-card": 2,
+    });
+  });
+
   it("takes the id from the exact `id` string when a numeric pk lost digits", () => {
     const post = byId(ssr.posts, "3100000000000000006");
     expect(post.caption).toBe("");
@@ -143,7 +175,7 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
       edges: 6,
       posts: 3,
       slots: { media: 2, explore_story: 1, end_of_feed_demarcator: 1, unknown: 1, empty: 1 },
-      skipped: { "invalid-media": 0, repeated: 0 },
+      skipped: { "invalid-media": 0, repeated: 0, "ad-carousel-card": 0 },
     });
   });
 
@@ -180,6 +212,32 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
       expect(result.posts).toEqual([]);
       expect(result.stats.skipped["invalid-media"]).toBe(1);
     }
+  });
+
+  it("drops suggestions under their own reason only with 'only accounts I follow'", () => {
+    const suggested = byId(ssr.posts, "3100000000000000004");
+    const followed = byId(ssr.posts, "3100000000000000001");
+    expect([suggested.suggested, followed.suggested]).toEqual([true, undefined]);
+
+    const followedOnly = createHardFilter(undefined, { dropSuggested: true });
+    expect(followedOnly.check(suggested)).toBe("not-followed");
+    expect(followedOnly.check(followed)).toBeNull();
+    expect(followedOnly.stats.dropped).toEqual({
+      promoted: 0,
+      duplicate: 0,
+      "duplicate-repost": 0,
+      "not-followed": 1,
+    });
+    expect(followedOnly.stats.kept).toBe(1);
+    // The same suggestion on a later page is a repeat: "Suggested" counts distinct posts.
+    expect(followedOnly.check(suggested)).toBe("duplicate");
+    expect(followedOnly.stats.dropped).toMatchObject({ duplicate: 1, "not-followed": 1 });
+
+    // Off (the default): the suggestion is kept, and no such reason appears.
+    const all = createHardFilter();
+    expect(all.keep(suggested)).toBe(true);
+    expect(all.keep(followed)).toBe(true);
+    expect(all.stats.dropped).toEqual({ promoted: 0, duplicate: 0, "duplicate-repost": 0 });
   });
 
   it("feeds the hard filter: ad dropped, cross-response repeat dropped, caption-less flagged", () => {

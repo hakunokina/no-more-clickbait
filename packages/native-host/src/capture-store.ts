@@ -181,7 +181,11 @@ export class CaptureStore {
     slots: Object.fromEntries(
       [...INSTAGRAM_FEED_SLOTS, "unknown", "empty"].map((slot) => [slot, 0]),
     ) as InstagramTimelineParseStats["slots"],
-    skipped: { "invalid-media": 0, repeated: 0 } as InstagramTimelineParseStats["skipped"],
+    skipped: {
+      "invalid-media": 0,
+      repeated: 0,
+      "ad-carousel-card": 0,
+    } as InstagramTimelineParseStats["skipped"],
     kinds: { post: 0, reel: 0, carousel: 0 } as Record<InstagramPost["kind"], number>,
     suggested: 0,
     captionless: 0,
@@ -340,6 +344,7 @@ export class CaptureStore {
     }
     ig.skipped["invalid-media"] += stats.skipped["invalid-media"];
     ig.skipped.repeated += stats.skipped.repeated;
+    ig.skipped["ad-carousel-card"] += stats.skipped["ad-carousel-card"];
     this.#postCount += stats.posts;
     for (const post of posts) {
       if (post.promoted) this.#promotedCount += 1;

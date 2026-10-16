@@ -6,6 +6,7 @@ import {
   feedItemKey,
   platformOf,
   SettingsSchema,
+  type CollectSourceOutcome,
   type FeedBatch,
   type FeedItem,
   type GenericItem,
@@ -16,11 +17,14 @@ import {
 } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
+import { describeRun } from "../shared/format.js";
 import { messages, note, say } from "../shared/i18n.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import {
+  collectedCount,
   missingSourcesOf,
+  planCompletion,
   runSourcesOf,
   SessionController,
   TIMELINE_DOC_FILE,
@@ -168,6 +172,34 @@ describe("runSourcesOf", () => {
     ]);
   });
 
+  it("expects each scrolled feed by its label, with its stop as the reason", () => {
+    const feeds: CollectSourceOutcome[] = [
+      { source: "x", uniquePostCount: 0, reason: "not-logged-in", target: 100 },
+      { source: "instagram", uniquePostCount: 0, reason: "stalled", target: 100 },
+    ];
+    expect(runSourcesOf(undefined, [], feeds)).toEqual([
+      { label: "x", reason: "sourceNotLoggedInX" },
+      { label: "instagram", reason: "sourceStalled" },
+    ]);
+    // Instagram alone: X is not expected at all.
+    expect(
+      runSourcesOf(
+        undefined,
+        [],
+        [{ source: "instagram", uniquePostCount: 0, reason: "not-logged-in" }],
+      ),
+    ).toEqual([{ label: "instagram", reason: "sourceNotLoggedInInstagram" }]);
+    // Custom sites alone (`[]`): neither feed is expected.
+    expect(runSourcesOf(SITES, ["news.example/world"], [])).toEqual([
+      { label: "custom:Broken News", reason: "siteError" },
+    ]);
+    expect(
+      missingSourcesOf(runSourcesOf(undefined, [], feeds), [
+        { label: "instagram", in: 3, shown: 2 },
+      ]),
+    ).toEqual([{ label: "x", reason: "Not logged in to X in this browser." }]);
+  });
+
   it("falls back to the site id when an older extension sent no name", () => {
     const sites: SiteCollectOutcome[] = [
       { siteId: "news.example/world", status: "ok", method: "rss", itemCount: 2 },
@@ -186,6 +218,53 @@ describe("runSourcesOf", () => {
       // Collected, but nothing reached the session.
       { label: "lost.example", reason: "nothingFromSource" },
     ]);
+  });
+});
+
+describe("planCompletion over several feeds", () => {
+  const feed = (source: "x" | "instagram", reason: string, count = 10) => ({
+    source,
+    uniquePostCount: count,
+    reason,
+    target: 100,
+  });
+
+  it("builds when any feed ended normally: one feed not logged in does not hold the other", () => {
+    expect(
+      planCompletion("B", "not-logged-in", [
+        feed("x", "not-logged-in", 0),
+        feed("instagram", "target-reached"),
+      ]),
+    ).toBe("build");
+    expect(
+      planCompletion("B", "not-logged-in", [
+        feed("x", "target-reached"),
+        feed("instagram", "not-logged-in", 0),
+      ]),
+    ).toBe("build");
+    expect(
+      planCompletion("B", "not-logged-in", [
+        feed("x", "not-logged-in", 0),
+        feed("instagram", "not-logged-in", 0),
+      ]),
+    ).toBe("ask");
+  });
+
+  it("lets a stop of the whole run decide alone; Mode A always asks", () => {
+    const fine = [feed("x", "target-reached"), feed("instagram", "cancelled")];
+    expect(planCompletion("B", "cancelled", fine)).toBe("drop");
+    expect(planCompletion("B", "tab-closed", fine)).toBe("ask");
+    expect(planCompletion("A", "target-reached", fine)).toBe("ask");
+    // Custom sites alone, collected at once.
+    expect(planCompletion("B", "sites-collected", [])).toBe("build");
+  });
+
+  it("counts every feed's posts together, X's alone otherwise", () => {
+    expect(
+      collectedCount(7, [feed("x", "target-reached", 7), feed("instagram", "stalled", 5)]),
+    ).toBe(12);
+    expect(collectedCount(7, undefined)).toBe(7);
+    expect(collectedCount(0, [])).toBe(0);
   });
 });
 
@@ -343,13 +422,19 @@ describe("SessionController", () => {
     await store.addFeedBatch(
       feedBatch("news.example/world", [genericItem("g1"), instagramPost("ig1")]),
     );
+    const reason = xIds.length > 0 ? "target-reached" : "stalled";
     return (await store.complete({
       mode: "B",
-      reason: xIds.length > 0 ? "target-reached" : "stalled",
+      reason,
       uniquePostCount: xIds.length,
       responseCount: 1,
       target: 100,
       sites: SITES,
+      // Instagram's items are in the run only when it was collected.
+      sources: [
+        { source: "x", uniquePostCount: xIds.length, reason, target: 100 },
+        { source: "instagram", uniquePostCount: 1, reason: "stalled", target: 100 },
+      ],
     })) as string;
   }
 
@@ -868,6 +953,235 @@ describe("SessionController", () => {
       target: 100,
     });
     expect(c.status.collection).toMatchObject({ state: "collecting", count: 40, target: 100 });
+  });
+
+  it("shows each feed's count of a collection over X and Instagram", async () => {
+    const c = controller();
+    await c.startCollection();
+    c.handleHostEvent({
+      type: "collection-start-result",
+      outcome: "started",
+      target: 100,
+      sources: ["x", "instagram"],
+    });
+    expect(c.status.collection.sources).toEqual([
+      { source: "x", count: null },
+      { source: "instagram", count: null },
+    ]);
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 100,
+      target: 100,
+    });
+    c.handleHostEvent({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 12,
+      target: 100,
+      source: "instagram",
+    });
+    expect(c.status.collection).toMatchObject({
+      state: "collecting",
+      sources: [
+        { source: "x", count: 100 },
+        { source: "instagram", count: 12 },
+      ],
+    });
+    expect(describeRun(c.status)).toBe(
+      "Collecting in the browser… X 100 / 100 · Instagram 12 / 100",
+    );
+    expect(messages("en").collectingFeeds(100, ["x", "instagram"])).toMatch(
+      /^The extension is collecting 100 posts from each of X and Instagram, one after the other\./,
+    );
+    expect(messages("tr").collectingFeeds(100, ["x", "instagram"])).toMatch(
+      /^Eklenti X ve Instagram akışlarının her birinden sırayla 100 gönderi topluyor\./,
+    );
+    expect(describeRun({ ...c.status, lang: "tr" })).toBe(
+      "Tarayıcıda toplanıyor… X 100 / 100 · Instagram 12 / 100",
+    );
+  });
+
+  it("says nothing can be collected when every source is off, and the Mode A places", () => {
+    const c = controller();
+    c.handleHostEvent({ type: "collection-start-result", outcome: "no-sources", target: 100 });
+    expect(c.status.collection.state).toBe("refused");
+    expect(say("en", c.status.collection.message)).toBe(messages("en").noSources);
+    c.handleHostEvent({
+      type: "collection-start-result",
+      outcome: "mode-b-off",
+      target: 100,
+      sources: ["x", "instagram"],
+    });
+    expect(say("en", c.status.collection.message)).toMatch(
+      /Browse x\.com\/home and instagram\.com in your browser; once 100 posts are collected from each/,
+    );
+  });
+
+  it("builds a run where X was not logged in but Instagram delivered, naming X's reason", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch({
+      capturedAt: "2026-01-01T10:00:02.000Z",
+      items: [instagramPost("ig1"), instagramPost("ig2")],
+    });
+    const sources: CollectSourceOutcome[] = [
+      { source: "x", uniquePostCount: 0, reason: "not-logged-in", target: 100 },
+      { source: "instagram", uniquePostCount: 2, reason: "stalled", target: 100 },
+    ];
+    const id = (await store.complete({
+      mode: "B",
+      reason: "not-logged-in",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 100,
+      sources,
+    })) as string;
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    c.handleHostEvent({ ...completeEvent(id, "not-logged-in", 0), sources });
+    await expect.poll(() => c.status.run.stage).toBe("ready");
+    expect(judged.flat().map(platformOf)).toEqual(["instagram", "instagram"]);
+    expect(say("en", c.status.collection.message)).toBe(
+      "Target not reached — the timeline uses X: 0 of 100 posts (not logged in to X in this browser); " +
+        "Instagram: 2 of 100 posts (no new posts for about 20 s of scrolling).",
+    );
+    const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+      missingSources: { label: string; reason: string }[];
+    };
+    expect(doc.missingSources).toEqual([
+      { label: "x", reason: messages("en").sourceNotLoggedInX },
+    ]);
+    const html = await readFile(join(root, id, TIMELINE_FILE), "utf8");
+    expect(html).toContain(messages("en").sourceNotLoggedInX);
+  });
+
+  it("leaves out the stored items of a feed whose tick was turned off before completion", async () => {
+    const seed = async (at: string, sources?: CollectSourceOutcome[]) => {
+      const store = new PostSessionStore(root, () => at);
+      await store.addBatch(batch(["1", "2"]));
+      await store.addFeedBatch({
+        capturedAt: "2026-01-01T10:00:02.000Z",
+        items: [instagramPost("ig1")],
+      });
+      await store.addFeedBatch(feedBatch("news.example/world", [genericItem("g1")]));
+      return (await store.complete({
+        mode: "A",
+        reason: "target-reached",
+        uniquePostCount: 2,
+        responseCount: 0,
+        target: 2,
+        ...(sources ? { sources } : {}),
+      })) as string;
+    };
+    const judgedFor = async (id: string) => {
+      const judged: FeedItem[][] = [];
+      await mixedController(judged).runSession(id);
+      return judged.flat().map((item) => `${platformOf(item)}:${item.id}`);
+    };
+    // Instagram turned off: X alone completed (no `sources`); its sites stay.
+    const xOnly = await seed("2026-01-01T10:00:00.000Z");
+    expect(await judgedFor(xOnly)).toEqual(["x:1", "x:2", "generic:g1"]);
+    // X turned off: Instagram alone completed.
+    const igOnly = await seed("2026-01-01T11:00:00.000Z", [
+      { source: "instagram", uniquePostCount: 1, reason: "target-reached", target: 2 },
+    ]);
+    expect(await judgedFor(igOnly)).toEqual(["instagram:ig1", "generic:g1"]);
+  });
+
+  it("leaves Instagram's suggestions out on 'only accounts I follow', counted apart", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch({
+      capturedAt: "2026-01-01T10:00:02.000Z",
+      items: [instagramPost("ig1"), { ...instagramPost("ig2"), suggested: true }],
+    });
+    const id = (await store.complete({
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 100,
+      sources: [
+        { source: "instagram", uniquePostCount: 1, reason: "target-reached", target: 100 },
+      ],
+    })) as string;
+    runStages = stages({
+      scorer: {
+        score: async (items) =>
+          items.map((item) => ({
+            postId: feedItemKey(item),
+            clickbaitScore: 0.1,
+            readWorthinessScore: 0.6,
+            checkWorthy: false,
+            checkWorthyClaim: null,
+          })),
+      },
+    });
+    const run = async (instagramFollowedOnly: boolean) => {
+      const c = controller(undefined, {
+        loadSettings: async () => SettingsSchema.parse({ instagramFollowedOnly }),
+        renderTimeline: (doc, lang) => renderTimeline(doc, { actions: true, lang }),
+      });
+      await c.runSession(id);
+      expect(c.status.run.stage).toBe("ready");
+      return {
+        doc: JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+          cards: { post: { id: string } }[];
+          funnel: Record<string, number>;
+        },
+        html: await readFile(join(root, id, TIMELINE_FILE), "utf8"),
+      };
+    };
+    const followedOnly = await run(true);
+    expect(followedOnly.doc.cards.map((card) => card.post.id)).toEqual(["ig1"]);
+    expect(followedOnly.doc.funnel).toMatchObject({ scanned: 2, notFollowed: 1, shown: 1 });
+    expect(followedOnly.html).toContain("Instagram posts from accounts you do not follow");
+
+    const all = await run(false);
+    expect(all.doc.cards.map((card) => card.post.id).sort()).toEqual(["ig1", "ig2"]);
+    expect(all.doc.funnel).not.toHaveProperty("notFollowed");
+    expect(all.html).not.toContain("Instagram posts from accounts you do not follow");
+  });
+
+  it("waits for the user's go on a Mode A collection finished early, with each feed's count", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addBatch(batch(["1", "2", "3"]));
+    await store.addFeedBatch({
+      capturedAt: "2026-01-01T10:00:02.000Z",
+      items: [instagramPost("ig1")],
+    });
+    const sources: CollectSourceOutcome[] = [
+      { source: "x", uniquePostCount: 3, reason: "finished-early", target: 120 },
+      { source: "instagram", uniquePostCount: 1, reason: "finished-early", target: 120 },
+    ];
+    const id = (await store.complete({
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 3,
+      responseCount: 0,
+      target: 120,
+      sources,
+    })) as string;
+    const c = controller();
+    c.handleHostEvent({
+      type: "collection-complete",
+      sessionId: id,
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 3,
+      responseCount: 0,
+      target: 120,
+      sources,
+    });
+    await expect.poll(() => c.status.pending?.uniquePostCount).toBe(4);
+    expect(c.status.pending?.sources).toEqual(sources);
+    expect(asked).toEqual([{ sessionId: id, uniquePostCount: 4 }]);
+    expect(messages("en").pendingFeeds("A", sources)).toBe(
+      "Collected while you browsed: X: 3 of 120 posts (finished by you); " +
+        "Instagram: 1 of 120 posts (finished by you). Build the timeline? (Uses your claude CLI.)",
+    );
+    expect(c.status.run.stage).toBe("idle");
+    await c.buildPending();
+    expect(c.status.run.stage).toBe("ready");
   });
 
   it("builds a Mode B collection that stopped short of the target, and says so", async () => {

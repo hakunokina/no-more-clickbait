@@ -2,11 +2,13 @@ import {
   formatMessage,
   INTL_LOCALES,
   plural,
+  type CollectSource,
+  type CollectSourceOutcome,
   type MessageRef,
   type MessageTable,
   type UiLang,
 } from "@nmc/core";
-import type { RunStage } from "./status.js";
+import type { FeedProgress, RunStage } from "./status.js";
 
 /**
  * Every word the desktop app shows — monitor, reading window, Settings,
@@ -48,6 +50,16 @@ const EN_STOP_REASONS: Readonly<Record<string, string>> = {
   cancelled: "stopped by you",
   "settings-changed": "the extension's settings changed during the run",
   "failed-to-open": "the collection tab or window could not be opened",
+  "finished-early": "finished by you",
+  "sites-collected": "custom sites collected",
+};
+
+/** Where a reason names the site, Instagram's own words. */
+const EN_INSTAGRAM_STOP_REASONS: Readonly<Record<string, string>> = {
+  "not-logged-in": "not logged in to Instagram in this browser",
+  "error-page": "Instagram showed an error page",
+  "navigated-away": "the tab left instagram.com",
+  "rate-limited": "Instagram rate-limited the feed",
 };
 
 const TR_STOP_REASONS: Readonly<Record<string, string>> = {
@@ -63,6 +75,23 @@ const TR_STOP_REASONS: Readonly<Record<string, string>> = {
   cancelled: "sen durdurdun",
   "settings-changed": "çalışma sırasında eklentinin ayarları değişti",
   "failed-to-open": "toplama sekmesi ya da penceresi açılamadı",
+  "finished-early": "sen bitirdin",
+  "sites-collected": "özel siteler toplandı",
+};
+
+const TR_INSTAGRAM_STOP_REASONS: Readonly<Record<string, string>> = {
+  "not-logged-in": "bu tarayıcıda Instagram oturumu açık değil",
+  "error-page": "Instagram bir hata sayfası gösterdi",
+  "navigated-away": "sekme instagram.com'dan ayrıldı",
+  "rate-limited": "Instagram akışı hız sınırına takıldı",
+};
+
+/** The scrolled feeds by name (the same in both languages). */
+const FEED_NAMES: Readonly<Record<CollectSource, string>> = { x: "X", instagram: "Instagram" };
+/** Where the user browses each feed in Mode A. */
+const FEED_PLACES: Readonly<Record<CollectSource, string>> = {
+  x: "x.com/home",
+  instagram: "instagram.com",
 };
 
 const EN_STAGES: Readonly<Record<RunStage, string>> = {
@@ -197,6 +226,25 @@ const en = {
     `No word from the browser extension for ${seconds} s — the collection may have stopped. Check the browser window` +
     (count === null ? "." : ` (${enOf(count, target)} so far).`),
   collectionCancelled: "Collection cancelled; no timeline was built.",
+  // Collections over several feeds (X, Instagram)
+  noSources:
+    "Nothing to collect: X, Instagram and every custom site are off. Turn one on in Settings.",
+  modeBOffFeeds: (target: number | null, feeds: CollectSource[]) =>
+    `Automatic collection (Mode B) is off. Browse ${feeds.map((feed) => FEED_PLACES[feed]).join(" and ")} in your browser; once ${target === null ? "enough posts are" : `${enPosts(target)} are`} collected from each you can build the timeline.`,
+  collectProgressFeeds: (feeds: FeedProgress[], target: number | null) =>
+    `Collecting in the browser… ${feedCounts(feeds, target, enCount)}`,
+  feedCountsLine: (feeds: FeedProgress[], target: number | null) =>
+    feedCounts(feeds, target, enCount),
+  feedsNotReached: (outcomes: CollectSourceOutcome[]) =>
+    `Target not reached — the timeline uses ${enOutcomes(outcomes)}.`,
+  feedsStoppedEarly: (outcomes: CollectSourceOutcome[]) =>
+    `The collection stopped early: ${enOutcomes(outcomes)}.`,
+  feedsEndedEmpty: (outcomes: CollectSourceOutcome[]) =>
+    `The collection ended without any post: ${enOutcomes(outcomes)}.`,
+  pendingFeeds: (mode: "A" | "B", outcomes: CollectSourceOutcome[]) =>
+    mode === "A"
+      ? `Collected while you browsed: ${enOutcomes(outcomes)}. Build the timeline? (Uses your claude CLI.)`
+      : `The collection stopped early: ${enOutcomes(outcomes)}. Build the timeline anyway? (Uses your claude CLI.)`,
   // Run errors
   errCliNotFound:
     "The claude CLI was not found. Install Claude Code and log in, then try again.",
@@ -210,6 +258,10 @@ const en = {
   errLastRunFailed: "The last run failed.",
   /** A source that brought nothing (shown on the timeline page). */
   nothingFromSource: "Nothing was collected from this source.",
+  /** Why a scrolled feed brought nothing (its stop). */
+  sourceNotLoggedInX: "Not logged in to X in this browser.",
+  sourceNotLoggedInInstagram: "Not logged in to Instagram in this browser.",
+  sourceStalled: "No new posts arrived while scrolling.",
   /** Why a custom site brought nothing (its collect outcome). */
   siteError: "The site could not be reached or read.",
   siteTimeout: "The site did not answer in time.",
@@ -264,6 +316,8 @@ const en = {
     `The extension is collecting ${enPosts(target)} from your X timeline. The timeline is prepared on its own when it is done.`,
   collectingAny:
     "The extension is collecting posts from your X timeline. The timeline is prepared on its own when it is done.",
+  collectingFeeds: (target: number | null, feeds: CollectSource[]) =>
+    `The extension is collecting ${target === null ? "posts" : enPosts(target)} from each of ${feedList("en", feeds)}, one after the other. The timeline is prepared on its own when it is done.`,
   soFar: (count: number, target: number | null) => `${enOf(count, target)} so far.`,
   pendingTitle: (posts: number) => `${enPosts(posts)} collected`,
   pendingLeadA:
@@ -315,6 +369,40 @@ function enStop(reason: string): string {
   return EN_STOP_REASONS[reason] ?? reason;
 }
 
+/** "X and Instagram" / "X ve Instagram" */
+function feedList(lang: UiLang, feeds: readonly CollectSource[]): string {
+  return new Intl.ListFormat(INTL_LOCALES[lang], { type: "conjunction" }).format(
+    feeds.map((feed) => FEED_NAMES[feed]),
+  );
+}
+
+/** "X 120 / 250 · Instagram 0 / 250" */
+function feedCounts(
+  feeds: readonly FeedProgress[],
+  target: number | null,
+  count: (n: number) => string,
+): string {
+  return feeds
+    .map(
+      (feed) =>
+        `${FEED_NAMES[feed.source]} ${count(feed.count ?? 0)}${target ? ` / ${count(target)}` : ""}`,
+    )
+    .join(" · ");
+}
+
+/** "X: 250 of 250 posts; Instagram: 40 of 250 posts (not logged in to Instagram …)" */
+function enOutcomes(outcomes: readonly CollectSourceOutcome[]): string {
+  return outcomes
+    .map((outcome) => {
+      const why =
+        outcome.reason === "target-reached"
+          ? ""
+          : ` (${(outcome.source === "instagram" ? EN_INSTAGRAM_STOP_REASONS[outcome.reason] : undefined) ?? enStop(outcome.reason)})`;
+      return `${FEED_NAMES[outcome.source]}: ${enOf(outcome.uniquePostCount, outcome.target ?? null)}${why}`;
+    })
+    .join("; ");
+}
+
 function enOf(count: number, target: number | null): string {
   return target ? `${enCount(count)} of ${enPosts(target)}` : enPosts(count);
 }
@@ -327,6 +415,18 @@ function trOf(count: number, target: number | null): string {
   return target
     ? `${trCount(count)} / ${trCount(target)} gönderi`
     : `${trCount(count)} gönderi`;
+}
+
+function trOutcomes(outcomes: readonly CollectSourceOutcome[]): string {
+  return outcomes
+    .map((outcome) => {
+      const why =
+        outcome.reason === "target-reached"
+          ? ""
+          : ` (${(outcome.source === "instagram" ? TR_INSTAGRAM_STOP_REASONS[outcome.reason] : undefined) ?? trStop(outcome.reason)})`;
+      return `${FEED_NAMES[outcome.source]}: ${trOf(outcome.uniquePostCount, outcome.target ?? null)}${why}`;
+    })
+    .join("; ");
 }
 
 export type DesktopMessages = typeof en;
@@ -429,6 +529,21 @@ const tr: MessageTable<DesktopMessages> = {
     `Tarayıcı eklentisinden ${seconds} sn'dir ses yok — toplama durmuş olabilir. Tarayıcı penceresine bak` +
     (count === null ? "." : ` (şu ana kadar ${trOf(count, target)}).`),
   collectionCancelled: "Toplama iptal edildi; akış oluşturulmadı.",
+  noSources:
+    "Toplanacak bir şey yok: X, Instagram ve tüm özel siteler kapalı. Ayarlar'da birini aç.",
+  modeBOffFeeds: (target, feeds) =>
+    `Otomatik toplama (B modu) kapalı. Tarayıcında ${feeds.map((feed) => FEED_PLACES[feed]).join(" ve ")} adreslerinde gezin; her birinden ${target === null ? "yeterli gönderi" : `${trCount(target)} gönderi`} toplanınca akışı oluşturabilirsin.`,
+  collectProgressFeeds: (feeds, target) =>
+    `Tarayıcıda toplanıyor… ${feedCounts(feeds, target, trCount)}`,
+  feedCountsLine: (feeds, target) => feedCounts(feeds, target, trCount),
+  feedsNotReached: (outcomes) =>
+    `Hedefe ulaşılamadı — akış şunlarla oluşturuluyor: ${trOutcomes(outcomes)}.`,
+  feedsStoppedEarly: (outcomes) => `Toplama erken durdu: ${trOutcomes(outcomes)}.`,
+  feedsEndedEmpty: (outcomes) => `Toplama hiç gönderi olmadan bitti: ${trOutcomes(outcomes)}.`,
+  pendingFeeds: (mode, outcomes) =>
+    mode === "A"
+      ? `Sen gezinirken toplandı: ${trOutcomes(outcomes)}. Akış oluşturulsun mu? (claude CLI'ını kullanır.)`
+      : `Toplama erken durdu: ${trOutcomes(outcomes)}. Akış yine de oluşturulsun mu? (claude CLI'ını kullanır.)`,
   errCliNotFound: "claude CLI bulunamadı. Claude Code'u kurup oturum aç, sonra tekrar dene.",
   errCliNotAuthenticated:
     "claude CLI kurulu ama oturum açılmamış. Onunla oturum aç, sonra tekrar dene.",
@@ -440,6 +555,9 @@ const tr: MessageTable<DesktopMessages> = {
   errWriteFailed: "Akış diske yazılamadı.",
   errLastRunFailed: "Son çalıştırma başarısız oldu.",
   nothingFromSource: "Bu kaynaktan hiçbir şey toplanmadı.",
+  sourceNotLoggedInX: "Bu tarayıcıda X oturumu açık değil.",
+  sourceNotLoggedInInstagram: "Bu tarayıcıda Instagram oturumu açık değil.",
+  sourceStalled: "Kaydırırken yeni gönderi gelmedi.",
   siteError: "Siteye ulaşılamadı ya da site okunamadı.",
   siteTimeout: "Site zamanında yanıt vermedi.",
   siteEmpty: "Site yanıt verdi ama hiç öğe bulunamadı.",
@@ -489,6 +607,8 @@ const tr: MessageTable<DesktopMessages> = {
   collectingTarget: (target) =>
     `Eklenti X akışından ${target} gönderi topluyor. Bitince akış kendiliğinden hazırlanır.`,
   collectingAny: "Eklenti X akışından gönderi topluyor. Bitince akış kendiliğinden hazırlanır.",
+  collectingFeeds: (target, feeds) =>
+    `Eklenti ${feedList("tr", feeds)} akışlarının her birinden sırayla ${target === null ? "gönderi" : `${trCount(target)} gönderi`} topluyor. Bitince akış kendiliğinden hazırlanır.`,
   soFar: (count, target) => `Şu ana kadar ${count}${target ? ` / ${target}` : ""} gönderi.`,
   pendingTitle: (posts) => `${posts} gönderi toplandı`,
   pendingLeadA:

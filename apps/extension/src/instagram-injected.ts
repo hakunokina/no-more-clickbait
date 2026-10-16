@@ -6,11 +6,12 @@ import {
 import { hasFeedRoot, isInstagramFeedQueryUrl, isInstagramHomePath } from "./instagram-page.js";
 
 /**
- * MAIN-world script on www.instagram.com, for developer capture only.
- * The page's own `/graphql/query` responses are observed as Instagram
- * fetches them; we make NO extra requests and change NO page behaviour.
- * Bodies are read only while the isolated content script has armed us
- * (developer capture on), only on the home page, and forwarded raw when
+ * MAIN-world script on www.instagram.com, registered while Instagram is
+ * a collection source or developer capture is on. The page's own
+ * `/graphql/query` responses are observed as Instagram fetches them; we
+ * make NO extra requests and change NO page behaviour. Bodies are read
+ * only while the isolated content script has armed us (the same
+ * settings), only on the home page, and forwarded raw when
  * they carry the feed root — which ones, see instagram-page.ts. The
  * label names the transport, so a dump shows how the page loads it.
  */

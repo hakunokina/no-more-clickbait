@@ -28,6 +28,25 @@ const TR: { [K in ManagedSettingKey]: FieldCopy<Fields[K]> } = {
       "da B modunda kendiliğinden). Daha çok gönderi filtrelere daha geniş seçim sunar ama " +
       "toplaması ve değerlendirmesi daha uzun sürer.",
   },
+  collectFromX: {
+    label: "X'ten topla",
+    description: "X ana akışından (x.com/home) gönderi toplar.",
+  },
+  collectFromInstagram: {
+    label: "Instagram'dan topla",
+    description:
+      "Instagram ana akışından (instagram.com) gönderi toplar. Her kaynak kendi “Toplanacak " +
+      "gönderi” sayısını toplar; B modunda Instagram aynı pencerede X'ten sonra kaydırılır. " +
+      "Reklamlar çıkarılır; açıklamasız gönderiler tutulur ama puanlanmaz. Bunu açtığında " +
+      "açık olan bir Instagram sekmesini yenile.",
+  },
+  instagramFollowedOnly: {
+    label: "Instagram: yalnız takip ettiklerim",
+    description:
+      "Instagram'ın takip etmediğin hesaplardan önerdiği gönderileri dışarıda bırakır. Bunlar " +
+      "“Toplanacak gönderi” sayısına girmez; akışın dökümü onları ayrı sayar. Kapalıyken " +
+      "tutulur ve “Önerilen” diye işaretlenir.",
+  },
   timelineSize: {
     label: "Bitmiş akıştaki gönderi",
     description:

@@ -33,6 +33,29 @@ const response2 = readFileSync(
   "utf8",
 );
 
+/**
+ * Fully synthetic Instagram feed bodies shared with core's tests. The
+ * document's first page: 6 posts — one ad, one suggested, one without a
+ * caption — so 5 distinct organic posts.
+ */
+function instagramFixture(name: string): string {
+  return readFileSync(
+    join(
+      import.meta.dirname,
+      "..",
+      "..",
+      "..",
+      "packages",
+      "core",
+      "fixtures",
+      "instagram-feed",
+      name,
+    ),
+    "utf8",
+  );
+}
+const instagramFirstPage = instagramFixture("ssr-block.json");
+
 type Listener = (...args: unknown[]) => void;
 
 function event() {
@@ -60,7 +83,7 @@ function fakeChrome() {
   const runtimeOnMessage = event();
   const storageOnChanged = event();
   const tabsOnRemoved = event();
-  const badge = { text: "", color: "" };
+  const badge = { text: "", color: "", title: "" };
   const granted = new Set<string>(["alarms"]);
   const chrome = {
     runtime: {
@@ -138,6 +161,10 @@ function fakeChrome() {
         badge.color = color;
         return Promise.resolve();
       },
+      setTitle: ({ title }: { title: string }) => {
+        badge.title = title;
+        return Promise.resolve();
+      },
     },
     notifications: { create: vi.fn(() => Promise.resolve("")) },
     scripting: {
@@ -171,6 +198,7 @@ function fakeChrome() {
       remove: vi.fn(() => Promise.resolve()),
       query: () => Promise.resolve([]),
       sendMessage: vi.fn(() => new Promise(() => {})),
+      update: vi.fn((_tabId: number, _props: unknown) => Promise.resolve({})),
       onRemoved: tabsOnRemoved,
     },
   };
@@ -478,6 +506,9 @@ describe("background worker", () => {
     const stamp = { updatedAt: "2026-10-15T10:05:00.000Z", source: "desktop" };
     const settings = {
       collectTarget: 300,
+      collectFromX: true,
+      collectFromInstagram: true,
+      instagramFollowedOnly: true,
       timelineSize: 40,
       maxClickbait: 3,
       minReadValue: 2,
@@ -729,7 +760,7 @@ describe("desktop link in the background worker", () => {
     // The batch that reached the target went first, into the same session.
     expect(postedTypes(port)).toEqual(["ping", "post-batch", "collection-complete"]);
     expect(currentPort()).not.toBe(port);
-    expect(fake.badge).toEqual({ text: "4", color: "#137333" });
+    expect(fake.badge).toMatchObject({ text: "4", color: "#137333", title: "" });
 
     // A new session counts from zero: the same 4 posts complete it again.
     const second = currentPort();
@@ -957,6 +988,415 @@ describe("Mode B in the background worker", () => {
   });
 });
 
+describe("Instagram as a collection source", () => {
+  const INSTAGRAM_URL = "https://www.instagram.com/";
+
+  function captureInstagram(tabId = USER_TAB, bodyText = instagramFirstPage): void {
+    fake.chrome.runtime.onMessage.emit(
+      { kind: "instagram-capture", operation: "ssr", bodyText },
+      { id: "test", tab: { id: tabId } },
+    );
+  }
+
+  function feedBatches(port: FakePort): { items: Record<string, unknown>[] }[] {
+    return port.posted
+      .filter((message) => message.type === "feed-batch")
+      .map(
+        (message) =>
+          (message as unknown as { batch: { items: Record<string, unknown>[] } }).batch,
+      );
+  }
+
+  function allPosted(): { type: string }[] {
+    return fake.ports.flatMap((port) => port.posted);
+  }
+
+  it("collects nothing from Instagram while its tick is off (the default)", async () => {
+    await setSettings({ collectTarget: 100 });
+    await settle();
+    captureInstagram();
+    await settle();
+    expect(postedTypes(currentPort())).toEqual(["ping"]);
+    expect(fake.badge.text).toBe("");
+  });
+
+  it("sends Instagram posts as a feed batch: the ad is not counted, the suggested post stays", async () => {
+    await setSettings({ collectTarget: 100, collectFromInstagram: true });
+    await settle();
+    captureInstagram();
+    await settle();
+    const port = currentPort();
+    expect(postedTypes(port)).toEqual(["ping", "feed-batch"]);
+    const [batch] = feedBatches(port);
+    expect(batch?.items).toHaveLength(6);
+    expect(batch?.items.every((item) => item["platform"] === "instagram")).toBe(true);
+    // The ad rides along like X's (the pipeline's hard filter drops it) …
+    expect(batch?.items.filter((item) => item["promoted"] === true)).toHaveLength(1);
+    expect(batch?.items.filter((item) => item["suggested"] === true)).toHaveLength(1);
+    // … but never counts: 6 posts, 5 distinct organic ones.
+    expect(fake.badge.text).toBe("5");
+    expect(fake.badge.title).toBe("No More Clickbait — X 0 / 100 · Instagram 5 / 100");
+    expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
+      instagram: { count: 5 },
+    });
+  });
+
+  it("with 'only accounts I follow', a suggestion is sent but never counted", async () => {
+    await setSettings({
+      collectTarget: 100,
+      collectFromInstagram: true,
+      instagramFollowedOnly: true,
+    });
+    await settle();
+    captureInstagram();
+    await settle();
+    // The batch is whole (the pipeline drops the suggestion, counted apart) …
+    expect(feedBatches(currentPort())[0]?.items).toHaveLength(6);
+    // … but the target counts 4: 6 posts less the ad and the suggestion.
+    expect(fake.badge.text).toBe("4");
+  });
+
+  it("with X's tick off, X responses are neither sent nor counted", async () => {
+    await setSettings({ collectTarget: 100, collectFromX: false, collectFromInstagram: true });
+    await settle();
+    captureTimeline();
+    await settle();
+    expect(postedTypes(currentPort())).toEqual(["ping"]);
+    expect(fake.badge.text).toBe("");
+  });
+
+  it("Mode A: each feed has its own target; the collection completes once both reached it", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline(); // X: 4 of 4
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "post-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
+      x: { count: 4, closed: "target-reached" },
+    });
+    // X is done for this collection: its later posts stay out.
+    fake.chrome.runtime.onMessage.emit(
+      { kind: "timeline-capture", operation: "HomeTimeline", bodyText: response2, status: 200 },
+      { id: "test", tab: { id: USER_TAB } },
+    );
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "post-batch"]);
+
+    captureInstagram(); // Instagram: 5 of 4
+    await settle();
+    expect(postedTypes(port)).toEqual([
+      "ping",
+      "post-batch",
+      "feed-batch",
+      "collection-complete",
+    ]);
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+      sources: [
+        { source: "x", uniquePostCount: 4, reason: "target-reached", target: 4 },
+        { source: "instagram", uniquePostCount: 5, reason: "target-reached", target: 4 },
+      ],
+    });
+    // A new collection: both feeds count again from zero.
+    expect(fake.sessionArea.has("nmc-collection-progress")).toBe(false);
+  });
+
+  it("Mode A: turning Instagram off once X reached its target completes the collection", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline(); // X: 4 of 4, Instagram still at 0
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "post-batch"]);
+
+    await setSettings({ collectTarget: 4, collectFromInstagram: false });
+    await settle();
+    // X alone is collected now, and it is at its target: a normal completion.
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+    });
+  });
+
+  it("Mode A: a feed turned off is left out of the completion, X's goes on to its target", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureInstagram(); // Instagram: 5 of 4, closed; X at 0
+    await settle();
+    await setSettings({ collectTarget: 4, collectFromInstagram: false });
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "feed-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toBeUndefined();
+
+    captureTimeline(); // X: 4 of 4
+    await settle();
+    // X alone (no `sources`): the desktop leaves Instagram's stored items out.
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+    });
+  });
+
+  it("Mode A: a feed turned on mid-collection counts from then on, towards its own target", async () => {
+    await setSettings({ collectTarget: 100 });
+    await settle();
+    const port = currentPort();
+    captureTimeline(); // X: 4 of 100
+    await settle();
+    await setSettings({ collectTarget: 100, collectFromInstagram: true });
+    await settle();
+    captureInstagram();
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "post-batch", "feed-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
+      x: { count: 4 },
+      instagram: { count: 5 },
+    });
+  });
+
+  it("Mode A: a feed turned off and on again starts over (its earlier close is gone)", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureInstagram(); // Instagram: 5 of 4, closed
+    await settle();
+    await setSettings({ collectTarget: 4, collectFromInstagram: false });
+    await settle();
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    captureInstagram(); // counted again from zero: 5 of 4, closed again
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "feed-batch", "feed-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
+      instagram: { count: 5, closed: "target-reached" },
+    });
+  });
+
+  it("Instagram alone: its own target completes the collection, X's counts stay zero", async () => {
+    await setSettings({ collectTarget: 4, collectFromX: false, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureInstagram();
+    await settle();
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 4,
+      sources: [
+        { source: "instagram", uniquePostCount: 5, reason: "target-reached", target: 4 },
+      ],
+    });
+  });
+
+  it("Finish now ends the user's own collection short of its targets", async () => {
+    await setSettings({ collectTarget: 100, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    captureInstagram();
+    await settle();
+    // A content script cannot finish it; nor is there anything before a post.
+    fake.chrome.runtime.onMessage.emit(
+      { kind: "collection-finish" },
+      { id: "test", tab: { id: USER_TAB } },
+    );
+    await settle();
+    expect(postedTypes(port)).not.toContain("collection-complete");
+
+    fake.chrome.runtime.onMessage.emit({ kind: "collection-finish" }, { id: "test" });
+    await settle();
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 100,
+      sources: [
+        { source: "x", uniquePostCount: 4, reason: "finished-early", target: 100 },
+        { source: "instagram", uniquePostCount: 5, reason: "finished-early", target: 100 },
+      ],
+    });
+    // Nothing counted in the new session: a second finish does nothing.
+    fake.chrome.runtime.onMessage.emit({ kind: "collection-finish" }, { id: "test" });
+    await settle();
+    expect(postedTypes(currentPort())).toEqual(["ping"]);
+  });
+
+  it("answers the desktop with no-sources when X, Instagram and every site are off", async () => {
+    await setSettings({ collectTarget: 300, collectFromX: false, modeBEnabled: true });
+    await settle();
+    currentPort().onMessage.emit({ type: "start-collection" });
+    await settle();
+    expect(currentPort().posted.at(-1)).toEqual({
+      type: "collection-start-result",
+      outcome: "no-sources",
+      target: 300,
+      sources: [],
+    });
+    expect(fake.chrome.windows.create).not.toHaveBeenCalled();
+    // The popup's Collect hears it too.
+    const respond = vi.fn();
+    fake.chrome.runtime.onMessage.emit(
+      { kind: "mode-b-command", command: "start" },
+      { id: "test" },
+      respond,
+    );
+    await settle();
+    expect(respond).toHaveBeenCalledWith("no-sources");
+  });
+
+  describe("in Mode B", () => {
+    const both = {
+      modeBEnabled: true,
+      collectTarget: 4,
+      modeBStrategy: "minimized-window",
+      collectFromInstagram: true,
+    };
+
+    it("scrolls X first, then Instagram in the same window, each to its own target", async () => {
+      await setSettings(both);
+      await settle();
+      const linkPort = currentPort();
+      linkPort.onMessage.emit({ type: "start-collection", target: 4 });
+      await settle();
+      expect(linkPort.posted.at(-1)).toEqual({
+        type: "collection-start-result",
+        outcome: "started",
+        target: 4,
+        sources: ["x", "instagram"],
+      });
+      expect(fake.chrome.windows.create).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "https://x.com/home" }),
+      );
+      const runPort = currentPort();
+
+      captureTimeline(RUN_TAB); // X reaches 4
+      await settle();
+      expect(fake.chrome.tabs.update).toHaveBeenCalledWith(RUN_TAB, { url: INSTAGRAM_URL });
+      expect(fake.chrome.windows.remove).not.toHaveBeenCalled();
+      expect(postedTypes(runPort)).toEqual([
+        "ping",
+        "post-batch",
+        "collection-progress",
+        "collection-progress",
+      ]);
+      expect(runPort.posted.at(-1)).toEqual({
+        type: "collection-progress",
+        mode: "B",
+        uniquePostCount: 0,
+        target: 4,
+        source: "instagram",
+      });
+
+      captureInstagram(RUN_TAB); // Instagram reaches 5
+      await settle();
+      expect(fake.chrome.windows.remove).toHaveBeenCalledWith(3);
+      expect(runPort.posted).toContainEqual({
+        type: "collection-progress",
+        mode: "B",
+        uniquePostCount: 5,
+        target: 4,
+        source: "instagram",
+      });
+      expect(runPort.posted.at(-1)).toEqual({
+        type: "collection-complete",
+        mode: "B",
+        reason: "target-reached",
+        uniquePostCount: 4,
+        responseCount: 1,
+        target: 4,
+        sources: [
+          { source: "x", uniquePostCount: 4, reason: "target-reached", target: 4 },
+          { source: "instagram", uniquePostCount: 5, reason: "target-reached", target: 4 },
+        ],
+      });
+      expect(lastRun()).toMatchObject({
+        source: "instagram",
+        legs: [
+          { source: "x", stopReason: "target-reached", uniquePostCount: 4 },
+          { source: "instagram", stopReason: "target-reached", uniquePostCount: 5 },
+        ],
+      });
+      expect(fake.chrome.notifications.create).toHaveBeenCalledWith(
+        "nmc-mode-b-finished",
+        expect.objectContaining({
+          message: "X: 4 / 4 (target reached); Instagram: 5 / 4 (target reached).",
+        }),
+      );
+    });
+
+    it("a cancel during Instagram ends both: the collection is cancelled", async () => {
+      await setSettings(both);
+      await settle();
+      modeBCommand("start");
+      await settle();
+      captureTimeline(RUN_TAB);
+      await settle();
+      expect(fake.chrome.tabs.update).toHaveBeenCalledTimes(1);
+      modeBCommand("stop");
+      await settle();
+      expect(allPosted()).toContainEqual({
+        type: "collection-complete",
+        mode: "B",
+        reason: "cancelled",
+        uniquePostCount: 4,
+        responseCount: 1,
+        target: 4,
+        sources: [
+          { source: "x", uniquePostCount: 4, reason: "target-reached", target: 4 },
+          { source: "instagram", uniquePostCount: 0, reason: "cancelled", target: 4 },
+        ],
+      });
+      expect(fake.chrome.windows.remove).toHaveBeenCalledWith(3);
+    });
+
+    it("an Instagram-only run opens Instagram and counts it alone", async () => {
+      await setSettings({ ...both, collectFromX: false });
+      await settle();
+      modeBCommand("start");
+      await settle();
+      expect(fake.chrome.windows.create).toHaveBeenCalledWith(
+        expect.objectContaining({ url: INSTAGRAM_URL }),
+      );
+      // The user's own X tab does not count for anything.
+      captureTimeline(USER_TAB);
+      captureInstagram(RUN_TAB);
+      await settle();
+      expect(allPosted()).toContainEqual({
+        type: "collection-complete",
+        mode: "B",
+        reason: "target-reached",
+        uniquePostCount: 0,
+        responseCount: 0,
+        target: 4,
+        sources: [
+          { source: "instagram", uniquePostCount: 5, reason: "target-reached", target: 4 },
+        ],
+      });
+      expect(allPosted().map((message) => message.type)).not.toContain("post-batch");
+    });
+  });
+});
+
 describe("custom sites in the background worker's collections", () => {
   const FEED = "https://news.example.invalid/world/feed.xml";
   const FEED_XML = `<?xml version="1.0"?><rss version="2.0"><channel><title>World</title>
@@ -1038,6 +1478,43 @@ describe("custom sites in the background worker's collections", () => {
       lastItemCount?: number;
     };
     expect(state.lastItemCount).toBe(3);
+  });
+
+  it("with X and Instagram off, collects only the sites at once, without a window or Mode B", async () => {
+    await storeFeedSite();
+    await setSettings({ collectTarget: 100, collectFromX: false });
+    await settle();
+    const linkPort = currentPort();
+    linkPort.onMessage.emit({ type: "start-collection" });
+    await settle();
+    await settle();
+    expect(linkPort.posted.at(-1)).toEqual({
+      type: "collection-start-result",
+      outcome: "started",
+      target: 100,
+      sources: [],
+    });
+    expect(fake.chrome.windows.create).not.toHaveBeenCalled();
+    const sitesPort = fake.ports[1] as FakePort;
+    expect(postedTypes(sitesPort)).toEqual(["ping", "feed-batch", "collection-complete"]);
+    expect(sitesPort.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "B",
+      reason: "sites-collected",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 100,
+      sources: [],
+      sites: [
+        {
+          siteId: "news.example.invalid/world",
+          name: "World",
+          method: "rss",
+          status: "ok",
+          itemCount: 3,
+        },
+      ],
+    });
   });
 
   it("still reports the sites when the worker restarted during a Mode B run", async () => {

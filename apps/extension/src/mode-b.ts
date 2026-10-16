@@ -1,6 +1,9 @@
 import {
+  CollectSourceSchema,
   ModeBPacingSchema,
   ModeBSurfaceSchema,
+  type CollectSource,
+  type ModeBLeg,
   type ModeBPacing,
   type ModeBRunSummary,
   type ModeBStopReason,
@@ -29,9 +32,29 @@ import { loadSettings } from "./settings.js";
  * a short random timer: `normal` pacing (the default) is five times the
  * first version's pace, `fast` ten times. Stall and unresponsiveness
  * limits are measured in time, so both paces give up after the same wait.
+ *
+ * A run may scroll more than one feed (X, then Instagram): one "leg"
+ * per feed, in the same window, each with its own count, target, limits
+ * and stop reason. A leg that ends for its own reason (target, stall,
+ * not logged in…) hands the tab over to the next feed; a cancel, a
+ * settings change or a closed tab ends the whole run.
  */
 
 export const X_HOME_URL = "https://x.com/home";
+export const INSTAGRAM_HOME_URL = "https://www.instagram.com/";
+/** Where each feed's leg scrolls. */
+export const SOURCE_HOME_URLS: Readonly<Record<CollectSource, string>> = {
+  x: X_HOME_URL,
+  instagram: INSTAGRAM_HOME_URL,
+};
+/** Stops that end the whole run, whatever feeds are still to come. */
+const RUN_ENDING_STOPS: ReadonlySet<ModeBStopReason> = new Set([
+  "cancelled",
+  "settings-changed",
+  "tab-closed",
+  "permission-missing",
+  "failed-to-open",
+]);
 /** chrome.storage.session: the run in progress (read by the UI pages). */
 export const MODE_B_RUN_KEY = "nmc-mode-b-run";
 /** chrome.storage.local: the last finished run's summary (counts only). */
@@ -109,10 +132,11 @@ const DEFAULT_BOUNDS = { left: 0, top: 0, width: 1280, height: 800 };
 export function surfaceRequest(
   strategy: ModeBSurface,
   focused: WindowBounds,
+  url: string = X_HOME_URL,
 ): chrome.windows.CreateData {
   switch (strategy) {
     case "minimized-window":
-      return { url: X_HOME_URL, state: "minimized", focused: false };
+      return { url, state: "minimized", focused: false };
     case "offscreen-window": {
       // A minimized window's bounds say nothing about the screen.
       const anchor = focused.state === "minimized" ? DEFAULT_BOUNDS : focused;
@@ -121,7 +145,7 @@ export function surfaceRequest(
       const right = left + (anchor.width ?? DEFAULT_BOUNDS.width);
       const bottom = top + (anchor.height ?? DEFAULT_BOUNDS.height);
       return {
-        url: X_HOME_URL,
+        url,
         state: "normal",
         focused: false,
         ...CORNER_SIZE,
@@ -174,12 +198,21 @@ export interface ModeBRun {
   stepsWithNewResponse: number;
   /** The last step's failure as the browser worded it (no page content). */
   lastError: string | null;
+  /** The feed this leg scrolls (absent: X; runs stored before legs existed). */
+  source?: CollectSource;
+  /** Feeds still to scroll after this one, in order. */
+  nextSources?: CollectSource[];
+  /** The legs that ended before this one. */
+  legs?: ModeBLeg[];
 }
 
 export interface ModeBStart {
   strategy: ModeBSurface;
   target: number;
+  /** Who counts X's posts; every other feed is counted by the extension. */
   counter: "host" | "extension";
+  /** The feeds to scroll, one after the other (absent or empty: X). */
+  sources?: CollectSource[];
 }
 
 function newRun(
@@ -188,9 +221,12 @@ function newRun(
   now: number,
   tabId: number,
   windowId: number | null,
+  source: CollectSource = "x",
 ): ModeBRun {
   return {
-    ...start,
+    strategy: start.strategy,
+    target: start.target,
+    counter: source === "x" ? start.counter : "extension",
     pacing,
     startedAt: now,
     tabId,
@@ -207,7 +243,13 @@ function newRun(
     responsesAtLastStep: 0,
     stepsWithNewResponse: 0,
     lastError: null,
+    ...(source === "x" ? {} : { source }),
   };
+}
+
+/** The feed a stored run's current leg scrolls. */
+export function runSource(run: Pick<ModeBRun, "source">): CollectSource {
+  return run.source ?? "x";
 }
 
 const PAGE_STOP: Partial<Record<ModeBPageReport["page"], ModeBStopReason>> = {
@@ -292,7 +334,42 @@ export function summarize(
     // The last step's response arrives after it; no later step counts it.
     stepsWithNewResponse: run.stepsWithNewResponse + (hasNewResponse(run) ? 1 : 0),
     ...(error === null ? {} : { error }),
+    ...(run.source === undefined || run.source === "x" ? {} : { source: run.source }),
   };
+}
+
+/** A leg's counts, from its summary. */
+export function legOf(summary: ModeBRunSummary): ModeBLeg {
+  return {
+    source: summary.source ?? "x",
+    counter: summary.counter,
+    target: summary.target,
+    uniquePostCount: summary.uniquePostCount,
+    responseCount: summary.responseCount,
+    scrollCount: summary.scrollCount,
+    durationMs: summary.durationMs,
+    stopReason: summary.stopReason,
+  };
+}
+
+/** Every leg of a finished run: its `legs`, or the run itself when it scrolled one feed. */
+export function legsOf(summary: ModeBRunSummary): ModeBLeg[] {
+  return summary.legs ?? [legOf(summary)];
+}
+
+/**
+ * Why a run over several feeds ended, as a whole: a stop that ended the
+ * run (cancel…) is the run's; otherwise every feed reaching its target
+ * is "target-reached", else the first feed's stop that was not. A run
+ * of one feed ends for that feed's reason.
+ */
+export function runStopReason(summary: ModeBRunSummary): ModeBStopReason {
+  const legs = legsOf(summary);
+  const ending = legs.find((leg) => RUN_ENDING_STOPS.has(leg.stopReason));
+  if (ending) return ending.stopReason;
+  return (
+    legs.find((leg) => leg.stopReason !== "target-reached")?.stopReason ?? "target-reached"
+  );
 }
 
 /** A run that never started (e.g. a missing permission), for the last-run record. */
@@ -303,7 +380,18 @@ export function refusedRun(
   error: string | null = null,
   pacing: ModeBPacing = DEFAULT_MODE_B_PACING,
 ): ModeBRunSummary {
-  return summarize(newRun(start, pacing, now, -1, null), now, reason, error);
+  const [first = "x", ...rest] = start.sources ?? [];
+  const summary = summarize(newRun(start, pacing, now, -1, null, first), now, reason, error);
+  if (rest.length === 0) return summary;
+  const leg = legOf(summary);
+  return {
+    ...summary,
+    legs: [first, ...rest].map((source) => ({
+      ...leg,
+      source,
+      counter: source === "x" ? start.counter : "extension",
+    })),
+  };
 }
 
 const STOP_REASON_TEXT: Record<ModeBStopReason, MessageKey> = {
@@ -322,8 +410,45 @@ const STOP_REASON_TEXT: Record<ModeBStopReason, MessageKey> = {
   "failed-to-open": "stopFailedToOpen",
 };
 
-export function describeStopReason(reason: ModeBStopReason): string {
-  return t(STOP_REASON_TEXT[reason]);
+/** Where a reason names the site, Instagram has its own words. */
+const INSTAGRAM_STOP_REASON_TEXT: Partial<Record<ModeBStopReason, MessageKey>> = {
+  "not-logged-in": "stopNotLoggedInInstagram",
+  "error-page": "stopErrorPageInstagram",
+  "navigated-away": "stopNavigatedAwayInstagram",
+  "rate-limited": "stopRateLimitedInstagram",
+};
+
+export function describeStopReason(
+  reason: ModeBStopReason,
+  source: CollectSource = "x",
+): string {
+  const key = source === "instagram" ? INSTAGRAM_STOP_REASON_TEXT[reason] : undefined;
+  return t(key ?? STOP_REASON_TEXT[reason]);
+}
+
+const SOURCE_NAME_KEYS: Readonly<Record<CollectSource, MessageKey>> = {
+  x: "sourceX",
+  instagram: "sourceInstagram",
+};
+
+/** A feed's name as the UI shows it. */
+export function sourceName(source: CollectSource): string {
+  return t(SOURCE_NAME_KEYS[source]);
+}
+
+/** Each leg as "X: 250 / 250 (target reached)". */
+export function legsText(legs: readonly ModeBLeg[]): string {
+  return legs
+    .map((leg) =>
+      t(
+        "legLine",
+        sourceName(leg.source),
+        leg.uniquePostCount,
+        leg.target,
+        describeStopReason(leg.stopReason, leg.source),
+      ),
+    )
+    .join("; ");
 }
 
 /** The browser surface the runner needs (adapter over chrome.* in background.ts). */
@@ -335,11 +460,20 @@ export interface ModeBBrowser {
   closeWindow(windowId: number): Promise<void>;
   closeTab(tabId: number): Promise<void>;
   sendStep(tabId: number, message: ModeBStepMessage): Promise<unknown>;
+  /** Loads the next feed's page in the run's tab. */
+  navigate(tabId: number, url: string): Promise<void>;
 }
 
 export interface ModeBHooks {
-  /** Called once per run with its final counts (after the surface closed). */
+  /**
+   * Called once per run with its final counts (after the surface
+   * closed): the last leg's, with every leg in `legs` when the run was
+   * to scroll more than one feed (feeds it never reached included, with
+   * the stop that ended the run).
+   */
   onFinish(summary: ModeBRunSummary): Promise<void>;
+  /** A leg ended and feed `next` takes the tab over (not called for the last leg). */
+  onLegFinish?(summary: ModeBRunSummary, next: CollectSource): Promise<void>;
 }
 
 /**
@@ -382,9 +516,16 @@ function isStoredRun(value: unknown): value is ModeBRun {
     "stepsWithNewResponse",
   ];
   const times = ["firstStepAt", "lastProgressAt", "unansweredSince"];
+  const sources = (value: unknown): boolean =>
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.every((source) => CollectSourceSchema.safeParse(source).success));
   return (
     ModeBSurfaceSchema.safeParse(v["strategy"]).success &&
     ModeBPacingSchema.safeParse(v["pacing"]).success &&
+    (v["source"] === undefined || CollectSourceSchema.safeParse(v["source"]).success) &&
+    sources(v["nextSources"]) &&
+    (v["legs"] === undefined || Array.isArray(v["legs"])) &&
     (v["counter"] === "host" || v["counter"] === "extension") &&
     typeof v["tabId"] === "number" &&
     (v["windowId"] === null || typeof v["windowId"] === "number") &&
@@ -440,16 +581,20 @@ export class ModeBRunner {
       if (await this.#load()) return "busy";
       const pacing = await this.#loadPacing();
       const now = Date.now();
+      const [first = "x", ...rest] = start.sources ?? [];
       let surface: { tabId: number; windowId: number | null };
       try {
-        surface = await this.#open(start.strategy);
+        surface = await this.#open(start.strategy, SOURCE_HOME_URLS[first]);
       } catch (error) {
         const reason = errorText(error);
         console.error(`[nmc] Mode B could not open its tab: ${reason}`);
         await this.#hooks.onFinish(refusedRun(start, now, "failed-to-open", reason, pacing));
         return "failed";
       }
-      this.#run = newRun(start, pacing, now, surface.tabId, surface.windowId);
+      this.#run = {
+        ...newRun(start, pacing, now, surface.tabId, surface.windowId, first),
+        ...(rest.length > 0 ? { nextSources: rest } : {}),
+      };
       try {
         await this.#save();
       } catch (error) {
@@ -475,22 +620,33 @@ export class ModeBRunner {
     });
   }
 
-  /** A new distinct-post count from `counter`; counts from the other side are ignored. */
-  onCount(count: number, counter: ModeBRun["counter"]): Promise<void> {
+  /**
+   * A new distinct-post count of `source` from `counter`; counts from the
+   * other side, or of a feed the run is not scrolling now, are ignored.
+   */
+  onCount(
+    count: number,
+    counter: ModeBRun["counter"],
+    source: CollectSource = "x",
+  ): Promise<void> {
     return this.#enqueue(async () => {
       const run = await this.#load();
-      if (!run || run.counter !== counter) return;
+      if (!run || run.counter !== counter || runSource(run) !== source) return;
       run.uniquePostCount = count;
       if (count >= run.target) await this.#finish(run, "target-reached");
       else await this.#save();
     });
   }
 
-  /** A timeline response arrived from `tabId`; only the run's own tab counts. */
-  onResponse(tabId: number | undefined, rateLimited: boolean): Promise<void> {
+  /** A feed response of `source` arrived from `tabId`; only the run's own tab counts. */
+  onResponse(
+    tabId: number | undefined,
+    rateLimited: boolean,
+    source: CollectSource = "x",
+  ): Promise<void> {
     return this.#enqueue(async () => {
       const run = await this.#load();
-      if (!run || tabId !== run.tabId) return;
+      if (!run || tabId !== run.tabId || runSource(run) !== source) return;
       run.responseCount += 1;
       if (rateLimited) {
         await this.#finish(run, "rate-limited");
@@ -516,12 +672,15 @@ export class ModeBRunner {
     });
   }
 
-  async #open(strategy: ModeBSurface): Promise<{ tabId: number; windowId: number }> {
+  async #open(
+    strategy: ModeBSurface,
+    url: string,
+  ): Promise<{ tabId: number; windowId: number }> {
     const bounds =
       strategy === "offscreen-window"
         ? await this.#browser.focusedWindowBounds().catch(() => ({}))
         : {};
-    return this.#browser.openWindow(surfaceRequest(strategy, bounds));
+    return this.#browser.openWindow(surfaceRequest(strategy, bounds, url));
   }
 
   #schedule(delayMs: number): void {
@@ -542,7 +701,7 @@ export class ModeBRunner {
     return this.#enqueue(async () => {
       const run = await this.#load();
       if (!run || this.#timer !== null) return;
-      const answer = await this.#ask(run.tabId);
+      const answer = await this.#ask(run.tabId, runSource(run));
       const { run: next, stop } = applyStep(run, answer.report, Date.now(), this.#limits);
       if (answer.error !== null) next.lastError = answer.error;
       this.#run = next;
@@ -556,7 +715,7 @@ export class ModeBRunner {
   }
 
   /** One step request; a frozen page never answers, so it is bounded. */
-  async #ask(tabId: number): Promise<StepAnswer> {
+  async #ask(tabId: number, source: CollectSource): Promise<StepAnswer> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const timeout = new Promise<StepAnswer>((resolve) => {
       timer = setTimeout(() => {
@@ -566,7 +725,9 @@ export class ModeBRunner {
         });
       }, this.#limits.stepTimeoutMs);
     });
-    const sent = this.#browser.sendStep(tabId, { kind: "mode-b-step" }).then(
+    const step: ModeBStepMessage =
+      source === "x" ? { kind: "mode-b-step" } : { kind: "mode-b-step", source };
+    const sent = this.#browser.sendStep(tabId, step).then(
       (answer): StepAnswer =>
         isModeBPageReport(answer)
           ? { report: answer, error: null }
@@ -582,6 +743,24 @@ export class ModeBRunner {
 
   async #finish(run: ModeBRun, reason: ModeBStopReason, close = true): Promise<void> {
     this.#cancelTimer();
+    const error = reason === "page-unresponsive" ? run.lastError : null;
+    const summary = summarize(run, Date.now(), reason, error);
+    const legs = [...(run.legs ?? []), legOf(summary)];
+    const pending = [...(run.nextSources ?? [])];
+    let endedBy: ModeBStopReason = reason;
+    let endError: string | null = null;
+    const next = pending[0];
+    if (next !== undefined && !RUN_ENDING_STOPS.has(reason)) {
+      try {
+        await this.#nextLeg(run, summary, legs, next, pending.slice(1));
+        return;
+      } catch (navigateError) {
+        // The tab is gone or would not load the next feed: the run ends here.
+        endedBy = "failed-to-open";
+        endError = errorText(navigateError);
+        console.error(`[nmc] Mode B could not open ${next}: ${endError}`);
+      }
+    }
     this.#run = null;
     await this.#area.remove(MODE_B_RUN_KEY);
     if (close) {
@@ -592,8 +771,59 @@ export class ModeBRunner {
         // Already gone (closed by the user or the browser).
       }
     }
-    const error = reason === "page-unresponsive" ? run.lastError : null;
-    await this.#hooks.onFinish(summarize(run, Date.now(), reason, error));
+    // Feeds the run never reached end with what ended it, counting nothing.
+    for (const source of pending) {
+      legs.push({
+        source,
+        counter: "extension",
+        target: run.target,
+        uniquePostCount: 0,
+        responseCount: 0,
+        scrollCount: 0,
+        durationMs: 0,
+        stopReason: endedBy,
+      });
+    }
+    const final: ModeBRunSummary =
+      legs.length > 1
+        ? {
+            ...summary,
+            legs,
+            ...(endError !== null && summary.error === undefined ? { error: endError } : {}),
+          }
+        : summary;
+    await this.#hooks.onFinish(final);
+  }
+
+  /**
+   * Hands the run's tab over to the next feed, as a fresh leg. Deliberate:
+   * its count goes on from the feed's count in this collection, not from
+   * zero — posts the user's own tab of that feed brought during the
+   * earlier legs are in the session and count too (as the user's own X
+   * tab counts during an X leg), so a leg may reach the target at its
+   * first answer, without scrolling.
+   */
+  async #nextLeg(
+    run: ModeBRun,
+    summary: ModeBRunSummary,
+    legs: ModeBLeg[],
+    next: CollectSource,
+    rest: CollectSource[],
+  ): Promise<void> {
+    await this.#browser.navigate(run.tabId, SOURCE_HOME_URLS[next]);
+    const leg: ModeBStart = {
+      strategy: run.strategy,
+      target: run.target,
+      counter: run.counter,
+    };
+    this.#run = {
+      ...newRun(leg, run.pacing, Date.now(), run.tabId, run.windowId, next),
+      ...(rest.length > 0 ? { nextSources: rest } : {}),
+      legs,
+    };
+    await this.#save();
+    this.#schedule(this.#limits.firstStepDelayMs);
+    await this.#hooks.onLegFinish?.(summary, next);
   }
 
   async #load(): Promise<ModeBRun | null> {

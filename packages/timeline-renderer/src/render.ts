@@ -1065,6 +1065,12 @@ function tallyRows(
     ["", m.tallyScanned, scannedHint, f.scanned, "sum"],
     ["−", m.tallyAds, "", f.ads],
     ["−", m.tallyRepeats, m.tallyRepeatsHint, f.duplicates],
+    (f.notFollowed ?? 0) > 0 && [
+      "−",
+      m.tallyNotFollowed,
+      m.tallyNotFollowedHint,
+      f.notFollowed ?? 0,
+    ],
     ["−", m.clickbait, m.tallyClickbaitHint, f.clickbait],
     ["−", m.tallyMediaOnly, m.tallyMediaOnlyHint, f.mediaOnly],
     f.scoringFailed > 0 && ["−", m.tallyUnscored, m.tallyUnscoredHint, f.scoringFailed],

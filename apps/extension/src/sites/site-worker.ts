@@ -19,7 +19,7 @@ import {
 } from "./site-messages.js";
 import { chromePageBrowser, collectViaPage, type PageBrowser } from "./site-page.js";
 import { hasSitePermission, rulesAffectedBy } from "./site-permissions.js";
-import { runOneSite, runSites } from "./site-run.js";
+import { collectableRules, runOneSite, runSites } from "./site-run.js";
 import {
   loadSiteRules,
   loadSiteStates,
@@ -285,6 +285,15 @@ export async function collectSitesForCollection(
   } catch (error) {
     console.error(`[nmc] custom site collection failed: ${String(error)}`);
     return [];
+  }
+}
+
+/** A collection would collect at least one custom site (enabled and permitted). */
+export async function hasCollectableSites(): Promise<boolean> {
+  try {
+    return collectableRules(await loadSiteRules(local), await loadSiteStates(local)).length > 0;
+  } catch {
+    return false;
   }
 }
 

@@ -1,4 +1,5 @@
 import { feedItemKey, feedSourceLabel, isMediaOnly } from "./feed-item.js";
+import type { HardFilterDropReason } from "./hard-filter.js";
 import {
   RunMetricsCollector,
   type CollectionMetrics,
@@ -56,6 +57,11 @@ import {
 /** Cheap, deterministic pre-filter implemented in plain code (no LLM). */
 export interface HardFilter {
   keep(item: FeedItem): boolean;
+  /**
+   * Like `keep`, with the drop reason (null: kept). A filter without it
+   * counts a dropped post as an ad when promoted, else as a repeat.
+   */
+  check?(item: FeedItem): HardFilterDropReason | null;
 }
 
 /** Scores every surviving post in a single call. */
@@ -314,9 +320,18 @@ export async function runPipeline(
 
   const kept = await timed("hardFilter", () =>
     posts.filter((post) => {
-      if (pipeline.hardFilter.keep(post)) return true;
-      // The code hard filter drops only ads and repeats.
-      if (post.promoted) funnel.ads += 1;
+      const { hardFilter } = pipeline;
+      const reason = hardFilter.check
+        ? hardFilter.check(post)
+        : hardFilter.keep(post)
+          ? null
+          : post.promoted
+            ? "promoted"
+            : "duplicate";
+      if (reason === null) return true;
+      // The code hard filter drops ads, repeats and (on request) suggestions.
+      if (reason === "promoted") funnel.ads += 1;
+      else if (reason === "not-followed") funnel.notFollowed = (funnel.notFollowed ?? 0) + 1;
       else funnel.duplicates += 1;
       return false;
     }),

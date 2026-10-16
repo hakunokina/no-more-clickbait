@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +9,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   feedItemKey,
   ManagedSettingsSchema,
+  parseInstagramBody,
+  parseInstagramTimeline,
   SettingsSchema,
   type BridgeMessage,
+  type CollectSourceOutcome,
   type ModeBRunSummary,
   type Post,
   type PostBatch,
@@ -24,6 +27,7 @@ import {
   sessionsRoot,
   writeLinkToken,
 } from "@nmc/native-host";
+import { renderTimeline } from "@nmc/timeline-renderer";
 import { NativeChannel } from "../../../extension/src/native-channel.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
@@ -425,5 +429,154 @@ describe("collection over the real host, pipe and controller", () => {
     expect(processed.status).toBe("done");
     expect(statuses.some((status) => status.collection.count === 55)).toBe(true);
     expect(existsSync(join(local, "NoMoreClickbait", "settings.json"))).toBe(true);
+  }, 30_000);
+
+  it("runs a Mode B collection over X, then Instagram; the reading page shows both", async () => {
+    // The real timeline page, as the reading window opens it.
+    controller = new SessionController({
+      sessionsRoot: sessionsRoot(env),
+      runner: new PipelineRunner(() => ({
+        checkAvailable: async () => ({ ok: true, version: "fake" }),
+        scorer: {
+          score: async (items) =>
+            items.map((item) => ({
+              postId: feedItemKey(item),
+              clickbaitScore: 0.1,
+              readWorthinessScore: 0.6,
+              checkWorthy: false,
+              checkWorthyClaim: null,
+            })),
+        },
+        verifier: { verify: async () => Promise.reject(new Error("not expected")) },
+        cancel() {},
+      })),
+      loadSettings: async () =>
+        SettingsSchema.parse({ collectTarget: 3, collectFromInstagram: true }),
+      renderTimeline: (doc, lang) => renderTimeline(doc, { actions: true, lang }),
+      sendToHost: (command) => server.send(command),
+      onStatus: (status) => statuses.push(status),
+      onReady: () => undefined,
+    });
+    const startRequests: unknown[] = [];
+    const channel: NativeChannel<HostPort> = new NativeChannel(() => {
+      const port = open();
+      port.onMessage((message) => {
+        channel.received(port, message);
+        if ((message as { type: string }).type === "start-collection")
+          startRequests.push(message);
+      });
+      return port;
+    });
+    const linkPort = channel.port();
+    await until(() => server.hostCount === 1, "the worker's host to link up");
+    controller.setLink({ listening: true, hosts: 1 });
+
+    await controller.startCollection();
+    await until(() => startRequests.length === 1, "start-collection to reach the worker");
+    channel.send({
+      type: "collection-start-result",
+      outcome: "started",
+      target: 3,
+      sources: ["x", "instagram"],
+    });
+    channel.retire();
+    const runPort = channel.port();
+    await until(
+      () => controller.status.collection.state === "collecting",
+      "the answer to reach the desktop",
+    );
+    expect(await linkPort.exited, linkPort.stderr).toBe(0);
+    await until(() => server.hostCount === 1, "the run's host to link up");
+
+    // X's leg: three posts, then the window moves on to Instagram.
+    channel.send(batchMessage(0, 3));
+    channel.send({ type: "collection-progress", mode: "B", uniquePostCount: 3, target: 3 });
+    channel.send({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 0,
+      target: 3,
+      source: "instagram",
+    });
+    // Instagram's leg: the feed's first page as the worker parses it
+    // (synthetic: one ad, one suggested post, one without a caption).
+    const instagram = parseInstagramTimeline(
+      parseInstagramBody(
+        readFileSync(
+          fileURLToPath(
+            new URL(
+              "../../../../packages/core/fixtures/instagram-feed/ssr-block.json",
+              import.meta.url,
+            ),
+          ),
+          "utf8",
+        ),
+      ),
+    );
+    expect(instagram.filter((post) => post.promoted)).toHaveLength(1);
+    channel.send({
+      type: "feed-batch",
+      batch: { capturedAt: new Date().toISOString(), items: instagram },
+    });
+    channel.send({
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 5,
+      target: 3,
+      source: "instagram",
+    });
+    await until(
+      () =>
+        controller.status.collection.sources?.find((feed) => feed.source === "instagram")
+          ?.count === 5,
+      "Instagram's count on the monitor",
+    );
+    const sources: CollectSourceOutcome[] = [
+      { source: "x", uniquePostCount: 3, reason: "target-reached", target: 3 },
+      { source: "instagram", uniquePostCount: 5, reason: "target-reached", target: 3 },
+    ];
+    channel.send({
+      type: "collection-complete",
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 3,
+      responseCount: 1,
+      target: 3,
+      sources,
+    });
+    channel.retire();
+    channel.port();
+    expect(await runPort.exited, runPort.stderr).toBe(0);
+
+    const sessions = await listSessions(sessionsRoot(env));
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      batchCount: 1,
+      feedBatchCount: 1,
+      completion: { mode: "B", uniquePostCount: 3, sources },
+    });
+    await until(() => controller.status.run.stage === "ready", "the run to finish");
+    const dir = sessions[0]?.dir ?? "";
+    const doc = JSON.parse(await readFile(join(dir, "timeline.json"), "utf8")) as {
+      bySource: { label: string; in: number }[];
+      cards: { post: { platform?: string; promoted?: boolean; suggested?: boolean } }[];
+    };
+    // Scanned per source (Instagram's ad included); the ad never reaches the
+    // page, the suggested post does, marked.
+    expect(doc.bySource.map(({ label, in: n }) => [label, n])).toEqual([
+      ["x", 3],
+      ["instagram", 6],
+    ]);
+    // 5 organic posts; the one without a caption is media-only (set aside, the existing rule).
+    expect(doc.cards.filter((card) => card.post.platform === "instagram")).toHaveLength(4);
+    expect(doc.cards.some((card) => card.post.promoted)).toBe(false);
+    expect(doc.cards.filter((card) => card.post.suggested)).toHaveLength(1);
+    const html = await readFile(join(dir, "timeline.html"), "utf8");
+    expect(html).toContain('<article class="post" ');
+    expect(html).toContain('<article class="post post--ig" ');
+    const processed = JSON.parse(await readFile(join(dir, "processed.json"), "utf8")) as {
+      status: string;
+    };
+    expect(processed.status).toBe("done");
   }, 30_000);
 });

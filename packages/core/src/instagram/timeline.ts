@@ -57,6 +57,11 @@ export interface InstagramTimelineParseStats {
     "invalid-media": number;
     /** The same media id again within this payload. */
     repeated: number;
+    /**
+     * An ad carousel's cards: the ad lists them next to itself in
+     * `ad.items[]` (they carry `carousel_parent_id`), not as posts.
+     */
+    "ad-carousel-card": number;
   };
 }
 
@@ -310,7 +315,7 @@ function emptyStats(): InstagramTimelineParseStats {
     edges: 0,
     posts: 0,
     slots,
-    skipped: { "invalid-media": 0, repeated: 0 },
+    skipped: { "invalid-media": 0, repeated: 0, "ad-carousel-card": 0 },
   };
 }
 
@@ -369,7 +374,12 @@ export function parseInstagramTimelineWithStats(
         add(obj(value)?.["media"], { promoted: false, suggested: true });
       } else if (slot === "ad") {
         for (const item of arr(obj(value)?.["items"])) {
-          add(obj(item)?.["media"] ?? item, { promoted: true, suggested: false });
+          const media = obj(item)?.["media"] ?? item;
+          if (str(obj(media)?.["carousel_parent_id"]) !== undefined) {
+            stats.skipped["ad-carousel-card"] += 1;
+            continue;
+          }
+          add(media, { promoted: true, suggested: false });
         }
       }
     }

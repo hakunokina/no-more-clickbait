@@ -36,6 +36,9 @@ describe("syncSettings", () => {
         type: "settings-sync",
         settings: {
           collectTarget: 250,
+          collectFromX: true,
+          collectFromInstagram: false,
+          instagramFollowedOnly: false,
           timelineSize: 50,
           maxClickbait: 5,
           minReadValue: 2,

@@ -7,6 +7,7 @@ import { z } from "zod";
 import {
   CollectionProgressSchema,
   CollectionStartResultSchema,
+  CollectSourceOutcomeSchema,
   ManagedSettingsSchema,
   SettingsStampSchema,
   SiteCollectOutcomeSchema,
@@ -90,6 +91,8 @@ export const CollectionCompleteEventSchema = z.object({
   target: z.number().int().min(1).max(10_000).optional(),
   /** Custom sites collected alongside X, one outcome each. */
   sites: z.array(SiteCollectOutcomeSchema).max(100).optional(),
+  /** Each scrolled feed's outcome, when the collection was not X alone. */
+  sources: z.array(CollectSourceOutcomeSchema).max(2).optional(),
 });
 export type CollectionCompleteEvent = z.infer<typeof CollectionCompleteEventSchema>;
 

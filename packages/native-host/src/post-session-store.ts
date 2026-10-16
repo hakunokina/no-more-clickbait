@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promise
 import { join } from "node:path";
 import { z } from "zod";
 import {
+  CollectSourceOutcomeSchema,
   FeedBatchSchema,
   PostBatchSchema,
   SiteCollectOutcomeSchema,
@@ -44,6 +45,8 @@ export const SessionCompletionSchema = z.object({
   target: z.number().int().min(1).optional(),
   /** How each custom site's part went (absent: no custom sites, or an older session). */
   sites: z.array(SiteCollectOutcomeSchema).max(100).optional(),
+  /** Each scrolled feed's outcome (absent: X only, or an older session). */
+  sources: z.array(CollectSourceOutcomeSchema).max(2).optional(),
   completedAt: z.string().datetime(),
 });
 export type SessionCompletion = z.infer<typeof SessionCompletionSchema>;

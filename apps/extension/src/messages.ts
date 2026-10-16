@@ -31,6 +31,16 @@ export interface ModeBCommandMessage {
 /** Service worker -> the Mode B tab content script: jump to the bottom of the timeline. */
 export interface ModeBStepMessage {
   kind: "mode-b-step";
+  /**
+   * The feed the run is scrolling (absent: X). A page of another site
+   * answers "away": the run's tab is not where the run expects it.
+   */
+  source?: "instagram";
+}
+
+/** Popup -> service worker: end the user's own collection (Mode A) now, short of its targets. */
+export interface CollectionFinishMessage {
+  kind: "collection-finish";
 }
 
 /** What the page looked like when a Mode B step ran. */
@@ -82,10 +92,18 @@ export function isModeBCommandMessage(value: unknown): value is ModeBCommandMess
 }
 
 export function isModeBStepMessage(value: unknown): value is ModeBStepMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v["kind"] === "mode-b-step" && (v["source"] === undefined || v["source"] === "instagram")
+  );
+}
+
+export function isCollectionFinishMessage(value: unknown): value is CollectionFinishMessage {
   return (
     typeof value === "object" &&
     value !== null &&
-    (value as Record<string, unknown>)["kind"] === "mode-b-step"
+    (value as Record<string, unknown>)["kind"] === "collection-finish"
   );
 }
 

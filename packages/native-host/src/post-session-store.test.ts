@@ -145,9 +145,17 @@ describe("PostSessionStore", () => {
       uniquePostCount: 1,
       responseCount: 1,
       sites,
+      sources: [
+        { source: "x", uniquePostCount: 1, reason: "target-reached", target: 1 },
+        { source: "instagram", uniquePostCount: 0, reason: "not-logged-in", target: 1 },
+      ],
     })) as string;
     const loaded = await loadSession(root, id);
     expect(loaded.completion?.sites).toEqual(sites);
+    expect(loaded.completion?.sources?.map((s) => [s.source, s.reason])).toEqual([
+      ["x", "target-reached"],
+      ["instagram", "not-logged-in"],
+    ]);
     // A batch without items does not count as the site delivering.
     expect(loaded.feedSiteIds).toEqual([]);
     expect((await listSessions(root))[0]?.completion?.sites).toEqual(sites);

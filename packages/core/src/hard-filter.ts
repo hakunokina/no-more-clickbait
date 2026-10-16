@@ -1,4 +1,4 @@
-import { feedItemKey, isMediaOnly, isXPost } from "./feed-item.js";
+import { feedItemKey, isInstagramPost, isMediaOnly, isXPost } from "./feed-item.js";
 import type { HardFilter } from "./pipeline.js";
 import type { FeedItem } from "./schemas.js";
 
@@ -14,6 +14,11 @@ import type { FeedItem } from "./schemas.js";
  * Media-only posts (no text of their own) cannot be judged from text,
  * but they are KEPT and counted as flagged (owner's decision); the
  * Post carries `mediaOnly` for later stages.
+ *
+ * With `dropSuggested` (the user's "Instagram: only accounts I follow"),
+ * the posts Instagram suggests from accounts the user does not follow
+ * are dropped too, under their own reason; otherwise they are kept and
+ * stay marked `suggested`.
  */
 
 export type HardFilterDropReason =
@@ -22,13 +27,18 @@ export type HardFilterDropReason =
   /** The same item (source + id) was already seen in this run. */
   | "duplicate"
   /** The same original was already seen, at least once via a repost. */
-  | "duplicate-repost";
+  | "duplicate-repost"
+  /** An Instagram suggestion (an account not followed), with `dropSuggested`. */
+  | "not-followed";
 
 export interface HardFilterStats {
   /** Posts offered to the filter. */
   seen: number;
   kept: number;
-  dropped: Record<HardFilterDropReason, number>;
+  /** `not-followed` appears only once such a post was dropped (runs before it existed lack it). */
+  dropped: Record<Exclude<HardFilterDropReason, "not-followed">, number> & {
+    "not-followed"?: number;
+  };
   /** Kept posts that carry a "cannot judge" flag. */
   flagged: { mediaOnly: number };
 }
@@ -43,7 +53,14 @@ export interface HardFilterState {
   stats: HardFilterStats;
 }
 
+export interface HardFilterOptions {
+  /** Drop Instagram's suggestions (accounts not followed). Off by default. */
+  dropSuggested?: boolean;
+}
+
 export interface CountingHardFilter extends HardFilter {
+  /** Like `keep`, with the reason when the item is dropped (null: kept). */
+  check(item: FeedItem): HardFilterDropReason | null;
   /** Live counters for the current run (a snapshot copy). */
   readonly stats: HardFilterStats;
   /** A copy of the run state; pass it to `createHardFilter` to resume. */
@@ -54,8 +71,11 @@ function copyStats(stats: HardFilterStats): HardFilterStats {
   return { ...stats, dropped: { ...stats.dropped }, flagged: { ...stats.flagged } };
 }
 
-export function createHardFilter(resume?: HardFilterState): CountingHardFilter {
-  /** Item key → whether its kept appearance was a repost. */
+export function createHardFilter(
+  resume?: HardFilterState,
+  options: HardFilterOptions = {},
+): CountingHardFilter {
+  /** Item key → whether its first non-ad appearance was a repost. */
   const seenIds = new Map<string, boolean>(resume?.seen);
   const stats: HardFilterStats = resume
     ? copyStats(resume.stats)
@@ -66,26 +86,34 @@ export function createHardFilter(resume?: HardFilterState): CountingHardFilter {
         flagged: { mediaOnly: 0 },
       };
 
-  const drop = (reason: HardFilterDropReason): false => {
-    stats.dropped[reason] += 1;
-    return false;
+  const drop = (reason: HardFilterDropReason): HardFilterDropReason => {
+    stats.dropped[reason] = (stats.dropped[reason] ?? 0) + 1;
+    return reason;
+  };
+
+  const check = (item: FeedItem): HardFilterDropReason | null => {
+    stats.seen += 1;
+    if (item.promoted) return drop("promoted");
+    const isRepost = isXPost(item) && item.repostedBy !== undefined;
+    const key = feedItemKey(item);
+    const seenAsRepost = seenIds.get(key);
+    if (seenAsRepost !== undefined) {
+      return drop(seenAsRepost || isRepost ? "duplicate-repost" : "duplicate");
+    }
+    seenIds.set(key, isRepost);
+    // After the repeat check: a suggestion seen again is a repeat, so
+    // "not-followed" counts distinct suggested posts.
+    if (options.dropSuggested && isInstagramPost(item) && item.suggested === true) {
+      return drop("not-followed");
+    }
+    stats.kept += 1;
+    if (isMediaOnly(item)) stats.flagged.mediaOnly += 1;
+    return null;
   };
 
   return {
-    keep(item: FeedItem): boolean {
-      stats.seen += 1;
-      if (item.promoted) return drop("promoted");
-      const isRepost = isXPost(item) && item.repostedBy !== undefined;
-      const key = feedItemKey(item);
-      const seenAsRepost = seenIds.get(key);
-      if (seenAsRepost !== undefined) {
-        return drop(seenAsRepost || isRepost ? "duplicate-repost" : "duplicate");
-      }
-      seenIds.set(key, isRepost);
-      stats.kept += 1;
-      if (isMediaOnly(item)) stats.flagged.mediaOnly += 1;
-      return true;
-    },
+    check,
+    keep: (item: FeedItem): boolean => check(item) === null,
     get stats(): HardFilterStats {
       return copyStats(stats);
     },
