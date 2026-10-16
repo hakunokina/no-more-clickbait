@@ -297,7 +297,9 @@ function sendProgress(source: CollectSource, count: number, target: number): voi
 }
 
 function sendSitesProgress(sites: SiteProgress[]): void {
-  sitesProgress = sites;
+  // The schema takes at most 100: a longer list would drop the whole
+  // message, the feed's count with it.
+  sitesProgress = sites.slice(0, 100);
   if (progressSent) sendProgress(progressSent.source, progressSent.count, progressSent.target);
 }
 
