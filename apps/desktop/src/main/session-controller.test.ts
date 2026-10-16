@@ -16,7 +16,7 @@ import {
 } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
-import { messages, say } from "../shared/i18n.js";
+import { messages, note, say } from "../shared/i18n.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import {
@@ -447,6 +447,58 @@ describe("SessionController", () => {
     expect((await listSessions(root)).find((s) => s.id === id)?.processed?.status).toBe(
       "cancelled",
     );
+  });
+
+  it("drops a run whose site said it delivered items but stored none, without running", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch(feedBatch("lost.example", []));
+    const sites: SiteCollectOutcome[] = [
+      { siteId: "lost.example", status: "ok", itemCount: 3 },
+    ];
+    const id = (await store.complete({
+      mode: "B",
+      reason: "stalled",
+      uniquePostCount: 0,
+      responseCount: 1,
+      sites,
+    })) as string;
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    c.handleHostEvent({ ...completeEvent(id, "stalled", 0), sites });
+    await expect
+      .poll(async () => (await listSessions(root)).find((s) => s.id === id)?.processed?.status)
+      .toBe("cancelled");
+    expect(judged).toEqual([]);
+    expect(ready).toEqual([]);
+    expect(c.status.run.stage).toBe("idle");
+    expect(c.status.collection.message).toEqual(note("endedEmpty", "stalled"));
+  });
+
+  it("names a site that said it delivered items but stored none as missing", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addBatch(batch(["1", "2"]));
+    const id = (await store.complete({
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 2,
+      responseCount: 1,
+      target: 100,
+      sites: [{ siteId: "lost.example", status: "ok", itemCount: 3 }],
+    })) as string;
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    await c.processPending();
+    expect(c.status.run.stage).toBe("ready");
+    expect(judged.flat().map((item) => `${platformOf(item)}:${item.id}`)).toEqual([
+      "x:1",
+      "x:2",
+    ]);
+    const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+      missingSources: { label: string; reason: string }[];
+    };
+    expect(doc.missingSources).toEqual([
+      { label: "lost.example", reason: messages("en").nothingFromSource },
+    ]);
   });
 
   it("writes the timeline in the windows' language, and again when it changes", async () => {

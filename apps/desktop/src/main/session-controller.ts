@@ -201,9 +201,16 @@ function sourceReasonOf(text: string | undefined): SourceReason {
   );
 }
 
-/** Items the custom sites delivered (outside the X counts). */
-function siteItemCount(sites: readonly SiteCollectOutcome[] | undefined): number {
-  return (sites ?? []).reduce((total, site) => total + site.itemCount, 0);
+/**
+ * Custom-site items the session actually stored (outside the X counts):
+ * a site's own `itemCount` may claim items whose batch never got saved.
+ */
+async function storedFeedItemCount(root: string, sessionId: string): Promise<number> {
+  try {
+    return (await loadSession(root, sessionId)).feedItems.length;
+  } catch {
+    return 0;
+  }
 }
 
 export class SessionController {
@@ -460,7 +467,6 @@ export class SessionController {
       mode: event.mode,
       reason: event.reason,
       uniquePostCount: event.uniquePostCount,
-      siteItemCount: siteItemCount(event.sites),
       target: event.target ?? this.#status.collection.target,
       live: true,
     }).catch((error: unknown) => this.#deps.log?.(`completion failed: ${String(error)}`));
@@ -472,15 +478,16 @@ export class SessionController {
     mode: "A" | "B";
     reason: string;
     uniquePostCount: number;
-    /** Items custom sites delivered: a run with only these is not empty. */
-    siteItemCount: number;
     target: number | null;
     /** Announced just now (not found on disk at start-up): notify the user. */
     live: boolean;
   }): Promise<void> {
-    // Batches of ads/repeats only leave a folder but no post to build from.
+    // Batches of ads/repeats only leave a folder but no post to build from;
+    // a run with only custom-site items stored is not empty.
     const empty =
-      done.sessionId === null || (done.uniquePostCount === 0 && done.siteItemCount === 0);
+      done.sessionId === null ||
+      (done.uniquePostCount === 0 &&
+        (await storedFeedItemCount(this.#deps.sessionsRoot, done.sessionId)) === 0);
     let plan = empty ? "drop" : planCompletion(done.mode, done.reason);
     if (plan === "build" && this.#status.collection.state === "cancelling") {
       // The user already cancelled: a late complete (e.g. target-reached
@@ -702,7 +709,6 @@ export class SessionController {
       mode: newest.completion.mode,
       reason: newest.completion.reason,
       uniquePostCount: newest.completion.uniquePostCount,
-      siteItemCount: siteItemCount(newest.completion.sites),
       target: newest.completion.target ?? null,
       live: false,
     });
