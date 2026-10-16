@@ -169,6 +169,26 @@ const igSession = new CaptureSession(chrome.storage.session, INSTAGRAM_SESSION_K
 function sessionOf(source: CollectSource): CaptureSession {
   return source === "x" ? session : igSession;
 }
+
+/**
+ * session: a feed (X, Instagram) sent posts to the current host session —
+ * kept apart from the counters, which a tick turned off resets.
+ */
+const FEED_POSTS_SENT_KEY = "nmc.feedPostsSent";
+let postsSent = false;
+
+async function markFeedPostsSent(): Promise<void> {
+  if (postsSent) return;
+  postsSent = true;
+  await chrome.storage.session.set({ [FEED_POSTS_SENT_KEY]: true }).catch(() => undefined);
+}
+
+async function feedPostsSent(): Promise<boolean> {
+  if (postsSent) return true;
+  const items = await chrome.storage.session.get(FEED_POSTS_SENT_KEY).catch(() => ({}));
+  return (items as Record<string, unknown>)[FEED_POSTS_SENT_KEY] === true;
+}
+
 let linkRetryMs = LINK_RETRY_FIRST_MS;
 let linkTimer: ReturnType<typeof setTimeout> | null = null;
 /** The current session's host is linked to the desktop app. */
@@ -478,7 +498,7 @@ async function handleCapture(
     capturedAt: new Date().toISOString(),
     posts,
   };
-  sendToDesktop({ type: "post-batch", batch });
+  if (sendToDesktop({ type: "post-batch", batch })) await markFeedPostsSent();
 
   // With capture ON the host's count is the single source (see top).
   if (!settings?.devCaptureEnabled) {
@@ -520,7 +540,9 @@ async function handleInstagramCapture(
   await modeB.onResponse(tabId, false, "instagram");
   const posts = parseInstagramTimeline(parseInstagramBody(message.bodyText));
   if (posts.length === 0 || (await igSession.closedReason()) !== null) return;
-  sendFeedBatch({ capturedAt: new Date().toISOString(), items: posts });
+  if (sendFeedBatch({ capturedAt: new Date().toISOString(), items: posts })) {
+    await markFeedPostsSent();
+  }
   // "Only accounts I follow": suggestions still ride along (the pipeline's
   // hard filter drops them, counted apart) but never count towards the target.
   const counted = settings.instagramFollowedOnly
@@ -633,24 +655,30 @@ function completeModeA(
   countGeneration: number,
 ): void {
   if (count < settings.collectTarget || countGeneration !== generation) return;
-  runCommand(() => settleModeA(settings, countGeneration, source));
+  runCommand(() => settleModeA(countGeneration, source));
 }
 
 /**
- * Completes a Mode A collection when every feed collected now (`settings`)
- * is at the target: closed there, or `reached` (the feed whose count just
- * got there). Otherwise `reached` is closed and the others go on. Runs in
- * the command queue.
+ * Completes a Mode A collection when every feed collected now is at the
+ * target: closed there, or `reached` (the feed whose count just got
+ * there). Otherwise `reached` is closed and the others go on. With no
+ * feed on any more, it ends without them. Runs in the command queue.
  */
-async function settleModeA(
-  settings: Settings,
-  countGeneration: number,
-  reached?: CollectSource,
-): Promise<void> {
+async function settleModeA(countGeneration: number, reached?: CollectSource): Promise<void> {
   // Another message may have completed this session already.
   if (countGeneration !== generation || (await modeB.current())) return;
+  // Read now, not when the count was taken: a tick turned off meanwhile
+  // keeps its feed out of the completion.
+  const settings = await loadSettings();
+  // As a count's: with developer capture on, Mode A never completes on its own.
+  if (settings.devCaptureEnabled) return;
   const sources = enabledCollectSources(settings);
-  if (sources.length === 0) return;
+  if (sources.length === 0) {
+    // With no post sent, nothing is open: the turned-off feeds' counters were reset.
+    if (await feedPostsSent()) await completeWithoutFeeds(settings);
+    return;
+  }
+  if (reached && !sources.includes(reached)) reached = undefined;
   for (const other of sources) {
     if (other === reached || (await sessionOf(other).closedReason()) !== null) continue;
     if ((await countOf(other, settings)) < settings.collectTarget) {
@@ -687,6 +715,11 @@ async function settleModeA(
  * the feeds still on, and the desktop leaves out what the others
  * stored) — and the collection completes if every feed still on is
  * already at the target.
+ *
+ * Off and on again: the count restarts, yet the posts the feed sent
+ * before it was turned off stay in the host session, and the completion
+ * names the feed, so they are judged too. Deliberate — nothing the user
+ * scrolled is lost; only the count shown runs lower than what goes in.
  */
 async function sourcesToggled(toggled: readonly CollectSource[]): Promise<void> {
   for (const source of toggled) await sessionOf(source).reset();
@@ -695,9 +728,7 @@ async function sourcesToggled(toggled: readonly CollectSource[]): Promise<void> 
     for (const source of toggled) delete next[source];
     return next;
   });
-  const settings = await loadSettings();
-  // As a count's: with developer capture on, Mode A never completes on its own.
-  if (!settings.devCaptureEnabled) await settleModeA(settings, generation);
+  await settleModeA(generation);
 }
 
 /**
@@ -709,6 +740,10 @@ async function finishCollectionNow(): Promise<void> {
   if (await modeB.current()) return;
   const settings = await loadSettings();
   const sources = enabledCollectSources(settings);
+  if (sources.length === 0) {
+    if (await feedPostsSent()) await completeWithoutFeeds(settings);
+    return;
+  }
   const counts = new Map<CollectSource, number>();
   const closed = new Map<CollectSource, string | null>();
   for (const source of sources) {
@@ -731,6 +766,24 @@ async function finishCollectionNow(): Promise<void> {
       }),
       settings.collectTarget,
     ),
+  });
+}
+
+/**
+ * Mode A, X and Instagram were both turned off after posts went to the
+ * host: the collection ends with no feed named (the desktop leaves their
+ * posts out), the custom sites' items alone, and waits for the user's
+ * go as any collection finished early.
+ */
+async function completeWithoutFeeds(settings: Settings): Promise<void> {
+  startSiteRun();
+  await completeCollection({
+    mode: "A",
+    reason: "finished-early",
+    uniquePostCount: 0,
+    responseCount: 0,
+    target: Math.min(settings.collectTarget, 10_000),
+    sources: [],
   });
 }
 
@@ -762,6 +815,8 @@ async function startNewCountingSession(): Promise<void> {
   channel.retire();
   await session.reset();
   await igSession.reset();
+  postsSent = false;
+  await chrome.storage.session.remove(FEED_POSTS_SENT_KEY).catch(() => undefined);
   await changeProgress(() => ({}));
   if (titled) {
     titled = false;
