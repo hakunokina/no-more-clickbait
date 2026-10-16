@@ -1,5 +1,5 @@
 /**
- * UI messages of the Sites section and the in-page picker (leader
+ * The extension's UI messages (Sites, picker, Options, popup, worker; leader
  * decision #778): English default, Turkish (the design's Turkish texts
  * are the source). `$1`…`$9` are positional arguments. The build writes
  * these out as `_locales/<lang>/messages.json` for `chrome.i18n`; `TR`
@@ -352,6 +352,119 @@ export const EN = {
   importAddedTestFailed: "“$1” added, but the test did not work: $2",
   importAddedNoPerm:
     "“$1” added, but the browser did not grant access; it is not collected until you allow it.",
+
+  // Manifest and popup. "<b>", "<em>" and "<code>" in a message are
+  // rendered as those elements (i18n-dom.ts); nothing else is markup.
+  extName: "No More Clickbait",
+  extDescription:
+    "Reads your own X home timeline from your own browser session and hands it to the No More Clickbait desktop app for clickbait filtering. Your cookies never leave this device.",
+  popupLead:
+    "While you browse X, your timeline is collected on this device and handed to the desktop app for filtering. Your cookies never leave this browser.",
+  popupOptions: "Options",
+
+  // Options page
+  optTitle: "No More Clickbait — options",
+  optPipelineLegend: "Filter and verification",
+  optPipelineHint:
+    "How the desktop app collects, filters and checks your timeline. Saving also sends these settings to the desktop app.",
+  optRestoreDefaults: "Restore defaults",
+  optModesLegend: "Collection modes",
+  optModeA:
+    "<b>Mode A (always available):</b> while you browse X yourself, the extension passively keeps the timeline responses your browser already received.",
+  optModeBLabel: "Mode B: collect automatically in a hidden tab",
+  optModeBRisk:
+    "<b>Off by default, and risky.</b> Mode B opens X in a hidden tab and scrolls it automatically until enough posts are gathered. Automated browsing sits in a grey area of X's Terms of Service and may put your account at risk (rate limits, locks or suspension). Only enable it if you understand and accept that. See the README section “Mode B and its risks”.",
+  optModeBRun:
+    "A run collects “Posts to collect” distinct organic posts (no ads, no repeats). It also stops after 10 minutes, after about 20 seconds without a new post, or when X shows a login, error or rate-limit page. The hidden window closes when the run ends.",
+  optStrategyLabel: "Where to collect",
+  optStrategyMinimized: "Minimized window (default)",
+  optStrategyOffscreen: "Small window in the screen corner (visible)",
+  optStrategyHint:
+    "Use the corner window if the minimized one stops loading posts. Browsers keep at least half of a window on screen, so the corner window stays partly visible. A background tab is not offered: X stopped loading there.",
+  optPacingLabel: "Scroll pace",
+  optPacingNormal: "Normal (default)",
+  optPacingFast: "Fast",
+  optPacingHint:
+    "Fast scrolls twice as quickly, but may be more likely to be noticed by X. Save before collecting.",
+  optLastRunHeading: "Last run",
+  optDevLegend: "Developer capture",
+  optDevLabel: "Developer capture: save raw timeline responses locally",
+  optDevRisk:
+    "<b>Off by default.</b> While on, the HomeTimeline responses X sends your browser are forwarded verbatim to the native host, which writes them <em>outside the repo</em> to <code>%LOCALAPPDATA%\\nmc\\captures\\<session time>\\</code> (or under <code>NMC_INBOX_DIR</code> if set), with a counts/times-only <code>summary.json</code>. These raw dumps are <b>personal data</b> (your own home timeline) — never share them and never commit them. For development/debugging only.",
+  optDevBadge:
+    "The badge shows the running count of distinct organic posts (ads and repeats not counted); you get a notification when “Posts to collect” were captured. Capture does not stop at that number. Toggling developer capture starts a new count and a new capture folder.",
+  optDevReddit:
+    "Reddit is captured too, into a separate <code>…-reddit</code> folder. Rebuild the native host (<code>pnpm build</code>) before opening a Reddit tab with capture on — an older host mixes Reddit data into the X folder.",
+  optDesktopChangedDirty:
+    "Changed in the desktop app. Your unsaved edits are kept: Save keeps them, reloading this page shows the desktop's values.",
+  optDesktopUpdated: "Updated from the desktop app.",
+  optDefaultsRestored: "Defaults restored in the form — press Save to keep them.",
+  optNotSaved: "Not saved — fix the highlighted values first.",
+  optSaved: "Saved.",
+  optSavedNoAlarms:
+    "Saved, but Mode B stays off: the browser did not grant its “alarms” permission.",
+  optSaveFailed: "Could not save settings — check the values and try again.",
+  fieldDefaultOn: "$1 Default: on.",
+  fieldDefaultOff: "$1 Default: off.",
+  fieldRange: "$1 Range $2–$3, default $4.",
+  fieldWholeNumber: "Enter a whole number from $1 to $2.",
+  syncUnreachable:
+    "Could not reach the desktop app — settings are saved in the extension and will be sent the next time the browser starts or you save again.",
+  syncRejected:
+    "The desktop app did not accept the settings (its native host may be older than the extension: run `pnpm build` and re-register the host). Settings are saved in the extension.",
+
+  // Mode B ("Collect feed") controls, last run, worker notifications
+  modeBCollectIdle: "Collect feed",
+  modeBCollect: "Collect feed ($1)",
+  modeBStop: "Stop collecting",
+  modeBCollecting: "Collecting in the background… $1 / $2 distinct posts.",
+  modeBOff: "Mode B is off — turn it on in Options to collect automatically.",
+  modeBNoRun: "No run yet.",
+  modeBStateFailed: "Could not read the Mode B state.",
+  modeBNeedsAlarms: "Mode B needs the “alarms” permission to run.",
+  modeBLastRun: "Last run: $1 / $2 posts via $3 — $4$5.",
+  strategyMinimized: "minimized window",
+  strategyBackgroundTab: "background tab (retired)",
+  strategyOffscreen: "small window in the screen corner (visible)",
+  pacingNormal: "normal (default)",
+  pacingFast: "fast",
+  counterHost: "native host",
+  counterExtension: "extension",
+  rowResult: "Result",
+  rowError: "Error",
+  rowSurface: "Hidden surface",
+  rowPacing: "Pacing",
+  rowDistinct: "Distinct posts",
+  rowDistinctValue: "$1 of $2 (counted by the $3)",
+  rowDuration: "Duration",
+  rowDurationValue: "$1 s",
+  rowScrolls: "Scroll steps",
+  rowScrollsValue: "$1 (position moved in $2)",
+  rowScrollsPerMinute: "Scrolls per minute",
+  rowHiddenSteps: "Steps while page hidden",
+  rowResponses: "Timeline responses",
+  rowResponsesNone: "0 — X never loaded the timeline in the run's tab",
+  rowNewResponseSteps: "Steps that brought a new response (after the first)",
+  rowEnded: "Ended",
+  stopTargetReached: "target reached",
+  stopTimeout: "time limit reached",
+  stopStalled: "no new posts for about 20 s of scrolling",
+  stopNotLoggedIn: "not logged in to X in this browser",
+  stopErrorPage: "X showed an error page",
+  stopNavigatedAway: "the tab left x.com/home",
+  stopRateLimited: "X rate-limited the timeline",
+  stopPageUnresponsive: "the page stopped answering scroll steps",
+  stopTabClosed: "the tab was closed",
+  stopCancelled: "stopped by you",
+  stopSettingsChanged: "settings changed during the run",
+  stopPermissionMissing: "Mode B permission not granted — re-enable Mode B in Options",
+  stopFailedToOpen: "could not open the collection tab or window",
+  notifyCaptureTitle: "No More Clickbait — capture target reached",
+  notifyCaptureBody:
+    "$1 distinct posts captured in $2 timeline responses (target $3). Capture continues; turn it off in Options to stop.",
+  notifyModeBFinished: "No More Clickbait — collection finished",
+  notifyModeBStopped: "No More Clickbait — collection stopped",
+  notifyModeBBody: "$1 of $2 distinct posts in $3 s ($4 scrolls): $5.",
 } as const;
 
 export type MessageKey = keyof typeof EN;
@@ -698,6 +811,114 @@ export const TR: Record<MessageKey, string> = {
   importAdded: "“$1” eklendi — sayfada sınandı: $2 öğe.",
   importAddedTestFailed: "“$1” eklendi ama sınama çalışmadı: $2",
   importAddedNoPerm: "“$1” eklendi ama tarayıcı izin vermedi; izin verilene kadar toplanmaz.",
+
+  extName: "No More Clickbait",
+  extDescription:
+    "Kendi X ana sayfa akışını kendi tarayıcı oturumundan okur ve clickbait filtrelemesi için No More Clickbait masaüstü uygulamasına verir. Çerezlerin bu cihazdan hiç çıkmaz.",
+  popupLead:
+    "X'te gezinirken akışın bu cihazda toplanır ve filtrelenmek üzere masaüstü uygulamasına verilir. Çerezlerin bu tarayıcıdan hiç çıkmaz.",
+  popupOptions: "Seçenekler",
+
+  optTitle: "No More Clickbait — seçenekler",
+  optPipelineLegend: "Filtre ve doğrulama",
+  optPipelineHint:
+    "Masaüstü uygulamasının akışını nasıl topladığı, filtrelediği ve kontrol ettiği. Kaydetmek bu ayarları masaüstü uygulamasına da gönderir.",
+  optRestoreDefaults: "Varsayılanlara dön",
+  optModesLegend: "Toplama modları",
+  optModeA:
+    "<b>A modu (her zaman açık):</b> X'te kendin gezinirken eklenti, tarayıcının zaten aldığı akış yanıtlarını kendiliğinden saklar.",
+  optModeBLabel: "B modu: gizli bir pencerede kendiliğinden topla",
+  optModeBRisk:
+    "<b>Varsayılan olarak kapalı ve riskli.</b> B modu X'i gizli bir pencerede açar ve yeterli gönderi toplanana kadar kendiliğinden kaydırır. Otomatik gezinme X'in Hizmet Şartları'nın gri bir alanında kalır ve hesabını riske atabilir (hız sınırı, kilitlenme ya da askıya alma). Yalnız bunu anlayıp kabul ediyorsan aç. README'deki “Mode B and its risks” bölümüne bak.",
+  optModeBRun:
+    "Bir çalıştırma “Toplanacak gönderi” kadar farklı organik gönderi toplar (reklam ve tekrar yok). 10 dakika sonra, yaklaşık 20 saniye yeni gönderi gelmeyince ya da X bir giriş, hata veya hız sınırı sayfası gösterince de durur. Çalıştırma bitince gizli pencere kapanır.",
+  optStrategyLabel: "Toplama yeri",
+  optStrategyMinimized: "Simge durumuna küçültülmüş pencere (varsayılan)",
+  optStrategyOffscreen: "Ekran köşesinde küçük pencere (görünür)",
+  optStrategyHint:
+    "Küçültülmüş pencere gönderi yüklemeyi bırakırsa köşe penceresini kullan. Tarayıcılar bir pencerenin en az yarısını ekranda tutar; bu yüzden köşe penceresi kısmen görünür kalır. Arka plan sekmesi sunulmuyor: X orada yüklemeyi bıraktı.",
+  optPacingLabel: "Kaydırma hızı",
+  optPacingNormal: "Normal (varsayılan)",
+  optPacingFast: "Hızlı",
+  optPacingHint:
+    "Hızlı, iki kat çabuk kaydırır ama X'in dikkatini çekme olasılığı daha yüksek olabilir. Toplamadan önce kaydet.",
+  optLastRunHeading: "Son çalıştırma",
+  optDevLegend: "Geliştirici kaydı",
+  optDevLabel: "Geliştirici kaydı: ham akış yanıtlarını yerelde sakla",
+  optDevRisk:
+    "<b>Varsayılan olarak kapalı.</b> Açıkken X'in tarayıcına gönderdiği HomeTimeline yanıtları olduğu gibi native host'a iletilir; host bunları <em>repo dışına</em>, <code>%LOCALAPPDATA%\\nmc\\captures\\<oturum zamanı>\\</code> klasörüne (ayarlıysa <code>NMC_INBOX_DIR</code> altına) yazar ve yanına yalnız sayı ve zaman içeren bir <code>summary.json</code> koyar. Bu ham dökümler <b>kişisel veridir</b> (kendi ana sayfa akışın) — asla paylaşma ve asla commit'leme. Yalnız geliştirme/hata ayıklama için.",
+  optDevBadge:
+    "Rozet, farklı organik gönderilerin anlık sayısını gösterir (reklam ve tekrarlar sayılmaz); “Toplanacak gönderi” kadarı kaydedilince bildirim gelir. Kayıt bu sayıda durmaz. Geliştirici kaydını açıp kapatmak yeni bir sayım ve yeni bir kayıt klasörü başlatır.",
+  optDevReddit:
+    "Reddit de ayrı bir <code>…-reddit</code> klasörüne kaydedilir. Kayıt açıkken Reddit sekmesi açmadan önce native host'u yeniden derle (<code>pnpm build</code>) — eski bir host Reddit verisini X klasörüne karıştırır.",
+  optDesktopChangedDirty:
+    "Masaüstü uygulamasında değiştirildi. Kaydedilmemiş düzenlemelerin duruyor: Kaydet onları korur, sayfayı yenilemek masaüstünün değerlerini gösterir.",
+  optDesktopUpdated: "Masaüstü uygulamasından güncellendi.",
+  optDefaultsRestored: "Formda varsayılanlara dönüldü — korumak için Kaydet'e bas.",
+  optNotSaved: "Kaydedilmedi — önce işaretli değerleri düzelt.",
+  optSaved: "Kaydedildi.",
+  optSavedNoAlarms: "Kaydedildi ama B modu kapalı kalıyor: tarayıcı “alarms” iznini vermedi.",
+  optSaveFailed: "Ayarlar kaydedilemedi — değerleri kontrol edip tekrar dene.",
+  fieldDefaultOn: "$1 Varsayılan: açık.",
+  fieldDefaultOff: "$1 Varsayılan: kapalı.",
+  fieldRange: "$1 Aralık $2–$3, varsayılan $4.",
+  fieldWholeNumber: "$1 ile $2 arasında bir tam sayı gir.",
+  syncUnreachable:
+    "Masaüstü uygulamasına ulaşılamadı — ayarlar eklentide kayıtlı; tarayıcı bir sonraki açılışında ya da yeniden kaydettiğinde gönderilir.",
+  syncRejected:
+    "Masaüstü uygulaması ayarları kabul etmedi (native host'u eklentiden eski olabilir: `pnpm build` çalıştırıp host'u yeniden kaydet). Ayarlar eklentide kayıtlı.",
+
+  modeBCollectIdle: "Akışı topla",
+  modeBCollect: "Akışı topla ($1)",
+  modeBStop: "Toplamayı durdur",
+  modeBCollecting: "Arka planda toplanıyor… $1 / $2 farklı gönderi.",
+  modeBOff: "B modu kapalı — kendiliğinden toplamak için Seçenekler'de aç.",
+  modeBNoRun: "Henüz çalıştırma yok.",
+  modeBStateFailed: "B modunun durumu okunamadı.",
+  modeBNeedsAlarms: "B modunun çalışması için “alarms” izni gerekiyor.",
+  modeBLastRun: "Son çalıştırma: $3 ile $1 / $2 gönderi — $4$5.",
+  strategyMinimized: "küçültülmüş pencere",
+  strategyBackgroundTab: "arka plan sekmesi (kaldırıldı)",
+  strategyOffscreen: "ekran köşesinde küçük pencere (görünür)",
+  pacingNormal: "normal (varsayılan)",
+  pacingFast: "hızlı",
+  counterHost: "native host",
+  counterExtension: "eklenti",
+  rowResult: "Sonuç",
+  rowError: "Hata",
+  rowSurface: "Gizli yüzey",
+  rowPacing: "Kaydırma hızı",
+  rowDistinct: "Farklı gönderi",
+  rowDistinctValue: "$1 / $2 (sayan: $3)",
+  rowDuration: "Süre",
+  rowDurationValue: "$1 sn",
+  rowScrolls: "Kaydırma adımı",
+  rowScrollsValue: "$1 (konum $2 adımda değişti)",
+  rowScrollsPerMinute: "Dakikada kaydırma",
+  rowHiddenSteps: "Sayfa gizliyken atılan adım",
+  rowResponses: "Akış yanıtı",
+  rowResponsesNone: "0 — X, çalıştırmanın sekmesinde akışı hiç yüklemedi",
+  rowNewResponseSteps: "Yeni yanıt getiren adım (ilkinden sonra)",
+  rowEnded: "Bitiş",
+  stopTargetReached: "hedefe ulaşıldı",
+  stopTimeout: "süre sınırı doldu",
+  stopStalled: "yaklaşık 20 sn kaydırmada yeni gönderi gelmedi",
+  stopNotLoggedIn: "bu tarayıcıda X oturumu açık değil",
+  stopErrorPage: "X bir hata sayfası gösterdi",
+  stopNavigatedAway: "sekme x.com/home'dan ayrıldı",
+  stopRateLimited: "X akışı hız sınırına takıldı",
+  stopPageUnresponsive: "sayfa kaydırma adımlarına yanıt vermez oldu",
+  stopTabClosed: "sekme kapatıldı",
+  stopCancelled: "sen durdurdun",
+  stopSettingsChanged: "çalışma sırasında ayarlar değişti",
+  stopPermissionMissing: "B modu izni verilmedi — Seçenekler'de B modunu yeniden aç",
+  stopFailedToOpen: "toplama sekmesi ya da penceresi açılamadı",
+  notifyCaptureTitle: "No More Clickbait — kayıt hedefine ulaşıldı",
+  notifyCaptureBody:
+    "$2 akış yanıtında $1 farklı gönderi kaydedildi (hedef $3). Kayıt sürüyor; durdurmak için Seçenekler'de kapat.",
+  notifyModeBFinished: "No More Clickbait — toplama bitti",
+  notifyModeBStopped: "No More Clickbait — toplama durdu",
+  notifyModeBBody: "$3 sn'de $1 / $2 farklı gönderi ($4 kaydırma): $5.",
 };
 
 export const LOCALES: Record<string, Record<MessageKey, string>> = { en: EN, tr: TR };

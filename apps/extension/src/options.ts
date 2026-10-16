@@ -5,6 +5,8 @@ import {
   type Settings,
   type SettingsStamp,
 } from "@nmc/core";
+import { t } from "./i18n.js";
+import { localizePage } from "./i18n-dom.js";
 import { bindModeBControls, requestModeBPermissions } from "./mode-b-view.js";
 import {
   fillPipelineFields,
@@ -23,6 +25,8 @@ import { createSettingsSyncer, describeSyncResult, sendNativeOnce } from "./sett
 import { SitesSection } from "./sites/sites-section.js";
 import { fetchText } from "./sites/fetch-text.js";
 import { SITE_NEW_RULE_KEY, touchesSites } from "./sites/storage-keys.js";
+
+localizePage(document);
 
 const modeB = document.querySelector<HTMLInputElement>("#mode-b");
 const modeBStrategy = document.querySelector<HTMLSelectElement>("#mode-b-strategy");
@@ -76,12 +80,11 @@ async function init(): Promise<void> {
       settings = loaded;
       syncStatus.textContent = "";
       if (dirty) {
-        status.textContent =
-          "Changed in the desktop app. Your unsaved edits are kept: Save keeps them, reloading this page shows the desktop's values.";
+        status.textContent = t("optDesktopChangedDirty");
         return;
       }
       fill(loaded);
-      status.textContent = "Updated from the desktop app.";
+      status.textContent = t("optDesktopUpdated");
     });
   });
   controls.get("verifyEnabled")?.input.addEventListener("change", () => {
@@ -90,7 +93,7 @@ async function init(): Promise<void> {
   pipelineDefaults.addEventListener("click", () => {
     fillPipelineFields(controls, defaultSyncedSettings());
     dirty = true;
-    status.textContent = "Defaults restored in the form — press Save to keep them.";
+    status.textContent = t("optDefaultsRestored");
   });
   bindModeBControls({ button: modeBRun, status: modeBStatus, lastRun: modeBLastRun });
   const syncSettings = createSettingsSyncer(sendNativeOnce);
@@ -100,7 +103,7 @@ async function init(): Promise<void> {
     const pipeline = readPipelineForm(readPipelineFields(controls), settings);
     showPipelineErrors(controls, pipeline);
     if (!pipeline.ok) {
-      status.textContent = "Not saved — fix the highlighted values first.";
+      status.textContent = t("optNotSaved");
       syncStatus.textContent = "";
       return;
     }
@@ -125,11 +128,9 @@ async function init(): Promise<void> {
         stamp = { updatedAt: new Date().toISOString(), source: "extension" };
         await saveSettings(settings, stamp);
         dirty = false;
-        status.textContent = granted
-          ? "Saved."
-          : "Saved, but Mode B stays off: the browser did not grant its “alarms” permission.";
+        status.textContent = granted ? t("optSaved") : t("optSavedNoAlarms");
       } catch {
-        status.textContent = "Could not save settings — check the values and try again.";
+        status.textContent = t("optSaveFailed");
         return;
       }
       syncStatus.textContent = "";

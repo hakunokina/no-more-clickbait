@@ -7,6 +7,7 @@ import {
   type SyncedSettingKey,
   type SyncedSettings,
 } from "@nmc/core";
+import { t } from "./i18n.js";
 
 /**
  * Form logic of the Options page's "Filter and verification" section.
@@ -79,7 +80,7 @@ export function readPipelineForm(
         values[key] = stored[key];
         continue;
       }
-      errors[key] = `Enter a whole number from ${field.min} to ${field.max}.`;
+      errors[key] = t("fieldWholeNumber", field.min, field.max);
       continue;
     }
     values[key] = value;

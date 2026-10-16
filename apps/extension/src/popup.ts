@@ -1,4 +1,7 @@
+import { localizePage } from "./i18n-dom.js";
 import { bindModeBControls } from "./mode-b-view.js";
+
+localizePage(document);
 
 const openOptions = document.querySelector<HTMLButtonElement>("#open-options");
 openOptions?.addEventListener("click", () => {

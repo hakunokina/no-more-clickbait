@@ -1,4 +1,5 @@
-import { SYNCED_SETTING_FIELDS, type SyncedSettings } from "@nmc/core";
+import { settingCopy, SYNCED_SETTING_FIELDS, type SyncedSettings } from "@nmc/core";
+import { t } from "./i18n.js";
 import {
   SYNCED_SETTING_KEYS,
   VERIFY_DEPENDENT_KEYS,
@@ -26,6 +27,7 @@ export function renderPipelineFields(container: HTMLElement): PipelineControls {
   const controls: PipelineControls = new Map();
   for (const key of SYNCED_SETTING_KEYS) {
     const field = SYNCED_SETTING_FIELDS[key];
+    const copy = settingCopy(t("langCode") === "tr" ? "tr" : "en", key);
     const wrapper = doc.createElement("div");
     wrapper.className = "field";
     const label = doc.createElement("label");
@@ -34,7 +36,7 @@ export function renderPipelineFields(container: HTMLElement): PipelineControls {
     input.name = key;
     if (field.kind === "boolean") {
       input.type = "checkbox";
-      label.append(input, ` ${field.label}`);
+      label.append(input, ` ${copy.label}`);
     } else {
       input.type = "number";
       input.min = String(field.min);
@@ -42,15 +44,15 @@ export function renderPipelineFields(container: HTMLElement): PipelineControls {
       input.step = "1";
       input.inputMode = "numeric";
       input.required = true;
-      label.append(`${field.label} `, input);
+      label.append(`${copy.label} `, input);
     }
     const hint = doc.createElement("p");
     hint.id = `${input.id}-hint`;
     hint.className = "hint";
     hint.textContent =
       field.kind === "boolean"
-        ? `${field.description} Default: ${field.default ? "on" : "off"}.`
-        : `${field.description} Range ${field.min}–${field.max}, default ${field.default}.`;
+        ? t(field.default ? "fieldDefaultOn" : "fieldDefaultOff", copy.description)
+        : t("fieldRange", copy.description, field.min, field.max, field.default);
     const error = doc.createElement("p");
     error.id = `${input.id}-error`;
     error.className = "error";

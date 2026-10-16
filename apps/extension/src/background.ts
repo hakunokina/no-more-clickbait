@@ -19,6 +19,7 @@ import {
 } from "@nmc/core";
 import { CaptureSession } from "./capture-session.js";
 import { installDevCaptureScripts } from "./dev-capture-scripts.js";
+import { t } from "./i18n.js";
 import {
   isModeBCommandMessage,
   isWorkerCaptureMessage,
@@ -253,10 +254,13 @@ async function reflectCaptureStats(
     await chrome.notifications.create(CAPTURE_NOTIFICATION_ID, {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon-128.png"),
-      title: "No More Clickbait — capture target reached",
-      message:
-        `${stats.uniquePostCount} distinct posts captured in ${stats.responseCount} timeline responses ` +
-        `(target ${settings.collectTarget}). Capture continues; turn it off in Options to stop.`,
+      title: t("notifyCaptureTitle"),
+      message: t(
+        "notifyCaptureBody",
+        stats.uniquePostCount,
+        stats.responseCount,
+        settings.collectTarget,
+      ),
     });
   } catch {
     // Notification is best-effort; the badge already shows the state.
@@ -514,11 +518,15 @@ async function finishModeB(summary: ModeBRunSummary): Promise<void> {
     await chrome.notifications.create(MODE_B_NOTIFICATION_ID, {
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon-128.png"),
-      title: `No More Clickbait — collection ${reached ? "finished" : "stopped"}`,
-      message:
-        `${summary.uniquePostCount} of ${summary.target} distinct posts in ` +
-        `${Math.round(summary.durationMs / 1000)} s (${summary.scrollCount} scrolls): ` +
-        `${describeStopReason(summary.stopReason)}.`,
+      title: t(reached ? "notifyModeBFinished" : "notifyModeBStopped"),
+      message: t(
+        "notifyModeBBody",
+        summary.uniquePostCount,
+        summary.target,
+        Math.round(summary.durationMs / 1000),
+        summary.scrollCount,
+        describeStopReason(summary.stopReason),
+      ),
     });
   } catch {
     // Notification is best-effort; the options page shows the last run.

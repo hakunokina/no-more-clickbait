@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "No More Clickbait",
+  "name": "__MSG_extName__",
   "version": "0.1.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqcmR2D8okABQiSqTrpFFHEnlwXeMgnoTdNn4GJ4qzli9S4XLZ+ifMOYQwqwG8qGTEYXTHd82RbHJ/Bw16eKj4jwWESFabtx6HW1yOGpEXkhK5ipyJ+Tww1z6PZLKmU/Wv9QbkxsnVcsqQmgfCJInV37aXjpAXLla8+6//QbELMFGpR1dyChHmCQ5wdnJLMA8fRB8ln+yooS4H1M4KHEiTtgQKSicwsror8NEnQLwO2fSukLjrVYETUVoI0bJ9oiDhWudK3LnedPbld34mWSaVnp/sRzDLPXibaTCLwgMhFVUKha8hS82So1ecMt9i/sQoA1xVe/c4zbw0GTwGkJ/2wIDAQAB",
-  "description": "Reads your own X home timeline from your own browser session and hands it to the No More Clickbait desktop app for clickbait filtering. Your cookies never leave this device.",
+  "description": "__MSG_extDescription__",
   "icons": { "128": "icon-128.png" },
   "default_locale": "en",
   "permissions": ["storage", "nativeMessaging", "notifications", "scripting", "offscreen"],
@@ -16,7 +16,7 @@
   },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "No More Clickbait",
+    "default_title": "__MSG_extName__",
     "default_icon": { "128": "icon-128.png" }
   },
   "options_page": "options.html",

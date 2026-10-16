@@ -9,6 +9,7 @@ import {
   type SettingsPushResult,
   type SettingsStamp,
 } from "@nmc/core";
+import { t } from "./i18n.js";
 import { applyPipelineSettings } from "./pipeline-form.js";
 
 /**
@@ -119,15 +120,9 @@ export function describeSyncResult(result: SettingsSyncResult): string {
     case "synced":
       return "";
     case "unreachable":
-      return (
-        "Could not reach the desktop app — settings are saved in the extension and will be " +
-        "sent the next time the browser starts or you save again."
-      );
+      return t("syncUnreachable");
     case "rejected":
-      return (
-        "The desktop app did not accept the settings (its native host may be older than the " +
-        "extension: run `pnpm build` and re-register the host). Settings are saved in the extension."
-      );
+      return t("syncRejected");
   }
 }
 
