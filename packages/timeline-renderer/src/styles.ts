@@ -398,3 +398,11 @@ a.gen__domain:hover { text-decoration: underline; color: var(--accent); }
   .gen__body { gap: var(--s2); }
 }
 `;
+
+/** Only on a page with a suggested Instagram post, so the others stay unchanged. */
+export const SUGGESTED_CSS = `
+.ig__suggested {
+  display: inline-block; padding: 0 6px; border: 1px solid var(--border); border-radius: var(--r-pill);
+  color: var(--text); font-size: .75rem; font-weight: 600; line-height: 1.5;
+}
+`;

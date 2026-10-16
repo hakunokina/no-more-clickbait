@@ -21,7 +21,7 @@ import {
 } from "@nmc/core";
 import { CARDS_SCRIPTS, TIMELINE_SCRIPTS } from "./client-script.js";
 import { RENDER_MESSAGES, type RenderMessages } from "./messages.js";
-import { CARDS_CSS, TIMELINE_CSS } from "./styles.js";
+import { CARDS_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
 
 /**
  * TimelineDoc → one self-contained HTML page (the approved mockups,
@@ -98,7 +98,7 @@ export const TIMELINE_CSPS: Readonly<Record<UiLang, string>> = {
 /**
  * The page's style, script and CSP. An X-only page gets exactly the
  * X-era assets; Instagram/generic cards add their CSS and script, and
- * Instagram cards add Instagram's CDNs to the CSP.
+ * Instagram cards add Instagram's CDNs to the CSP; a suggested one, its badge's style.
  */
 function pageAssets(
   cards: readonly TimelineCard[],
@@ -111,7 +111,8 @@ function pageAssets(
   if (cards.every(isXCard)) {
     return { css: TIMELINE_CSS, script: TIMELINE_SCRIPTS[lang], csp: TIMELINE_CSPS[lang] };
   }
-  const css = TIMELINE_CSS + CARDS_CSS;
+  const suggested = cards.some((card) => isInstagramPost(card.post) && card.post.suggested);
+  const css = TIMELINE_CSS + CARDS_CSS + (suggested ? SUGGESTED_CSS : "");
   const script = TIMELINE_SCRIPTS[lang] + CARDS_SCRIPTS[lang];
   const instagram = cards.some((card) => isInstagramPost(card.post));
   return { css, script, csp: buildCsp(css, script, instagram) };
@@ -842,7 +843,9 @@ function renderIgCard(
     .join("");
   // A paid partnership is not an ad (ads never reach the feed): shown, labelled.
   const partner = post.paidPartnership?.partner?.trim();
+  // A suggestion is scored like any post, but said so (not by colour alone).
   const sub = [
+    post.suggested ? `<span class="ig__suggested">${ctx.m.suggested}</span>` : "",
     post.paidPartnership
       ? `<span class="ig__paid">${ctx.m.paidPartnership}</span>${partner ? ` · ${esc(partner)}` : ""}`
       : "",
@@ -1038,13 +1041,18 @@ function sourceLabels(doc: TimelineDoc, cards: readonly TimelineCard[]): string[
   return [...new Set(cards.map(({ post }) => feedSourceLabel(post)))];
 }
 
+/** A sentence put in brackets loses its full stop: "(… browser)." not "(… browser.)." */
+function parenthesised(text: string): string {
+  return text.trim().replace(/\.+$/, "");
+}
+
 /** "Instagram (logged out) and blog": the sources that brought nothing this run. */
 function missingNames(ctx: Ctx, doc: TimelineDoc, cards: readonly TimelineCard[]): string {
   return listNames(
     ctx,
     (doc.missingSources ?? []).map(
       ({ label, reason }) =>
-        `${sourceName(label, cards)}${reason?.trim() ? ` (${reason.trim()})` : ""}`,
+        `${sourceName(label, cards)}${reason?.trim() ? ` (${parenthesised(reason)})` : ""}`,
     ),
   );
 }
