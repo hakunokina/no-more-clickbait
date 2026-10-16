@@ -578,10 +578,11 @@ export class SessionController {
     // a run with only custom-site (or Instagram) items stored is not empty,
     // unless those items' feed was turned off (not in `sources`).
     const xCounts = !done.sources || done.sources.some((feed) => feed.source === "x");
-    const empty =
-      done.sessionId === null ||
-      (!(xCounts && done.uniquePostCount > 0) &&
-        (await storedCollectedCount(this.#deps.sessionsRoot, done.sessionId)) === 0);
+    const stored =
+      done.sessionId === null || (xCounts && done.uniquePostCount > 0)
+        ? null
+        : await storedCollectedCount(this.#deps.sessionsRoot, done.sessionId);
+    const empty = done.sessionId === null || stored === 0;
     let plan = empty ? "drop" : planCompletion(done.mode, done.reason, done.sources);
     if (plan === "build" && this.#status.collection.state === "cancelling") {
       // The user already cancelled: a late complete (e.g. target-reached
@@ -589,9 +590,14 @@ export class SessionController {
       plan = "ask";
     }
     const reached = done.reason === "target-reached";
-    const { uniquePostCount: count, target, reason } = done;
+    const { target, reason } = done;
     // Over several feeds, each feed's count and stop is named.
     const feeds = done.sources && done.sources.length > 0 ? done.sources : null;
+    // Every feed turned off: only custom sites' stored items go in.
+    const count =
+      done.sources && !feeds
+        ? (stored ?? 0)
+        : collectedCount(done.uniquePostCount, done.sources);
     let message: DesktopStatus["collection"]["message"] = null;
     if (empty) {
       message = feeds ? note("feedsEndedEmpty", feeds) : note("endedEmpty", reason);
@@ -625,11 +631,11 @@ export class SessionController {
       await this.#awaitConfirmation(
         {
           sessionId: done.sessionId,
-          uniquePostCount: collectedCount(done.uniquePostCount, done.sources),
+          uniquePostCount: count,
           mode: done.mode,
           reason: done.reason,
           target: done.target,
-          ...(feeds ? { sources: feeds } : {}),
+          ...(done.sources ? { sources: done.sources } : {}),
         },
         done.live && !QUIET_STOPS.has(done.reason),
       );

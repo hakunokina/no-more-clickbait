@@ -54,6 +54,18 @@ describe("desktop messages", () => {
     expect(structuredClone(stopped)).toEqual(stopped);
   });
 
+  it("names the feeds browsed in the reader's pending Mode A lead", () => {
+    const en = messages("en").pendingLeadA;
+    const tr = messages("tr").pendingLeadA;
+    expect(en(null)).toContain("while you browsed X?");
+    expect(en(["x", "instagram"])).toContain("while you browsed X and Instagram?");
+    expect(en([])).toContain("while you browsed your custom sites?");
+    expect(tr(null)).toMatch(/^X'te gezinirken/);
+    expect(tr(["instagram"])).toMatch(/^Instagram'da gezinirken/);
+    expect(tr(["x", "instagram"])).toMatch(/^X ve Instagram'da gezinirken/);
+    expect(tr([])).toMatch(/^Özel sitelerinde gezinirken/);
+  });
+
   it("reads a saved run error back into its note, English or not", () => {
     // By key, even when the English wording changed since.
     expect(runErrorNote({ note: "errCliFailed", message: "reworded" })).toEqual(

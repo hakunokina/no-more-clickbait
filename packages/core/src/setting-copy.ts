@@ -87,9 +87,9 @@ const TR: { [K in ManagedSettingKey]: FieldCopy<Fields[K]> } = {
   modeBEnabled: {
     label: "B modu: gizli bir pencerede kendiliğinden topla",
     description:
-      "Varsayılan olarak kapalı ve riskli: X göz önünden uzakta açılır ve yeterli gönderi " +
-      "toplanana kadar kendiliğinden kaydırılır. Otomatik gezinme X'in Hizmet Şartları'nın gri " +
-      "bir alanında kalır ve hesabını riske atabilir. Açmak tarayıcının “alarms” iznini ister; " +
+      "Varsayılan olarak kapalı ve riskli: X ve Instagram göz önünden uzakta açılır ve yeterli " +
+      "gönderi toplanana kadar kendiliğinden kaydırılır. Otomatik gezinme X'in ve Instagram'ın " +
+      "kullanım şartlarının gri bir alanında kalır ve hesaplarını riske atabilir. Açmak tarayıcının “alarms” iznini ister; " +
       "bu izni yalnız eklentinin seçenekler sayfası isteyebilir.",
   },
   modeBStrategy: {
@@ -106,7 +106,8 @@ const TR: { [K in ManagedSettingKey]: FieldCopy<Fields[K]> } = {
     label: "B modu kaydırma hızı",
     options: { normal: "Normal", fast: "Hızlı" },
     description:
-      "Hızlı, iki kat çabuk kaydırır ama X'in dikkatini çekme olasılığı daha yüksek olabilir.",
+      "Hızlı, iki kat çabuk kaydırır ama X'in ve Instagram'ın dikkatini çekme olasılığı daha " +
+      "yüksek olabilir.",
   },
   devCaptureEnabled: {
     label: "Geliştirici kaydı: ham akış yanıtlarını yerelde sakla",

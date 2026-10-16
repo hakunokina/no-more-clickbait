@@ -625,7 +625,7 @@ export const SettingsFieldsSchema = z.object({
     .describe(SYNCED_SETTING_FIELDS.instagramFollowedOnly.description),
   /** The hidden surface Mode B scrolls in. */
   modeBStrategy: ModeBSurfaceSchema.default("minimized-window"),
-  /** Mode B scroll pace; `fast` may be likelier to draw X's attention. */
+  /** Mode B scroll pace; `fast` may be likelier to draw X's and Instagram's attention. */
   modeBPacing: ModeBPacingSchema.default("normal"),
   /** How many posts a finished timeline shows before it ends (N). */
   timelineSize: integerSetting(PIPELINE_SETTING_FIELDS.timelineSize),
@@ -718,9 +718,9 @@ export const EXTENSION_SETTING_FIELDS = {
     default: false,
     label: "Mode B: collect automatically in a hidden window",
     description:
-      "Off by default, and risky: X is opened out of sight and scrolled automatically until " +
-      "enough posts are gathered. Automated browsing sits in a grey area of X's Terms of " +
-      "Service and may put your account at risk. Turning it on needs the browser's “alarms” " +
+      "Off by default, and risky: X and Instagram are opened out of sight and scrolled " +
+      "automatically until enough posts are gathered. Automated browsing sits in a grey area " +
+      "of X's and Instagram's terms of use and may put your accounts at risk. Turning it on needs the browser's “alarms” " +
       "permission, which only the extension's options page can ask for.",
   },
   modeBStrategy: {
@@ -743,7 +743,8 @@ export const EXTENSION_SETTING_FIELDS = {
       { value: "fast", label: "Fast" },
     ],
     label: "Mode B scroll pace",
-    description: "Fast scrolls twice as quickly, but may be more likely to be noticed by X.",
+    description:
+      "Fast scrolls twice as quickly, but may be more likely to be noticed by X and Instagram.",
   },
   devCaptureEnabled: {
     kind: "boolean",

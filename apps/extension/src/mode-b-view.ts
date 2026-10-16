@@ -239,10 +239,19 @@ export function progressLine(settings: Settings, stored: unknown): string {
 }
 
 /**
- * The popup's per-feed count of the collection in progress and its
- * "Finish now" (shown once a post was counted and no Mode B run is
- * going — a run has its own Stop).
+ * "Finish now" is offered once any feed counted a post — also one whose
+ * tick was turned off while developer capture keeps the collection
+ * open — and no Mode B run is going (a run has its own Stop).
  */
+export function finishOffered(stored: unknown, modeBRun: unknown): boolean {
+  const progress = readProgress(stored);
+  return (
+    modeBRun === undefined &&
+    Object.values(progress).some((feed) => feed !== undefined && feed.count > 0)
+  );
+}
+
+/** The popup's per-feed count of the collection in progress and its "Finish now". */
 export function bindCollectionProgress({
   line,
   finish,
@@ -254,9 +263,8 @@ export function bindCollectionProgress({
       COLLECTION_PROGRESS_KEY
     ];
     const running = (await chrome.storage.session.get(MODE_B_RUN_KEY))[MODE_B_RUN_KEY];
-    const text = progressLine(settings, stored);
-    line.textContent = text;
-    const offered = text !== "" && running === undefined;
+    line.textContent = progressLine(settings, stored);
+    const offered = finishOffered(stored, running);
     finish.hidden = !offered;
     finishHint.hidden = !offered;
   };

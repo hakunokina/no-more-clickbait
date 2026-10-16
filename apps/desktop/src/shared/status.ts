@@ -127,13 +127,16 @@ export interface DesktopStatus {
 
 export interface PendingCollection {
   sessionId: string;
-  /** Distinct posts collected: X's, or every feed's together when not X alone. */
+  /**
+   * Distinct posts collected: X's, or every feed's together when not X
+   * alone; with every feed turned off, the custom sites' stored items.
+   */
   uniquePostCount: number;
   mode: "A" | "B";
   /** Why the collection ended ("target-reached" or a Mode B stop reason). */
   reason: string;
   target: number | null;
-  /** Each feed's outcome when the collection was not X alone. */
+  /** Each feed's outcome when the collection was not X alone (empty: custom sites only). */
   sources?: CollectSourceOutcome[];
 }
 

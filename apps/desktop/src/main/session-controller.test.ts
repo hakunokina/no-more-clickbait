@@ -608,16 +608,19 @@ describe("SessionController", () => {
   });
 
   it("keeps a run with every feed turned off pending on its custom sites' items alone", async () => {
-    const id = await ticksOffSession([genericItem("g1")]);
+    const id = await ticksOffSession([genericItem("g1"), genericItem("g2")]);
     const judged: FeedItem[][] = [];
     const c = mixedController(judged);
     c.handleHostEvent(ticksOffEvent(id));
     await expect.poll(() => c.status.pending?.sessionId).toBe(id);
+    // The sites' items are what the run judges: counted, not "0 posts".
+    expect(c.status.pending).toMatchObject({ uniquePostCount: 2, sources: [] });
     expect(judged).toEqual([]);
     await c.buildPending();
     expect(c.status.run.stage).toBe("ready");
     expect(judged.flat().map((item) => `${platformOf(item)}:${item.id}`)).toEqual([
       "generic:g1",
+      "generic:g2",
     ]);
   });
 
