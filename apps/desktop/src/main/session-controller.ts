@@ -136,7 +136,7 @@ export type SourceReason = (typeof SOURCE_REASONS)[number];
 
 /** A source a desktop run expects, and why it would have brought nothing. */
 export interface RunSource {
-  /** `SourceCount.label`; a site that stored nothing goes by its id. */
+  /** `SourceCount.label`; a site that stored nothing goes by its rule name, else its id. */
   label: string;
   reason: SourceReason;
 }
@@ -154,8 +154,9 @@ const SITE_REASONS: Readonly<Record<SiteCollectOutcome["status"], SourceReason>>
  * Sources a desktop run collects from: the extension's X home timeline
  * and the custom sites the collection reported (`sites`). A site whose
  * items are in the session counts under its items' own label (bySource);
- * one that stored nothing is expected under its id, with its outcome as
- * the reason.
+ * one that stored nothing is expected under the same label
+ * (`custom:<rule name>`), or under its id when an older extension sent
+ * no name, with its outcome as the reason.
  */
 export function runSourcesOf(
   sites: readonly SiteCollectOutcome[] | undefined,
@@ -166,7 +167,10 @@ export function runSourcesOf(
     { label: "x", reason: "nothingFromSource" },
     ...(sites ?? [])
       .filter((site) => !stored.has(site.siteId))
-      .map((site) => ({ label: site.siteId, reason: SITE_REASONS[site.status] })),
+      .map((site) => ({
+        label: site.name ? `custom:${site.name}` : site.siteId,
+        reason: SITE_REASONS[site.status],
+      })),
   ];
 }
 
@@ -204,12 +208,13 @@ function sourceReasonOf(text: string | undefined): SourceReason {
 /**
  * Custom-site items the session actually stored (outside the X counts):
  * a site's own `itemCount` may claim items whose batch never got saved.
+ * Null when the session cannot be read: not empty, the run reports it.
  */
-async function storedFeedItemCount(root: string, sessionId: string): Promise<number> {
+async function storedFeedItemCount(root: string, sessionId: string): Promise<number | null> {
   try {
     return (await loadSession(root, sessionId)).feedItems.length;
   } catch {
-    return 0;
+    return null;
   }
 }
 

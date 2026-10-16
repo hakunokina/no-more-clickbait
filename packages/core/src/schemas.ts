@@ -889,6 +889,8 @@ export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
 /** How one custom site's part of a collection went. */
 export const SiteCollectOutcomeSchema = z.object({
   siteId: z.string().min(1).max(300),
+  /** The rule's user-facing name (`SiteRule.name`); older extensions leave it out. */
+  name: z.string().min(1).max(80).optional(),
   /** ok: items arrived; empty: the site answered with none; error/timeout/skipped: see `message`. */
   status: z.enum(["ok", "empty", "error", "timeout", "skipped"]),
   /** The method that produced the result ("rss", "static", "request", "page"). */

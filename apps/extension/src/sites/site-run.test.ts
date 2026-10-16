@@ -70,9 +70,19 @@ describe("custom sites in a collection", () => {
       runDeps(sent, saved),
     );
     expect(outcomes).toEqual([
-      { siteId: feedRule.id, method: "rss", status: "ok", itemCount: 3 },
-      expect.objectContaining({ siteId: slowRule.id, status: "timeout", itemCount: 0 }),
-      expect.objectContaining({ siteId: deadRule.id, status: "error", itemCount: 0 }),
+      { siteId: feedRule.id, name: feedRule.name, method: "rss", status: "ok", itemCount: 3 },
+      expect.objectContaining({
+        siteId: slowRule.id,
+        name: slowRule.name,
+        status: "timeout",
+        itemCount: 0,
+      }),
+      expect.objectContaining({
+        siteId: deadRule.id,
+        name: deadRule.name,
+        status: "error",
+        itemCount: 0,
+      }),
     ]);
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({

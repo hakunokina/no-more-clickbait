@@ -83,8 +83,14 @@ function feedBatch(siteId: string, items: FeedItem[]): FeedBatch {
 
 /** X + two custom sites, the second broken: its outcome only, no items. */
 const SITES: SiteCollectOutcome[] = [
-  { siteId: "news.example/world", status: "ok", method: "rss", itemCount: 2 },
-  { siteId: "broken.example/feed", status: "error", method: "static", itemCount: 0 },
+  { siteId: "news.example/world", name: "News", status: "ok", method: "rss", itemCount: 2 },
+  {
+    siteId: "broken.example/feed",
+    name: "Broken News",
+    status: "error",
+    method: "static",
+    itemCount: 0,
+  },
 ];
 
 function stages(overrides: Partial<RunStages> = {}): RunStages {
@@ -154,9 +160,18 @@ describe("runSourcesOf", () => {
     expect(runSourcesOf(undefined, [])).toEqual([{ label: "x", reason: "nothingFromSource" }]);
   });
 
-  it("expects each site that stored nothing by its id, with its outcome as the reason", () => {
+  it("expects each site that stored nothing by its rule name, with its outcome as the reason", () => {
+    expect(runSourcesOf(SITES, ["news.example/world"])).toEqual([
+      { label: "x", reason: "nothingFromSource" },
+      // bySource's vocabulary: the label its items would have had.
+      { label: "custom:Broken News", reason: "siteError" },
+    ]);
+  });
+
+  it("falls back to the site id when an older extension sent no name", () => {
     const sites: SiteCollectOutcome[] = [
-      ...SITES,
+      { siteId: "news.example/world", status: "ok", method: "rss", itemCount: 2 },
+      { siteId: "broken.example/feed", status: "error", method: "static", itemCount: 0 },
       { siteId: "slow.example", status: "timeout", itemCount: 0 },
       { siteId: "quiet.example", status: "empty", itemCount: 0 },
       { siteId: "note.example", status: "skipped", itemCount: 0 },
@@ -388,7 +403,7 @@ describe("SessionController", () => {
     );
     expect(doc.bySource).toHaveLength(3);
     expect(doc.missingSources).toEqual([
-      { label: "broken.example/feed", reason: messages("en").siteError },
+      { label: "custom:Broken News", reason: messages("en").siteError },
     ]);
 
     const page = () => readFile(join(root, id, TIMELINE_FILE), "utf8");
@@ -396,7 +411,8 @@ describe("SessionController", () => {
     expect(html).toContain('<article class="post" ');
     expect(html).toContain('<article class="post post--ig" ');
     expect(html).toContain('<article class="post post--gen" ');
-    expect(html).toContain("broken.example/feed");
+    expect(html).toContain(`Broken News (${messages("en").siteError})`);
+    expect(html).not.toContain("broken.example/feed");
     expect(html).toContain(messages("en").siteError);
 
     // The broken site's note follows the language, with its own reason.
@@ -427,7 +443,7 @@ describe("SessionController", () => {
     };
     expect(doc.missingSources.map((source) => source.label)).toEqual([
       "x",
-      "broken.example/feed",
+      "custom:Broken News",
     ]);
   });
 
@@ -1075,6 +1091,25 @@ describe("SessionController", () => {
     await openSession("2026-01-01T12:00:01.000Z", ["3"], "B");
     await c.processPending();
     expect(c.status.unfinished).toEqual({ count: 2, newestAt: "2026-01-01T10:00:00.000Z" });
+  });
+
+  it("never counts a session it cannot read as empty; the run reports it", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch(feedBatch("news.example/world", [genericItem("g1")]));
+    const id = (await store.complete({
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 0,
+      responseCount: 1,
+    })) as string;
+    await rm(join(root, id, "batches"), { recursive: true, force: true });
+    const c = controller();
+    c.handleHostEvent(completeEvent(id, "target-reached", 0));
+    await expect.poll(() => c.status.run.error?.kind).toBe("session-unreadable");
+    expect(c.status.collection.message).not.toEqual(note("endedEmpty", "target-reached"));
+    expect((await listSessions(root)).find((s) => s.id === id)?.processed?.status).not.toBe(
+      "cancelled",
+    );
   });
 
   it("reports an unreadable session instead of crashing", async () => {

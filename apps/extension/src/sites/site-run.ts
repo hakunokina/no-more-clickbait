@@ -100,6 +100,7 @@ export async function runOneSite(
     return {
       outcome: {
         siteId: rule.id,
+        name: rule.name,
         status: "timeout",
         itemCount: 0,
         message: `no answer in ${Math.round(timeoutMs / 1000)} s`,
@@ -121,7 +122,7 @@ export async function runOneSite(
     });
     return done.staticWorked ? { ...recorded, staticKnownGood: true } : recorded;
   });
-  return { outcome: outcomeOf(rule.id, result, sent), state: next, result };
+  return { outcome: outcomeOf(rule, result, sent), state: next, result };
 }
 
 /** Stores the collect; if storage fails, the run still answers with the folded state. */
@@ -135,12 +136,13 @@ async function saveCollect(
 }
 
 function outcomeOf(
-  siteId: string,
+  rule: SiteRule,
   result: SiteCollectResult,
   sent: number,
 ): SiteCollectOutcome {
   const outcome: SiteCollectOutcome = {
-    siteId,
+    siteId: rule.id,
+    name: rule.name,
     method: result.method,
     itemCount: sent,
     status:
