@@ -9,16 +9,22 @@ import { externalLinkTarget, isAllowedReaderUrl } from "./reader-policy.js";
  * - every request is allow-listed: files under our renderer dir or the
  *   sessions root, https images from pbs.twimg.com and video from
  *   video.twimg.com, Instagram media from *.cdninstagram.com and
- *   *.fbcdn.net (the renderer's CSP says the same), data: URIs;
+ *   *.fbcdn.net (the renderer's CSP says the same), data: URIs, and
+ *   generic cards' images as nmc-img:, which only this session serves
+ *   (the app fetches them itself, see reader-images.ts);
  * - no permission is ever granted, no in-window navigation, no popups:
  *   https links open in the user's browser, anything else is dropped.
  */
 
 let readerSession: Session | null = null;
 
-function lockedDownSession(fileRoots: readonly string[]): Session {
+function lockedDownSession(
+  fileRoots: readonly string[],
+  images: ReadingWindowImages | undefined,
+): Session {
   if (readerSession) return readerSession;
   const ses = session.fromPartition("nmc-reader");
+  if (images) ses.protocol.handle(images.scheme, (request) => images.handle(request));
   ses.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   ses.setPermissionCheckHandler(() => false);
   ses.webRequest.onBeforeRequest((details, callback) => {
@@ -26,6 +32,14 @@ function lockedDownSession(fileRoots: readonly string[]): Session {
   });
   readerSession = ses;
   return ses;
+}
+
+/** Generic cards' images: a scheme served in the reading window's session only. */
+export interface ReadingWindowImages {
+  scheme: string;
+  handle(request: Request): Promise<Response>;
+  /** The page shown now: a timeline's path (its images), or null (our own page, none). */
+  show(timelinePath: string | null): void;
 }
 
 export interface ReadingWindowOptions {
@@ -36,6 +50,7 @@ export interface ReadingWindowOptions {
   appPage: string;
   /** Directories the window may load files from. */
   fileRoots: readonly string[];
+  images?: ReadingWindowImages;
 }
 
 export class ReadingWindow {
@@ -99,6 +114,7 @@ export class ReadingWindow {
   #load(win: BrowserWindow, showing: "app" | "timeline", file: string): void {
     this.#showing = showing;
     this.#file = file;
+    this.#options.images?.show(showing === "timeline" ? file : null);
     void win.loadFile(file);
   }
 
@@ -115,7 +131,7 @@ export class ReadingWindow {
       webPreferences: {
         preload: this.#options.preload,
         additionalArguments: this.#options.preloadArguments ?? [],
-        session: lockedDownSession(this.#options.fileRoots),
+        session: lockedDownSession(this.#options.fileRoots, this.#options.images),
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,

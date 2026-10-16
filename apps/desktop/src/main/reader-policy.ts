@@ -1,5 +1,6 @@
 import { normalize, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { NMC_IMAGE_SCHEME } from "@nmc/timeline-renderer";
 
 /** What the reading window may load and where its links may go (see reading-window.ts). */
 
@@ -15,6 +16,8 @@ export function isAllowedReaderUrl(url: string, fileRoots: readonly string[]): b
     return false;
   }
   if (parsed.protocol === "data:" || parsed.protocol === "devtools:") return true;
+  // Served by the session's own handler, for the shown timeline's keys only.
+  if (parsed.protocol === `${NMC_IMAGE_SCHEME}:`) return parsed.host === "img";
   if (parsed.protocol === "https:") {
     const host = parsed.hostname;
     return MEDIA_HOSTS.has(host) || MEDIA_DOMAINS.some((domain) => host.endsWith(domain));

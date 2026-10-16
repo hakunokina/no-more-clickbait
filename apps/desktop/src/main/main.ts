@@ -5,6 +5,7 @@ import {
   Menu,
   nativeImage,
   Notification,
+  protocol,
   Tray,
   type IpcMainInvokeEvent,
 } from "electron";
@@ -18,6 +19,7 @@ import {
 } from "@nmc/core";
 import { createClaudeCliProvider, type LlmAvailability } from "@nmc/core/llm";
 import {
+  desktopDataDir,
   desktopPipePath,
   LinkServer,
   pruneSessions,
@@ -25,7 +27,7 @@ import {
   writeLinkToken,
   type DesktopCommand,
 } from "@nmc/native-host";
-import { renderTimeline } from "@nmc/timeline-renderer";
+import { NMC_IMAGE_SCHEME, renderTimeline } from "@nmc/timeline-renderer";
 import { messages, note, say } from "../shared/i18n.js";
 import type { BrowserChoice, SettingsStatus } from "../shared/settings-status.js";
 import { isRunActive, type DesktopStatus, type RunStage } from "../shared/status.js";
@@ -41,8 +43,10 @@ import {
 } from "./browser-choice.js";
 import { createClaudeStages } from "./claude-stages.js";
 import { ensureCollectBrowser } from "./ensure-browser.js";
+import { fetchImage } from "./image-fetch.js";
 import { ipcAllowed } from "./ipc-policy.js";
 import { PipelineRunner } from "./pipeline-runner.js";
+import { ReaderImages, timelineImageSources } from "./reader-images.js";
 import { ReadingWindow } from "./reading-window.js";
 import { SessionController } from "./session-controller.js";
 import { loadDesktopSettings } from "./settings-file.js";
@@ -62,7 +66,8 @@ import {
  * window and a reading window. Security posture is strict: sandbox on,
  * context isolation on, node integration off, a narrow preload bridge
  * per window (none at all for a timeline page's main world), no remote
- * content except the allow-listed feed media in the reading window.
+ * content except the allow-listed feed media in the reading window
+ * (generic cards' images are fetched here and served as nmc-img:).
  *
  * Wiring: the browser-launched native host connects over the user-only
  * link pipe (see @nmc/native-host desktop-link.ts); collected posts are
@@ -90,6 +95,10 @@ if (!app.requestSingleInstanceLock()) {
   app.exit(0);
 }
 app.setAppUserModelId("io.github.hakunokina.no-more-clickbait");
+// Before ready: a standard, secure scheme the reading window's session serves alone.
+protocol.registerSchemesAsPrivileged([
+  { scheme: NMC_IMAGE_SCHEME, privileges: { standard: true, secure: true } },
+]);
 
 let monitor: BrowserWindow | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -202,11 +211,24 @@ async function refreshBrowsers(): Promise<void> {
   broadcastSettings();
 }
 
+// Kept apart from the session folders (pruned with them otherwise, and the page may read those).
+const images = new ReaderImages({
+  cacheDir: join(desktopDataDir(), "image-cache"),
+  fetchImage: (url) => fetchImage(url, { userAgent: app.userAgentFallback }),
+  log,
+});
+
 const reader = new ReadingWindow({
   preload: join(here, "reader-preload.cjs"),
   preloadArguments: [`${READER_PAGE_ARG}${readerPageUrl}`],
   appPage: readerPage,
   fileRoots: [rendererDir, root],
+  images: {
+    scheme: NMC_IMAGE_SCHEME,
+    handle: (request) => images.respond(request.url),
+    show: (timelinePath) =>
+      images.allow(timelinePath ? timelineImageSources(timelinePath) : new Map()),
+  },
 });
 
 const controller = new SessionController({
@@ -214,7 +236,8 @@ const controller = new SessionController({
   runner: new PipelineRunner(createClaudeStages),
   loadSettings: () => loadDesktopSettings(undefined, log),
   // Buttons in the page ("Collect new timeline") are handled by the preload.
-  renderTimeline: (doc, pageLang) => renderTimeline(doc, { actions: true, lang: pageLang }),
+  renderTimeline: (doc, pageLang) =>
+    renderTimeline(doc, { actions: true, lang: pageLang, imageMode: "desktop" }),
   sendToHost: (command) => sendToCollectBrowser(command),
   onStatus: broadcast,
   onAwaitingConfirmation: ({ uniquePostCount }) => {

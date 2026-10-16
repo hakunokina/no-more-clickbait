@@ -289,7 +289,11 @@ How the pieces talk:
   checks) runs in the desktop app, one run at a time, cancellable; the
   status window shows the stage, counts, tokens and cost live. The
   finished timeline opens in the reading window; links open in your
-  browser.
+  browser. Images on custom-site cards are downloaded by the desktop app
+  itself (https and public addresses only, no cookies or Referer; SVG and
+  tracking pixels refused) and kept in
+  `%LOCALAPPDATA%\NoMoreClickbait\image-cache\` (up to 100 MB, the least
+  recently shown dropped first).
 
 > **Collected posts stay on your machine.** Every collection is saved
 > under `%LOCALAPPDATA%\NoMoreClickbait\sessions\<time>\` (post batches,

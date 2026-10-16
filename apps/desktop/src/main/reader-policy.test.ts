@@ -21,6 +21,7 @@ describe("reading window request policy", () => {
       true,
     );
     expect(isAllowedReaderUrl("data:image/svg+xml,%3Csvg/%3E", roots)).toBe(true);
+    expect(isAllowedReaderUrl(`nmc-img://img/${"a".repeat(64)}`, roots)).toBe(true);
   });
 
   it("blocks every other host, scheme and local file", () => {
@@ -36,6 +37,7 @@ describe("reading window request policy", () => {
     expect(isAllowedReaderUrl(file(`${sessions}-other`, "x.html"), roots)).toBe(false);
     expect(isAllowedReaderUrl(file(sessions, "..", "outside.html"), roots)).toBe(false);
     expect(isAllowedReaderUrl("not a url", roots)).toBe(false);
+    expect(isAllowedReaderUrl("nmc-img://evil.example/a.jpg", roots)).toBe(false);
   });
 
   it("lets only https links out to the browser", () => {

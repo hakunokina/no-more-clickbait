@@ -399,6 +399,20 @@ a.gen__domain:hover { text-decoration: underline; color: var(--accent); }
 }
 `;
 
+/**
+ * Only on a page that shows generic cards' images (the desktop app's
+ * nmc-img: scheme), so the others stay unchanged: a thumbnail beside the
+ * text, or the image itself full width when it is the content.
+ */
+export const GENERIC_IMAGE_CSS = `
+.gen__body--thumb { grid-template-columns: minmax(0, 1fr) auto; }
+.gen__thumb { margin-top: 0; width: 88px; height: 88px; border-radius: var(--r-box); }
+.gen__thumb img { height: 100%; object-fit: cover; }
+@container app (max-width: 380px) {
+  .gen__thumb { width: 72px; height: 72px; }
+}
+`;
+
 /** Only on a page with a suggested Instagram post, so the others stay unchanged. */
 export const SUGGESTED_CSS = `
 .ig__suggested {
