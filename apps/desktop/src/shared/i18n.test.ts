@@ -25,11 +25,17 @@ describe("desktop messages", () => {
   it("has every static key the window pages use, as plain text", () => {
     for (const page of ["index.html", "reader.html", "settings.html"]) {
       const html = readFileSync(new URL(`../renderer/${page}`, import.meta.url), "utf8");
-      const keys = [...html.matchAll(/data-i18n="([^"]+)"/g)].map((match) => match[1] ?? "");
+      const keys = [...html.matchAll(/data-i18n(?:-label)?="([^"]+)"/g)].map(
+        (match) => match[1] ?? "",
+      );
       expect(keys.length, page).toBeGreaterThan(0);
-      // Hidden until localizePage words it (no English flash for Turkish).
+      // Hidden until localizePage words it (no English flash for Turkish),
+      // by the page's own style or the stylesheet it links.
+      const css = html.includes('<link rel="stylesheet" href="ui.css" />')
+        ? readFileSync(new URL("../renderer/ui.css", import.meta.url), "utf8")
+        : "";
       expect(html, page).toContain('<html lang="en" data-i18n-pending>');
-      expect(html, page).toContain("[data-i18n-pending] body { visibility: hidden; }");
+      expect(html + css, page).toContain("[data-i18n-pending] body { visibility: hidden; }");
       for (const key of keys) {
         for (const lang of ["en", "tr"] as const) {
           const value = (DESKTOP_MESSAGES[lang] as Record<string, unknown>)[key];

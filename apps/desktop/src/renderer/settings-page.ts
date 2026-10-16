@@ -23,17 +23,27 @@ const SAVED_NOTE_MS = 2_500;
 
 const form = buildSettingsForm(el("settings-form"));
 const choiceSelect = el<HTMLSelectElement>("browser-choice");
+// Shown with the language, but saved on its own (setBrowserChoice), not with the form.
+form.insertField("browser", el("browser-field"));
 // Locked until the real settings are in: its starting values are only defaults.
 form.element.inert = true;
 let latest: SettingsStatus | null = null;
 let lang: UiLang = "en";
+type SaveTone = "plain" | "ok" | "bad";
 /** The save line, re-worded when the language changes. */
 let saveLine: ((lang: UiLang) => string) | null = null;
+let saveTone: SaveTone = "plain";
 let savedNoteTimer: ReturnType<typeof setTimeout> | undefined;
 
-function showSave(line: ((lang: UiLang) => string) | null): void {
+function showSave(line: ((lang: UiLang) => string) | null, tone: SaveTone = "plain"): void {
   saveLine = line;
+  saveTone = tone;
   el("save-note").textContent = line ? line(lang) : "";
+  const box = el("save-box");
+  box.classList.toggle("save--bad", tone === "bad");
+  const mark = box.querySelector("svg");
+  mark?.toggleAttribute("hidden", tone === "plain");
+  mark?.querySelector("use")?.setAttribute("href", tone === "ok" ? "#i-check" : "#i-warn");
 }
 
 function showSaveState(state: AutoSaveState): void {
@@ -43,14 +53,14 @@ function showSaveState(state: AutoSaveState): void {
       showSave((l) => messages(l).saving);
       return;
     case "saved":
-      showSave((l) => messages(l).saved);
+      showSave((l) => messages(l).saved, "ok");
       savedNoteTimer = setTimeout(() => showSave(null), SAVED_NOTE_MS);
       break;
     case "invalid":
-      showSave((l) => messages(l).saveInvalid);
+      showSave((l) => messages(l).saveInvalid, "bad");
       break;
     case "failed":
-      showSave((l) => messages(l).saveFailed(state.error));
+      showSave((l) => messages(l).saveFailed(state.error), "bad");
       return;
   }
   // Settled: what the other side changed meanwhile can show now.
@@ -71,7 +81,8 @@ form.element.addEventListener("input", (event) => {
     autosave.typed();
   }
 });
-form.element.addEventListener("change", () => {
+form.element.addEventListener("change", (event) => {
+  if (event.target === choiceSelect) return;
   void autosave.flush();
 });
 // Enter in a number field would submit the (button-less) form: save instead.
@@ -114,7 +125,7 @@ function render(status: SettingsStatus): void {
     lang = status.lang;
     localizePage(document, lang, messages(lang).settingsWindowTitle);
     form.setLanguage(lang);
-    showSave(saveLine);
+    showSave(saveLine, saveTone);
   }
   const m = messages(lang);
   renderBrowsers(status);

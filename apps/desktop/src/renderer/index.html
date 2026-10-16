@@ -5,84 +5,123 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'"
     />
     <title>No More Clickbait</title>
-    <style>
-      /* No words until the language is known (localizePage clears it). */
-      [data-i18n-pending] body { visibility: hidden; }
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; line-height: 1.5; }
-      h1 { font-size: 1.05rem; margin: 0 0 0.25rem; }
-      .sub { margin: 0 0 1rem; opacity: 0.75; font-size: 0.9rem; }
-      section { border: 1px solid #8884; border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 0.75rem; }
-      h2 { font-size: 0.9rem; margin: 0 0 0.5rem; }
-      dl { display: grid; grid-template-columns: auto 1fr; gap: 0.2rem 0.75rem; margin: 0; font-size: 0.9rem; }
-      dt { opacity: 0.75; }
-      dd { margin: 0; font-variant-numeric: tabular-nums; }
-      button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
-      button:disabled { opacity: 0.6; }
-      button.link { width: auto; min-height: 2.5rem; padding: 0.4rem 0.25rem; background: none; border: none; color: inherit; text-decoration: underline; cursor: pointer; font-size: 0.9rem; }
-      :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
-      .ok { color: #1c7c3c; }
-      .bad { color: #b3261e; }
-      @media (prefers-color-scheme: dark) {
-        .ok { color: #72d39c; }
-        .bad { color: #f2b8b5; }
-        :focus-visible { outline-color: #8ab4f8; }
-      }
-      .stage { font-weight: 600; margin: 0; }
-      .note { font-size: 0.85rem; margin: 0.5rem 0 0; }
-      .note:empty { display: none; }
-      details { font-size: 0.85rem; margin-top: 0.25rem; }
-      pre { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0.25rem 0 0; }
-    </style>
+    <link rel="stylesheet" href="ui.css" />
   </head>
   <body>
-    <h1>No More Clickbait</h1>
-    <p class="sub" data-i18n="appTagline">Your feed, filtered. Finite by design.</p>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" /></symbol>
+      <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18v.5" /></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" /></symbol>
+      <symbol id="i-feed" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="5" rx="1.5" /><rect x="4" y="11" width="16" height="4" rx="1.5" /><path d="M4 19h10" /></symbol>
+      <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4" /></symbol>
+      <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z" /><path d="M4 21V5" /></symbol>
+      <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="currentColor" /></symbol>
+      <symbol id="i-ring" viewBox="0 0 24 24"><circle cx="12" cy="12" r="6" /></symbol>
+    </svg>
 
-    <section aria-labelledby="run-h">
-      <h2 id="run-h" data-i18n="timeline">Timeline</h2>
-      <p id="stage" class="stage" role="status" aria-live="polite">Idle</p>
-      <p id="link-status" class="note" data-i18n="linkWaiting">Waiting for the browser extension…</p>
-      <p id="collection-note" class="note" aria-live="polite"></p>
-      <p id="unfinished-note" class="note"></p>
+    <main class="m">
+      <header class="m-top">
+        <h1>No More Clickbait</h1>
+        <button id="open-reader" class="icon-btn" type="button" data-i18n-label="openReader">
+          <svg class="i" aria-hidden="true"><use href="#i-book" /></svg>
+        </button>
+        <button id="open-settings" class="icon-btn" type="button" data-i18n-label="openSettings">
+          <svg class="i" aria-hidden="true"><use href="#i-gear" /></svg>
+        </button>
+      </header>
+
+      <section class="hero" aria-labelledby="stage">
+        <div id="ring" class="ring ring--quiet" aria-hidden="true">
+          <svg class="ring__arc" viewBox="0 0 128 128" aria-hidden="true">
+            <circle class="ring__track" cx="64" cy="64" r="59" />
+            <circle id="ring-bar" class="ring__bar" cx="64" cy="64" r="59" pathLength="100" stroke-dasharray="0 100" />
+          </svg>
+          <span class="ring__num"><b id="ring-value"></b><small id="ring-caption"></small></span>
+          <svg class="i ring__icon" aria-hidden="true"><use id="ring-icon" href="#i-feed" /></svg>
+        </div>
+        <div role="status" aria-live="polite">
+          <h2 id="stage">
+            <svg id="stage-mark" class="i" aria-hidden="true" hidden><use href="#i-check" /></svg>
+            <span id="stage-text">No timeline yet</span>
+          </h2>
+        </div>
+        <ul id="pills" class="pills" hidden></ul>
+        <p id="lead" class="hero__lead"></p>
+      </section>
+
       <div id="run-error" role="alert" hidden>
-        <p id="run-error-message" class="note bad"></p>
-        <details><summary data-i18n="technicalDetail">Technical detail</summary><pre id="run-error-detail"></pre></details>
+        <p class="call call--bad">
+          <svg class="i" aria-hidden="true"><use href="#i-x" /></svg>
+          <span id="run-error-message" class="call__text"></span>
+        </p>
+        <details class="tech">
+          <summary data-i18n="technicalDetail">Technical detail</summary>
+          <pre id="run-error-detail"></pre>
+        </details>
       </div>
-      <p id="pending-note" class="note"></p>
-      <button id="primary" type="button">Collect new timeline</button>
-      <button id="collect-link" class="link" type="button" data-i18n="collectNew" hidden>Collect new timeline</button>
-      <button id="open-reader" type="button" data-i18n="openReader">Open reading window</button>
-      <button id="open-settings" type="button" data-i18n="openSettings">Settings…</button>
-    </section>
 
-    <section aria-labelledby="usage-h">
-      <h2 id="usage-h" data-i18n="tokenMonitor">Token monitor</h2>
-      <dl>
-        <dt data-i18n="statCollected">Collected</dt><dd id="posts-collected">—</dd>
-        <dt data-i18n="statFilteredOut">Filtered out</dt><dd id="posts-filtered">—</dd>
-        <dt data-i18n="statVerified">Verified claims</dt><dd id="posts-verified">—</dd>
-        <dt data-i18n="statKept">Posts kept / seen</dt><dd id="posts-kept">—</dd>
-        <dt data-i18n="statInputTokens">Input tokens</dt><dd id="tokens-in">—</dd>
-        <dt data-i18n="statCacheTokens">Cache tokens</dt><dd id="tokens-cache">—</dd>
-        <dt data-i18n="statOutputTokens">Output tokens</dt><dd id="tokens-out">—</dd>
-        <dt data-i18n="statThinkingTokens">Thinking tokens</dt><dd id="tokens-thinking">—</dd>
-        <dt data-i18n="statCost">Estimated cost</dt><dd id="cost">—</dd>
-        <dt data-i18n="statRunTime">Run time</dt><dd id="run-time">—</dd>
-        <dt data-i18n="statStageTimes">Stage times</dt><dd id="stage-times">—</dd>
-        <dt data-i18n="statCollectionSpan">Collection span</dt><dd id="collection-span">—</dd>
-        <dt data-i18n="statLastRun">Last run</dt><dd id="last-run">Never</dd>
-      </dl>
-    </section>
+      <div class="acts">
+        <button id="primary" class="btn btn--primary" type="button">
+          <svg id="primary-mark" class="i" aria-hidden="true" hidden><use href="#i-book" /></svg>
+          <span id="primary-label">Collect new timeline</span>
+        </button>
+        <button id="collect-link" class="link" type="button" data-i18n="collectNew" hidden>Collect new timeline</button>
+      </div>
 
-    <section aria-labelledby="llm-h">
-      <h2 id="llm-h" data-i18n="llmProvider">LLM provider (your local CLI)</h2>
-      <p id="llm-status" role="status" aria-live="polite" data-i18n="llmNotChecked">Not checked yet.</p>
-      <button id="check-llm" type="button" data-i18n="llmCheck">Check the claude CLI</button>
-    </section>
+      <div aria-live="polite">
+        <p class="call call--info">
+          <svg class="i" aria-hidden="true"><use href="#i-info" /></svg>
+          <span id="collection-note" class="call__text"></span>
+        </p>
+      </div>
+      <p class="call call--info">
+        <svg class="i" aria-hidden="true"><use href="#i-info" /></svg>
+        <span id="unfinished-note" class="call__text"></span>
+      </p>
+
+      <p id="tagline" class="summary" data-i18n="appTagline">Your feed, filtered. Finite by design.</p>
+      <dl id="summary" class="summary" hidden></dl>
+
+      <details id="usage" class="usage" hidden>
+        <summary>
+          <span data-i18n="tokenMonitor">Token monitor</span>
+          <span class="usage__sum">
+            <span class="sr-only" data-i18n="statCost">Estimated cost</span>
+            <span id="cost">—</span> ·
+            <span class="sr-only" data-i18n="statRunTime">Run time</span>
+            <span id="run-time">—</span>
+          </span>
+        </summary>
+        <dl class="kv">
+          <dt data-i18n="statInputTokens">Input tokens</dt><dd id="tokens-in">—</dd>
+          <dt data-i18n="statCacheTokens">Cache tokens</dt><dd id="tokens-cache">—</dd>
+          <dt data-i18n="statOutputTokens">Output tokens</dt><dd id="tokens-out">—</dd>
+          <dt data-i18n="statThinkingTokens">Thinking tokens</dt><dd id="tokens-thinking">—</dd>
+          <dt data-i18n="statStageTimes">Stage times</dt><dd id="stage-times">—</dd>
+          <dt data-i18n="statCollectionSpan">Collection span</dt><dd id="collection-span">—</dd>
+          <dt data-i18n="statLastRun">Last run</dt><dd id="last-run">Never</dd>
+        </dl>
+      </details>
+
+      <footer class="m-foot">
+        <p id="link-line">
+          <svg class="i" aria-hidden="true" hidden><use href="#i-check" /></svg>
+          <span id="link-status" data-i18n="linkWaiting">Waiting for the browser extension…</span>
+        </p>
+        <div class="row">
+          <p id="llm-line" role="status" aria-live="polite">
+            <svg class="i" aria-hidden="true" hidden><use href="#i-check" /></svg>
+            <span id="llm-status" data-i18n="llmNotChecked">Not checked yet.</span>
+          </p>
+          <button id="check-llm" class="link" type="button" data-i18n="llmCheck">Check the claude CLI</button>
+        </div>
+      </footer>
+    </main>
 
     <script src="renderer.js"></script>
   </body>

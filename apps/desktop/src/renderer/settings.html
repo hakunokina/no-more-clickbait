@@ -5,68 +5,68 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; base-uri 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'"
     />
     <title>No More Clickbait — Settings</title>
-    <style>
-      /* No words until the language is known (localizePage clears it). */
-      [data-i18n-pending] body { visibility: hidden; }
-      :root { color-scheme: light dark; }
-      body { font-family: system-ui, sans-serif; margin: 0; padding: 1rem; line-height: 1.5; }
-      h1 { font-size: 1.05rem; margin: 0 0 0.25rem; }
-      .sub { margin: 0 0 1rem; opacity: 0.75; font-size: 0.9rem; }
-      section { border: 1px solid #8884; border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 0.75rem; }
-      h2 { font-size: 0.9rem; margin: 0 0 0.5rem; }
-      :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
-      .ok { color: #1c7c3c; }
-      .bad { color: #b3261e; }
-      @media (prefers-color-scheme: dark) {
-        .ok { color: #72d39c; }
-        .bad { color: #f2b8b5; }
-        :focus-visible { outline-color: #8ab4f8; }
-      }
-      .note { font-size: 0.85rem; margin: 0.5rem 0 0; }
-      .note:empty { display: none; }
-      .setting-field { margin-bottom: 0.9rem; }
-      .setting-field label { display: block; font-size: 0.9rem; margin-bottom: 0.25rem; }
-      .setting-field input[type="number"], .setting-field select {
-        width: 100%; box-sizing: border-box; min-height: 2.5rem; padding: 0.35rem 0.5rem;
-      }
-      .setting-field input[type="checkbox"] { width: 1.4rem; height: 1.4rem; vertical-align: middle; }
-      .hint { font-size: 0.8rem; opacity: 0.75; margin: 0.25rem 0 0; }
-      .error { font-size: 0.8rem; color: #b3261e; margin: 0.25rem 0 0; }
-      .error:empty { display: none; }
-      [aria-invalid="true"] { outline: 0.15rem solid #b3261e; }
-      @media (prefers-color-scheme: dark) {
-        .error { color: #f2b8b5; }
-        [aria-invalid="true"] { outline-color: #f2b8b5; }
-      }
-      select#browser-choice { width: 100%; min-height: 2.5rem; padding: 0.35rem 0.5rem; box-sizing: border-box; }
-    </style>
+    <link rel="stylesheet" href="ui.css" />
   </head>
   <body>
-    <h1 data-i18n="settingsTitle">Settings</h1>
-    <p class="sub" data-i18n="settingsSub">
-      The same settings as the extension's options page — a change here is sent to the
-      browser extension, and a change there shows up here. Changes are saved as you make them.
-    </p>
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10" /></symbol>
+      <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z" /><path d="M12 10v5M12 18v.5" /></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M9 9l6 6M15 9l-6 6" /></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.5v.5" /></symbol>
+    </svg>
 
-    <section aria-labelledby="browser-h">
-      <h2 id="browser-h" data-i18n="browserForCollecting">Browser for collecting</h2>
-      <label for="browser-choice" data-i18n="collectIn">Collect in</label>
-      <select id="browser-choice"></select>
-      <p id="browser-note" class="note" aria-live="polite"></p>
-    </section>
+    <main class="s">
+      <h1 data-i18n="settingsTitle">Settings</h1>
+      <p class="sub" data-i18n="settingsSub">
+        The same settings as the extension's options page — a change here is sent to the
+        browser extension, and a change there shows up here. Changes are saved as you make them.
+      </p>
 
-    <section aria-labelledby="settings-h">
-      <h2 id="settings-h" data-i18n="settingsSection">Collection, filter and checks</h2>
-      <p id="load-note" class="note bad" role="alert"></p>
+      <div class="s-notes">
+        <div role="alert">
+          <p class="call call--bad">
+            <svg class="i" aria-hidden="true"><use href="#i-x" /></svg>
+            <span id="load-note" class="call__text"></span>
+          </p>
+        </div>
+        <div aria-live="polite">
+          <p class="call call--warn">
+            <svg class="i" aria-hidden="true"><use href="#i-warn" /></svg>
+            <span id="outdated-note" class="call__text"></span>
+          </p>
+        </div>
+        <div aria-live="polite">
+          <p class="call call--info">
+            <svg class="i" aria-hidden="true"><use href="#i-info" /></svg>
+            <span id="pending-note" class="call__text"></span>
+          </p>
+        </div>
+        <div role="alert">
+          <p class="call call--bad">
+            <svg class="i" aria-hidden="true"><use href="#i-x" /></svg>
+            <span id="mode-b-note" class="call__text"></span>
+          </p>
+        </div>
+      </div>
+
+      <!-- Moved into the "Browser and language" section; saved on its own, not with the form. -->
+      <div id="browser-field" class="f">
+        <label class="f__full" for="browser-choice" data-i18n="browserForCollecting">Browser for collecting</label>
+        <select id="browser-choice" class="select f__full" aria-describedby="browser-note"></select>
+        <p id="browser-note" class="f__desc" aria-live="polite"></p>
+      </div>
       <div id="settings-form"></div>
-      <p id="save-note" class="note" role="status" aria-live="polite"></p>
-      <p id="outdated-note" class="note bad" aria-live="polite"></p>
-      <p id="pending-note" class="note" aria-live="polite"></p>
-      <p id="mode-b-note" class="note bad" role="alert"></p>
-    </section>
+
+      <div class="toast" role="status" aria-live="polite">
+        <p id="save-box" class="save">
+          <svg class="i" aria-hidden="true" hidden><use href="#i-check" /></svg>
+          <span id="save-note" class="save__text"></span>
+        </p>
+      </div>
+    </main>
 
     <script src="settings-page.js"></script>
   </body>
