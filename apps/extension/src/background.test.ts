@@ -88,6 +88,8 @@ function fakeChrome() {
   const chrome = {
     runtime: {
       id: "test",
+      /** What the browser says when a native port closes on its own. */
+      lastError: undefined as { message: string } | undefined,
       connectNative: () => {
         const port: FakePort = {
           onMessage: event(),
@@ -928,6 +930,112 @@ describe("Mode B in the background worker", () => {
     modeBCommand("stop");
     await settle();
     expect(lastRun()).toMatchObject({ stopReason: "cancelled" });
+  });
+
+  it("ends the run when the native host closes without a word (not installed)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    expect(fake.sessionArea.get("nmc-mode-b-run")).toBeDefined();
+    fake.chrome.runtime.lastError = { message: "Specified native messaging host not found." };
+    currentPort().onDisconnect.emit();
+    await settle();
+    expect(lastRun()).toMatchObject({
+      stopReason: "host-unreachable",
+      error: "Specified native messaging host not found.",
+    });
+    expect(fake.chrome.windows.remove).toHaveBeenCalledWith(3);
+    expect(fake.chrome.notifications.create).toHaveBeenCalledWith(
+      "nmc-mode-b-finished",
+      expect.objectContaining({
+        message: expect.stringContaining("is its native host installed?"),
+      }),
+    );
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("native host unreachable"));
+  });
+
+  it("keeps the run going when a host that answered goes away (it reconnects)", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await setSettings({ ...modeBOn, collectTarget: 100 });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    const port = currentPort();
+    port.onMessage.emit({ type: "link-status", desktopConnected: false });
+    port.onDisconnect.emit();
+    await settle();
+    expect(lastRun()).toBeUndefined();
+    expect(fake.sessionArea.get("nmc-mode-b-run")).toBeDefined();
+    expect(fake.chrome.windows.remove).not.toHaveBeenCalled();
+  });
+
+  it("keeps the host's count when the service worker restarts mid-run (a new host counts from zero)", async () => {
+    await setSettings({ ...modeBOn, devCaptureEnabled: true, collectTarget: 100 });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    captureTimeline(RUN_TAB);
+    await settle();
+    currentPort().onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(30) });
+    await settle();
+    expect(fake.badge.text).toBe("30");
+
+    // The service worker is stopped and started again: memory is gone,
+    // storage stays, and its first port starts a new host process.
+    const before = fake;
+    fake = fakeChrome();
+    for (const [key, value] of before.local) fake.local.set(key, value);
+    for (const [key, value] of before.sessionArea) fake.sessionArea.set(key, value);
+    for (const name of before.granted) fake.granted.add(name);
+    // Held: the resumed step would wait on a page that never answers.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.stubGlobal("chrome", fake.chrome);
+    vi.resetModules();
+    await import("./background.js");
+    await settle();
+    const port = currentPort();
+    port.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(5) });
+    await settle();
+    expect(fake.badge.text).toBe("35");
+    // Not 5: the run would see its count drop and stop as stalled.
+    expect(fake.sessionArea.get("nmc-mode-b-run")).toMatchObject({ uniquePostCount: 35 });
+    expect(port.posted).toContainEqual(
+      expect.objectContaining({ type: "collection-progress", uniquePostCount: 35 }),
+    );
+    port.onMessage.emit({ type: "capture-accepted", sequence: 2, stats: stats(70) });
+    await settle();
+    expect(lastRun()).toMatchObject({
+      counter: "host",
+      stopReason: "target-reached",
+      uniquePostCount: 100,
+    });
+  });
+
+  it("keeps the host's count when its host process is replaced mid-run", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await setSettings({ ...modeBOn, devCaptureEnabled: true, collectTarget: 100 });
+    await settle();
+    modeBCommand("start");
+    await settle();
+    captureTimeline(RUN_TAB);
+    await settle();
+    const first = currentPort();
+    first.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(30) });
+    await settle();
+    first.onDisconnect.emit();
+    // The next capture opens a new host process, which counts from zero.
+    captureTimeline(RUN_TAB);
+    await settle();
+    const second = currentPort();
+    expect(second).not.toBe(first);
+    second.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(4) });
+    await settle();
+    expect(fake.badge.text).toBe("34");
+    expect(lastRun()).toBeUndefined();
+    expect(fake.sessionArea.get("nmc-mode-b-run")).toMatchObject({ uniquePostCount: 34 });
   });
 
   it("notices when the user closes the run's tab", async () => {

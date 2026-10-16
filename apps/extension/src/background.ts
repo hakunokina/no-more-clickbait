@@ -49,6 +49,7 @@ import {
   MODE_B_PERMISSIONS,
   ModeBRunner,
   refusedRun,
+  removeLegacyModeBPacing,
   runSource,
   runStopReason,
   sourceName,
@@ -198,20 +199,49 @@ const channel = new NativeChannel(openNativePort);
 /** Notification texts wait for the desktop's language (a restarted worker reads it again). */
 const uiLangReady = watchUiLang(setUiLang);
 
+/** The counting session (generation) whose host process this worker already started. */
+let hostGeneration: number | null = null;
+
 function openNativePort(): chrome.runtime.Port {
   const opened = chrome.runtime.connectNative(NATIVE_HOST_NAME);
   const portGeneration = generation;
+  // Each host process counts X from zero. A port opened mid-session — the
+  // worker restarted (generation 0 goes on with the stored session) or the
+  // host went away — continues from the count shown so far.
+  const countBase =
+    portGeneration === 0 || hostGeneration === portGeneration
+      ? loadProgress().then(() => progress.x?.count ?? 0)
+      : Promise.resolve(0);
+  hostGeneration = portGeneration;
+  let answered = false;
   opened.onDisconnect.addListener(() => {
+    // Gone without a word: not installed, or it would not start. A host
+    // that answered and then went away is only reconnected (below).
+    if (!answered) hostUnreachable(chrome.runtime.lastError?.message);
     // Host gone (crashed, not installed): reopen the link, backing off.
     if (channel.lost(opened)) scheduleDesktopLink();
   });
   opened.onMessage.addListener((reply: unknown) => {
+    answered = true;
     channel.received(opened, reply);
-    void handleReply(reply, portGeneration).catch((error: unknown) => {
+    void handleReply(reply, portGeneration, countBase).catch((error: unknown) => {
       console.error(`[nmc] native host reply handling failed: ${String(error)}`);
     });
   });
   return opened;
+}
+
+/**
+ * A Mode B run has nowhere to send what it collects (nor, with developer
+ * capture on, anyone to count it): it ends with that reason instead of
+ * scrolling on until it looks stalled.
+ */
+function hostUnreachable(detail: string | undefined): void {
+  runCommand(async () => {
+    if (!(await modeB.current())) return;
+    console.error(`[nmc] native host unreachable: ${detail ?? "it closed without answering"}`);
+    await modeB.stop("host-unreachable", detail ?? null);
+  });
 }
 
 /** Keeps the long-lived host port — and with it the desktop link — open. */
@@ -341,7 +371,11 @@ async function countOf(source: CollectSource, settings: Settings): Promise<numbe
   return sessionOf(source).uniqueCount();
 }
 
-async function handleReply(raw: unknown, replyGeneration: number): Promise<void> {
+async function handleReply(
+  raw: unknown,
+  replyGeneration: number,
+  countBase: Promise<number>,
+): Promise<void> {
   const parsed = BridgeReplySchema.safeParse(raw);
   if (!parsed.success) {
     console.warn(
@@ -387,7 +421,7 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
     }
     // Only X's counts drive the badge, Mode B and the target.
     if ((reply.source ?? "x") !== "x") return;
-    await reflectCaptureStats(reply.stats, replyGeneration);
+    await reflectCaptureStats(reply.stats, replyGeneration, countBase);
   } else if (reply.type === "error") {
     console.error(`[nmc] native host error: ${reply.message}`);
   }
@@ -396,18 +430,22 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
 async function reflectCaptureStats(
   stats: CaptureStats,
   replyGeneration: number,
+  countBase: Promise<number>,
 ): Promise<void> {
   const settings = await loadSettings().catch(() => null);
   if (!settings?.devCaptureEnabled || replyGeneration !== generation) return;
   // X is not collected, or its part of this collection ended: its count stands.
   if (!settings.collectFromX || (await session.closedReason()) !== null) return;
-  await showCount("x", stats.uniquePostCount, settings);
+  // A post seen by both host processes counts twice: an approximation the
+  // dumps (split over their two folders) share.
+  const count = (await countBase) + stats.uniquePostCount;
+  await showCount("x", count, settings);
   const run = await modeB.current();
   if (run?.counter === "host" && runSource(run) === "x") {
-    reportProgress(run, stats.uniquePostCount);
+    reportProgress(run, count);
   }
-  await modeB.onCount(stats.uniquePostCount, "host");
-  const reached = await session.reachedTarget(stats.uniquePostCount, settings.collectTarget);
+  await modeB.onCount(count, "host");
+  const reached = await session.reachedTarget(count, settings.collectTarget);
   if (!reached || replyGeneration !== generation) return;
   await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
   await uiLangReady;
@@ -416,12 +454,7 @@ async function reflectCaptureStats(
       type: "basic",
       iconUrl: chrome.runtime.getURL("icon-128.png"),
       title: t("notifyCaptureTitle"),
-      message: t(
-        "notifyCaptureBody",
-        stats.uniquePostCount,
-        stats.responseCount,
-        settings.collectTarget,
-      ),
+      message: t("notifyCaptureBody", count, stats.responseCount, settings.collectTarget),
     });
   } catch {
     // Notification is best-effort; the badge already shows the state.
@@ -843,13 +876,7 @@ const modeBBrowser: ModeBBrowser = {
     if (tabId === undefined) throw new Error("the new window has no tab");
     return { windowId, tabId };
   },
-  async openTab(create) {
-    const tab = await chrome.tabs.create(create);
-    if (tab.id === undefined) throw new Error("the browser returned no tab");
-    return { tabId: tab.id };
-  },
   closeWindow: (windowId) => chrome.windows.remove(windowId),
-  closeTab: (tabId) => chrome.tabs.remove(tabId),
   sendStep: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
   async navigate(tabId, url) {
     await chrome.tabs.update(tabId, { url });
@@ -1219,6 +1246,10 @@ for (const startup of [chrome.runtime.onStartup, chrome.runtime.onInstalled]) {
     });
   });
 }
+
+chrome.runtime.onInstalled.addListener(() => {
+  void removeLegacyModeBPacing();
+});
 
 installDevCaptureScripts(chrome.scripting, chrome.storage);
 

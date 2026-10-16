@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { classifyPage, scrollStep, type PageFacts } from "./mode-b-page.js";
+import { answerModeBStep, classifyPage, scrollStep, type PageFacts } from "./mode-b-page.js";
 
 const facts = (overrides: Partial<PageFacts> = {}): PageFacts => ({
   pathname: "/home",
@@ -68,5 +68,49 @@ describe("scrollStep", () => {
       hidden: true,
       scrolled: true,
     });
+  });
+});
+
+describe("answerModeBStep (the content script's listener)", () => {
+  const ours = { id: "nmc" };
+
+  it("ignores a step from another extension, or from no extension at all", () => {
+    const { win, doc } = fakePage(10_000);
+    for (const sender of [{ id: "someone-else" }, {}]) {
+      expect(
+        answerModeBStep({ kind: "mode-b-step" }, sender, "nmc", doc as never, win as never),
+      ).toBeUndefined();
+    }
+    expect(win.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("ignores messages that are not a well-formed step", () => {
+    const { win, doc } = fakePage(10_000);
+    for (const message of [
+      null,
+      "mode-b-step",
+      { kind: "timeline-capture" },
+      { kind: "mode-b-step", source: "reddit" },
+    ]) {
+      expect(answerModeBStep(message, ours, "nmc", doc as never, win as never)).toBeUndefined();
+    }
+    expect(win.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("scrolls on its own step and answers away to Instagram's", () => {
+    const { win, doc } = fakePage(10_000);
+    expect(
+      answerModeBStep(
+        { kind: "mode-b-step", source: "instagram" },
+        ours,
+        "nmc",
+        doc as never,
+        win as never,
+      ),
+    ).toEqual({ kind: "mode-b-page", page: "away", hidden: true, scrolled: false });
+    expect(win.scrollTo).not.toHaveBeenCalled();
+    expect(
+      answerModeBStep({ kind: "mode-b-step" }, ours, "nmc", doc as never, win as never),
+    ).toMatchObject({ page: "timeline", scrolled: true });
   });
 });

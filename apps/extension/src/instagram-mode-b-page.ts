@@ -1,4 +1,9 @@
-import type { ModeBPageKind, ModeBPageReport, ModeBStepMessage } from "./messages.js";
+import {
+  isModeBStepMessage,
+  type ModeBPageKind,
+  type ModeBPageReport,
+  type ModeBStepMessage,
+} from "./messages.js";
 
 /**
  * Mode B, Instagram page side: one scroll step in the run's tab once
@@ -65,4 +70,16 @@ export function instagramScrollStep(
     scrolled = win.scrollY !== before;
   }
   return { kind: "mode-b-page", page, hidden: doc.hidden, scrolled };
+}
+
+/** The content script's answer to a worker message: undefined for anything not this extension's step. */
+export function answerInstagramModeBStep(
+  message: unknown,
+  sender: Pick<chrome.runtime.MessageSender, "id">,
+  extensionId: string,
+  doc: Document,
+  win: Window,
+): ModeBPageReport | undefined {
+  if (sender.id !== extensionId || !isModeBStepMessage(message)) return undefined;
+  return instagramScrollStep(doc, win, message);
 }

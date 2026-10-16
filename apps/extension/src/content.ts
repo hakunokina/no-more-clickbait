@@ -1,10 +1,5 @@
-import {
-  isModeBStepMessage,
-  isTimelineCaptureMessage,
-  type ModeBPageReport,
-  type WorkerCaptureMessage,
-} from "./messages.js";
-import { scrollStep } from "./mode-b-page.js";
+import { isTimelineCaptureMessage, type WorkerCaptureMessage } from "./messages.js";
+import { answerModeBStep } from "./mode-b-page.js";
 
 /**
  * Isolated-world bridge: relays MAIN-world captures to the service
@@ -27,17 +22,6 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
 
 /** Mode B: the worker drives scrolling one step at a time (see mode-b-page.ts). */
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || !isModeBStepMessage(message)) return;
-  // A step meant for another site's feed: the run's tab is not where it expects.
-  if (message.source !== undefined) {
-    const away: ModeBPageReport = {
-      kind: "mode-b-page",
-      page: "away",
-      hidden: document.hidden,
-      scrolled: false,
-    };
-    sendResponse(away);
-    return;
-  }
-  sendResponse(scrollStep(document, window));
+  const report = answerModeBStep(message, sender, chrome.runtime.id, document, window);
+  if (report) sendResponse(report);
 });

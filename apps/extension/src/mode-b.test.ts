@@ -4,6 +4,7 @@ import type { SessionArea } from "./capture-session.js";
 import type { ModeBPageReport } from "./messages.js";
 import {
   applyStep,
+  describeStopReason,
   INSTAGRAM_HOME_URL,
   isRateLimited,
   loadModeBPacing,
@@ -11,6 +12,7 @@ import {
   MODE_B_LIMITS,
   MODE_B_RUN_KEY,
   ModeBRunner,
+  removeLegacyModeBPacing,
   runStopReason,
   stepDelayMs,
   summarize,
@@ -215,9 +217,7 @@ function fakeBrowser(answer: () => unknown = () => page()) {
     openWindow: vi.fn((_create: chrome.windows.CreateData) =>
       Promise.resolve({ windowId: 3, tabId: 7 }),
     ),
-    openTab: vi.fn((_create: chrome.tabs.CreateProperties) => Promise.resolve({ tabId: 9 })),
     closeWindow: vi.fn((_id: number) => Promise.resolve()),
-    closeTab: vi.fn((_id: number) => Promise.resolve()),
     sendStep: vi.fn((_tabId: number, _message: unknown) => Promise.resolve(answer())),
     navigate: vi.fn((_tabId: number, _url: string) => Promise.resolve()),
   } satisfies ModeBBrowser;
@@ -299,7 +299,6 @@ describe("ModeBRunner", () => {
     await runner.start(start);
     await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
     expect(browser.closeWindow).toHaveBeenCalledWith(3);
-    expect(browser.openTab).not.toHaveBeenCalled();
     expect(finished[0]?.stopReason).toBe("not-logged-in");
   });
 
@@ -368,6 +367,46 @@ describe("ModeBRunner", () => {
     expect(browser.closeWindow).toHaveBeenCalledWith(3);
   });
 
+  it("does not count the rate-limit answer as a step's new response", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, { ...fixed, random: () => 0 });
+    await runner.start(start);
+    await runner.onResponse(7, false); // the page's first load
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    await runner.onResponse(7, false); // brought by the first step
+    await vi.advanceTimersByTimeAsync(stepDelayMs(0));
+    await runner.onResponse(7, true); // the second step's answer: a 429
+    expect(finished[0]).toMatchObject({
+      stopReason: "rate-limited",
+      responseCount: 3,
+      stepsWithNewResponse: 1,
+    });
+  });
+
+  it("a rate limit right after the first load counts no step's response", async () => {
+    const runner = new ModeBRunner(fakeBrowser(), area, hooks, fixed);
+    await runner.start(start);
+    await runner.onResponse(7, false);
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    await runner.onResponse(7, true);
+    expect(finished[0]).toMatchObject({ responseCount: 2, stepsWithNewResponse: 0 });
+  });
+
+  it("ends the run when the native host is unreachable, with the browser's words", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(start);
+    await runner.stop("host-unreachable", "Specified native messaging host not found.");
+    expect(browser.closeWindow).toHaveBeenCalledWith(3);
+    expect(finished[0]).toMatchObject({
+      stopReason: "host-unreachable",
+      error: "Specified native messaging host not found.",
+    });
+    expect(describeStopReason("host-unreachable")).toBe(
+      "could not connect to the desktop app — is its native host installed?",
+    );
+  });
+
   it("does not try to close a tab the user already closed", async () => {
     const browser = fakeBrowser();
     const runner = new ModeBRunner(browser, area, hooks, fixed);
@@ -388,6 +427,23 @@ describe("ModeBRunner", () => {
       unansweredSince: Date.now(),
       scrollCount: 0,
       lastError: "no answer to a scroll step within 5 s",
+    });
+  });
+
+  it("treats a malformed page answer as unanswered, saying so", async () => {
+    const browser = fakeBrowser(() => ({ kind: "mode-b-page", page: "bogus", hidden: true }));
+    const runner = new ModeBRunner(browser, area, hooks, { ...fixed, random: () => 0 });
+    await runner.start(start);
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    expect(await runner.current()).toMatchObject({
+      unansweredSince: Date.now(),
+      scrollCount: 0,
+      lastError: "the page gave no usable answer to a scroll step",
+    });
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.maxUnansweredMs + stepDelayMs(0));
+    expect(finished[0]).toMatchObject({
+      stopReason: "page-unresponsive",
+      error: "the page gave no usable answer to a scroll step",
     });
   });
 
@@ -609,6 +665,17 @@ describe("ModeBRunner over several feeds", () => {
     ]);
   });
 
+  it("an unreachable host ends the run, Instagram included", async () => {
+    const runner = new ModeBRunner(fakeBrowser(), area, hooks, fixed);
+    await runner.start(both);
+    await runner.stop("host-unreachable");
+    expect(legsOfRun(finished[0])).toEqual([
+      ["x", 0, "host-unreachable"],
+      ["instagram", 0, "host-unreachable"],
+    ]);
+    expect(runStopReason(finished[0] as ModeBRunSummary)).toBe("host-unreachable");
+  });
+
   it("resumes the Instagram leg after a service-worker restart", async () => {
     const browser = fakeBrowser();
     const runner = new ModeBRunner(browser, area, hooks, fixed);
@@ -622,20 +689,25 @@ describe("ModeBRunner over several feeds", () => {
 });
 
 describe("loadModeBPacing", () => {
-  const local = () => ({ remove: vi.fn(() => Promise.resolve()) });
-
-  it("reads Settings and drops the pacing trial's old key", async () => {
-    const storage = local();
-    await expect(
-      loadModeBPacing(() => Promise.resolve({ modeBPacing: "fast" }), storage as never),
-    ).resolves.toBe("fast");
-    expect(storage.remove).toHaveBeenCalledWith(LEGACY_MODE_B_PACING_KEY);
+  it("reads Settings", async () => {
+    await expect(loadModeBPacing(() => Promise.resolve({ modeBPacing: "fast" }))).resolves.toBe(
+      "fast",
+    );
   });
 
   it("falls back to normal pacing when Settings cannot be read", async () => {
+    await expect(loadModeBPacing(() => Promise.reject(new Error("gone")))).resolves.toBe(
+      "normal",
+    );
+  });
+});
+
+describe("removeLegacyModeBPacing", () => {
+  it("drops the pacing trial's old key, and shrugs off a failure", async () => {
+    const storage = { remove: vi.fn(() => Promise.resolve()) };
+    await removeLegacyModeBPacing(storage as never);
+    expect(storage.remove).toHaveBeenCalledWith(LEGACY_MODE_B_PACING_KEY);
     const failing = { remove: () => Promise.reject(new Error("gone")) };
-    await expect(
-      loadModeBPacing(() => Promise.reject(new Error("gone")), failing as never),
-    ).resolves.toBe("normal");
+    await expect(removeLegacyModeBPacing(failing as never)).resolves.toBeUndefined();
   });
 });
