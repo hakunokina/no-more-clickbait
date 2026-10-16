@@ -10,7 +10,13 @@ import { messages, say } from "../shared/i18n.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { monitorActions, type MonitorAction } from "../shared/actions.js";
 import { localizePage } from "./localize.js";
-import { monitorView, type MonitorView, type PillView, type Tone } from "./monitor-view.js";
+import {
+  monitorView,
+  type MonitorView,
+  type PillView,
+  type SiteRowView,
+  type Tone,
+} from "./monitor-view.js";
 
 declare global {
   interface Window {
@@ -65,6 +71,43 @@ const PILL_ICONS: Readonly<Record<PillView["state"], string>> = {
   warn: "warn",
 };
 
+const SITE_ICONS: Readonly<Record<SiteRowView["state"], string>> = {
+  ...PILL_ICONS,
+  bad: "x",
+};
+
+/** The site list's open state last set from the view; the user's toggle stands until it changes. */
+let sitesOpen: boolean | null = null;
+
+function renderSites(view: MonitorView["sites"]): void {
+  const box = el<HTMLDetailsElement>("sites");
+  box.hidden = view === null;
+  if (!view) {
+    sitesOpen = null;
+    return;
+  }
+  if (sitesOpen !== view.open) box.open = sitesOpen = view.open;
+  text("sites-title", view.title);
+  el("sites-mark").toggleAttribute("hidden", !view.problem);
+  el("sites-list").replaceChildren(
+    ...view.rows.map((row) => {
+      const item = document.createElement("li");
+      item.className = row.state;
+      const spoken = document.createElement("span");
+      spoken.className = "sr-only";
+      spoken.textContent = row.spoken;
+      const name = document.createElement("span");
+      name.className = "sites__name";
+      name.textContent = row.name;
+      const state = document.createElement("span");
+      state.className = "sites__state";
+      state.textContent = row.status;
+      item.append(icon(SITE_ICONS[row.state]), spoken, name, " ", state);
+      return item;
+    }),
+  );
+}
+
 function renderView(view: MonitorView): void {
   const ring = el("ring");
   ring.hidden = view.ring === null;
@@ -108,6 +151,7 @@ function renderView(view: MonitorView): void {
       return item;
     }),
   );
+  renderSites(view.sites);
   text("lead", view.lead);
 
   el("tagline").hidden = !view.tagline;

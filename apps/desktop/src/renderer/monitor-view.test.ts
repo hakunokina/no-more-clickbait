@@ -116,6 +116,8 @@ describe("monitorView", () => {
       ["X 250 / 250", "done"],
       ["Instagram 40 / 250", "warn"],
     ]);
+    // Not by colour or icon alone: a short feed is read out as incomplete.
+    expect(view.pills[1]?.spoken).toBe("Incomplete: ");
     expect(view.lead).toContain("Build the timeline anyway?");
   });
 
@@ -192,5 +194,109 @@ describe("monitorView", () => {
       title: "The timeline could not be prepared",
       lead: "The collected posts are kept; trying again does not collect again.",
     });
+  });
+
+  it("lists each custom site with its state in words and its items", () => {
+    const collecting = status((s) => {
+      s.collection = {
+        state: "collecting",
+        message: null,
+        target: 250,
+        count: null,
+        sources: [{ source: "x", count: 40 }],
+        sites: [
+          { siteId: "a", name: "Local News", status: "ok", itemCount: 12 },
+          { siteId: "b", name: "b.example", status: "collecting", itemCount: 0 },
+          { siteId: "c", name: "Slow Blog", status: "timeout", itemCount: 3 },
+        ],
+      };
+    });
+    expect(monitorView(collecting).sites).toEqual({
+      title: "Custom sites · 2/3 done · 1 problem",
+      problem: true,
+      open: true,
+      rows: [
+        { name: "Local News", state: "done", spoken: "Done: ", status: "Done · 12 items" },
+        { name: "b.example", state: "now", spoken: "In progress: ", status: "Collecting" },
+        {
+          name: "Slow Blog",
+          state: "warn",
+          spoken: "Incomplete: ",
+          status: "Timed out · 3 items",
+        },
+      ],
+    });
+  });
+
+  it("folds five sites, in Turkish, and words every outcome", () => {
+    const view = monitorView(
+      status((s) => {
+        s.lang = "tr";
+        s.collection = {
+          state: "collecting",
+          message: null,
+          target: null,
+          count: null,
+          sources: [],
+          sites: [
+            { siteId: "a", name: "A", status: "waiting", itemCount: 0 },
+            { siteId: "b", name: "B", status: "ok", itemCount: 1 },
+            { siteId: "c", name: "C", status: "empty", itemCount: 0 },
+            { siteId: "d", name: "D", status: "error", itemCount: 0 },
+            { siteId: "e", name: "E", status: "skipped", itemCount: 0 },
+          ],
+        };
+      }),
+    );
+    expect(view.sites).toEqual({
+      title: "Özel siteler · 4/5 bitti · 3 sorun",
+      problem: true,
+      open: false,
+      rows: [
+        { name: "A", state: "next", spoken: "Sırada: ", status: "Sırada" },
+        { name: "B", state: "done", spoken: "Tamam: ", status: "Bitti · 1 öğe" },
+        { name: "C", state: "warn", spoken: "Eksik: ", status: "Öğe yok" },
+        { name: "D", state: "bad", spoken: "Eksik: ", status: "Okunamadı" },
+        { name: "E", state: "warn", spoken: "Eksik: ", status: "Atlandı" },
+      ],
+    });
+  });
+
+  it("keeps the finished sites while the collection waits for Build, none without the data", () => {
+    const pending = status((s) => {
+      s.pending = {
+        sessionId: "s1",
+        uniquePostCount: 7,
+        mode: "A",
+        reason: "target-reached",
+        target: null,
+        sources: [],
+      };
+      s.collection.sites = [{ siteId: "a", name: "A", status: "ok", itemCount: 7 }];
+    });
+    expect(monitorView(pending).sites).toMatchObject({
+      title: "Custom sites · 1/1 done",
+      problem: false,
+    });
+    // An extension that does not report its sites: no list, as before.
+    delete pending.collection.sites;
+    expect(monitorView(pending).sites).toBeNull();
+    // Nothing collecting or waiting: the list is not the monitor's to show.
+    const ready = status((s) => {
+      s.run.stage = "ready";
+      s.collection.sites = [{ siteId: "a", name: "A", status: "ok", itemCount: 7 }];
+    });
+    expect(monitorView(ready).sites).toBeNull();
+  });
+
+  it("writes the verified claims' counts in the shown language", () => {
+    const view = monitorView(
+      status((s) => {
+        s.lang = "tr";
+        s.run.stage = "verifying";
+        s.run.counts = { ...s.run.counts, verifyDone: 1200, verifyTotal: 1500 };
+      }),
+    );
+    expect(view.summary).toContainEqual({ label: "Doğrulanan iddia", value: "1.200 / 1.500" });
   });
 });

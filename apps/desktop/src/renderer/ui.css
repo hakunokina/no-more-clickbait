@@ -144,6 +144,18 @@ details.usage > summary::after {
 }
 details.usage[open] > summary::after { content: "−"; }
 .usage__sum { margin-left: auto; color: var(--muted); font-weight: 400; font-variant-numeric: tabular-nums; }
+details.sites > summary { font-weight: 600; }
+#sites-mark { color: var(--warn); }
+.sites__list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 2px; font-size: var(--fs-xs); }
+.sites__list li { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; min-height: 24px; }
+.sites__list svg.i { width: 14px; height: 14px; }
+.sites__name { flex: 1 1 8em; min-width: 0; overflow-wrap: anywhere; }
+.sites__state { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sites__list .done svg.i { color: var(--ok); }
+.sites__list .now svg.i { color: var(--accent); }
+.sites__list .next { color: var(--muted); }
+.sites__list .warn svg.i, .sites__list .warn .sites__state { color: var(--warn); }
+.sites__list .bad svg.i, .sites__list .bad .sites__state { color: var(--bad); }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 0 0 4px; font-size: var(--fs-xs); }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
