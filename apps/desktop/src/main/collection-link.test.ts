@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  feedItemKey,
   ManagedSettingsSchema,
   SettingsSchema,
   type BridgeMessage,
@@ -27,7 +28,7 @@ import { NativeChannel } from "../../../extension/src/native-channel.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import { SessionController } from "./session-controller.js";
-import { say } from "../shared/i18n.js";
+import { messages, say } from "../shared/i18n.js";
 
 /*
  * End to end over the real pieces: the built native host runs as its own
@@ -181,7 +182,7 @@ describe("collection over the real host, pipe and controller", () => {
       scorer: {
         score: async (posts) =>
           posts.map((p) => ({
-            postId: p.id,
+            postId: feedItemKey(p),
             clickbaitScore: 0.1,
             readWorthinessScore: 0.6,
             checkWorthy: false,
@@ -249,6 +250,69 @@ describe("collection over the real host, pipe and controller", () => {
       await readFile(join(sessions[0]?.dir ?? "", "processed.json"), "utf8"),
     ) as { status: string };
     expect(processed.status).toBe("done");
+  }, 20_000);
+
+  it("runs X and custom sites from one collection; a broken site is named as missing", async () => {
+    const port = open();
+    port.postMessage({ type: "ping" });
+    await until(() => server.hostCount === 1, "the host to link up");
+    port.postMessage(batchMessage(0, 3));
+    port.postMessage({
+      type: "feed-batch",
+      batch: {
+        siteId: "news.example/world",
+        capturedAt: new Date().toISOString(),
+        items: ["a", "b"].map((id) => ({
+          platform: "generic" as const,
+          id,
+          sourceLabel: "custom:News",
+          title: `synthetic headline ${id}`,
+          url: `https://news.example/world/${id}`,
+          domain: "news.example",
+          promoted: false,
+        })),
+      },
+    } satisfies BridgeMessage);
+    await until(
+      () => port.count("batch-accepted") === 1 && port.count("feed-accepted") === 1,
+      "both batches stored",
+    );
+    port.postMessage({
+      type: "collection-complete",
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 3,
+      responseCount: 1,
+      sites: [
+        { siteId: "news.example/world", status: "ok", method: "rss", itemCount: 2 },
+        {
+          siteId: "broken.example/feed",
+          status: "timeout",
+          itemCount: 0,
+          message: "no answer",
+        },
+      ],
+    } satisfies BridgeMessage);
+
+    await until(() => controller.status.run.stage === "ready", "the run to finish");
+    // The run reads X and the site's items; the stored X batches stay counted apart.
+    expect(controller.status.run.counts.postsIn).toBe(5);
+    const [session] = await listSessions(sessionsRoot(env));
+    expect(session).toMatchObject({ batchCount: 1, feedBatchCount: 1 });
+    expect(session?.completion?.sites).toHaveLength(2);
+    const doc = JSON.parse(
+      await readFile(join(session?.dir ?? "", "timeline.json"), "utf8"),
+    ) as {
+      bySource: { label: string; in: number }[];
+      missingSources: { label: string; reason: string }[];
+    };
+    expect(doc.bySource.map(({ label, in: n }) => [label, n])).toEqual([
+      ["x", 3],
+      ["custom:News", 2],
+    ]);
+    expect(doc.missingSources).toEqual([
+      { label: "broken.example/feed", reason: messages("en").siteTimeout },
+    ]);
   }, 20_000);
 
   it("runs a desktop-started Mode B collection end to end, through a settings sync", async () => {

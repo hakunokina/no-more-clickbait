@@ -9,6 +9,7 @@ import {
   CollectionStartResultSchema,
   ManagedSettingsSchema,
   SettingsStampSchema,
+  SiteCollectOutcomeSchema,
 } from "@nmc/core";
 import {
   BrowserIdentitySchema,
@@ -86,6 +87,8 @@ export const CollectionCompleteEventSchema = z.object({
   responseCount: z.number().int().nonnegative(),
   /** Distinct posts the collection was working towards. */
   target: z.number().int().min(1).max(10_000).optional(),
+  /** Custom sites collected alongside X, one outcome each. */
+  sites: z.array(SiteCollectOutcomeSchema).max(100).optional(),
 });
 export type CollectionCompleteEvent = z.infer<typeof CollectionCompleteEventSchema>;
 
