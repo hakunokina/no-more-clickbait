@@ -6,8 +6,11 @@ import { SETTINGS_STORAGE_KEY } from "./settings-key.js";
  * they are registered only while the tick is on — otherwise every
  * Reddit/Instagram page would carry non-native `fetch`/XHR (visible to
  * the site's integrity checks) for a feature the user never turned on.
- * The isolated relays stay in the manifest: they touch no page global,
- * and their match patterns are what lets these scripts inject. A tab
+ * The isolated relays stay in the manifest: they touch no page global.
+ * A registered script injects only where the extension has host
+ * permission — a manifest content_scripts match does not count — so
+ * both sites are in `host_permissions` (the install warning already
+ * names them; the worker makes no request to them). A tab
  * already open when the tick changes keeps its state until reloaded.
  * X's listener (injected.js) is the product's own path and stays static.
  */

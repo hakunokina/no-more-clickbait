@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   DEV_CAPTURE_SCRIPTS,
@@ -71,6 +73,15 @@ describe("developer capture MAIN-world scripts", () => {
     for (const script of DEV_CAPTURE_SCRIPTS) {
       expect(script.world).toBe("MAIN");
       expect(script.runAt).toBe("document_start");
+    }
+  });
+
+  it("has host permission for every match (a content_scripts match does not let a registered script inject)", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(import.meta.dirname, "..", "public", "manifest.json"), "utf8"),
+    ) as { host_permissions: string[] };
+    for (const match of DEV_CAPTURE_SCRIPTS.flatMap((script) => script.matches ?? [])) {
+      expect(manifest.host_permissions).toContain(match);
     }
   });
 
