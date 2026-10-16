@@ -1,6 +1,13 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SettingsSchema, type ModeBRunSummary } from "@nmc/core";
-import { finishOffered, lastRunLine, lastRunRows, progressLine } from "./mode-b-view.js";
+import {
+  bindModeBControls,
+  finishOffered,
+  lastRunLine,
+  lastRunRows,
+  progressLine,
+} from "./mode-b-view.js";
 
 describe("the popup's per-feed progress", () => {
   const both = SettingsSchema.parse({ collectTarget: 250, collectFromInstagram: true });
@@ -87,5 +94,93 @@ describe("the last run over several feeds", () => {
       "X: 0 / 250 (not logged in to X in this browser); " +
         "Instagram: 80 / 250 (no new posts for about 20 s of scrolling)",
     ]);
+  });
+});
+
+describe("the Collect feed button", () => {
+  function fakeChrome(granted: boolean) {
+    return {
+      storage: {
+        local: {
+          get: () => Promise.resolve({ "nmc-settings": { modeBEnabled: true } }),
+        },
+        session: { get: () => Promise.resolve({}) },
+        onChanged: { addListener: vi.fn() },
+      },
+      permissions: {
+        contains: vi.fn((_request: unknown) => Promise.resolve(granted)),
+        request: vi.fn((_request: unknown) => Promise.resolve(granted)),
+      },
+      runtime: {
+        sendMessage: vi.fn((_message: unknown) => Promise.resolve(undefined)),
+        openOptionsPage: vi.fn(() => Promise.resolve()),
+      },
+    };
+  }
+
+  async function settle(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  async function bind(
+    granted: boolean,
+    options: { permissionInOptions?: boolean; startBlocked?: () => string | null } = {},
+  ) {
+    const fake = fakeChrome(granted);
+    vi.stubGlobal("chrome", fake);
+    const button = document.createElement("button");
+    const status = document.createElement("p");
+    bindModeBControls({ button, status, ...options });
+    await settle();
+    return { fake, button, status };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("popup: without the permission, sends the user to Options instead of asking", async () => {
+    const { fake, button, status } = await bind(false, { permissionInOptions: true });
+    button.click();
+    await settle();
+    // A permission prompt would close the popup before the run starts.
+    expect(fake.permissions.request).not.toHaveBeenCalled();
+    expect(fake.runtime.openOptionsPage).toHaveBeenCalledOnce();
+    expect(fake.runtime.sendMessage).not.toHaveBeenCalled();
+    expect(status.textContent).toBe(
+      "Mode B needs the “alarms” permission. Options opens: collect from there to grant it.",
+    );
+  });
+
+  it("popup: with the permission, starts the run without a prompt", async () => {
+    const { fake, button } = await bind(true, { permissionInOptions: true });
+    button.click();
+    await settle();
+    expect(fake.permissions.request).not.toHaveBeenCalled();
+    expect(fake.runtime.openOptionsPage).not.toHaveBeenCalled();
+    expect(fake.runtime.sendMessage).toHaveBeenCalledWith({
+      kind: "mode-b-command",
+      command: "start",
+    });
+  });
+
+  it("Options: asks for the permission, then starts the run", async () => {
+    const { fake, button } = await bind(true, { startBlocked: () => null });
+    button.click();
+    await settle();
+    expect(fake.permissions.request).toHaveBeenCalledOnce();
+    expect(fake.runtime.sendMessage).toHaveBeenCalledWith({
+      kind: "mode-b-command",
+      command: "start",
+    });
+  });
+
+  it("Options: unsaved edits hold the run back and say why", async () => {
+    const { fake, button, status } = await bind(true, { startBlocked: () => "Save first." });
+    button.click();
+    await settle();
+    expect(status.textContent).toBe("Save first.");
+    expect(fake.permissions.request).not.toHaveBeenCalled();
+    expect(fake.runtime.sendMessage).not.toHaveBeenCalled();
   });
 });

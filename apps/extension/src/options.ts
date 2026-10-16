@@ -107,7 +107,13 @@ async function init(): Promise<void> {
     dirty = true;
     statusLine.say(t("optDefaultsRestored"));
   });
-  bindModeBControls({ button: modeBRun, status: modeBStatus, lastRun: modeBLastRun });
+  bindModeBControls({
+    button: modeBRun,
+    status: modeBStatus,
+    lastRun: modeBLastRun,
+    // A run reads the saved settings: a pace picked but not saved would not apply.
+    startBlocked: () => (dirty ? t("modeBSaveFirst") : null),
+  });
   const syncSettings = createSettingsSyncer(sendNativeOnce);
 
   form.addEventListener("submit", (event) => {

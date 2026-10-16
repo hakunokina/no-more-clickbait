@@ -426,6 +426,9 @@ export const EN = {
   modeBNoRun: "No run yet.",
   modeBStateFailed: "Could not read the Mode B state.",
   modeBNeedsAlarms: "Mode B needs the “alarms” permission to run.",
+  modeBGrantInOptions:
+    "Mode B needs the “alarms” permission. Options opens: collect from there to grant it.",
+  modeBSaveFirst: "Save your changes first: a run uses the saved settings.",
   modeBLastRun: "Last run: $1 / $2 posts via $3 — $4$5.",
   strategyMinimized: "minimized window",
   strategyBackgroundTab: "background tab (retired)",
@@ -463,6 +466,7 @@ export const EN = {
   stopSettingsChanged: "settings changed during the run",
   stopPermissionMissing: "Mode B permission not granted — re-enable Mode B in Options",
   stopFailedToOpen: "could not open the collection tab or window",
+  stopHostUnreachable: "could not connect to the desktop app — is its native host installed?",
   notifyCaptureTitle: "No More Clickbait — capture target reached",
   notifyCaptureBody:
     "$1 distinct posts captured in $2 timeline responses (target $3). Capture continues; turn it off in Options to stop.",
@@ -905,6 +909,9 @@ export const TR: Record<MessageKey, string> = {
   modeBNoRun: "Henüz çalıştırma yok.",
   modeBStateFailed: "B modunun durumu okunamadı.",
   modeBNeedsAlarms: "B modunun çalışması için “alarms” izni gerekiyor.",
+  modeBGrantInOptions:
+    "B modu “alarms” izni istiyor. Seçenekler açılıyor: izni vermek için toplamayı oradan başlat.",
+  modeBSaveFirst: "Önce değişikliklerini kaydet: çalıştırma kayıtlı ayarları kullanır.",
   modeBLastRun: "Son çalıştırma: $3 ile $1 / $2 gönderi — $4$5.",
   strategyMinimized: "küçültülmüş pencere",
   strategyBackgroundTab: "arka plan sekmesi (kaldırıldı)",
@@ -942,6 +949,7 @@ export const TR: Record<MessageKey, string> = {
   stopSettingsChanged: "çalışma sırasında ayarlar değişti",
   stopPermissionMissing: "B modu izni verilmedi — Seçenekler'de B modunu yeniden aç",
   stopFailedToOpen: "toplama sekmesi ya da penceresi açılamadı",
+  stopHostUnreachable: "masaüstü bağlantısı kurulamadı — yerel host kurulu mu?",
   notifyCaptureTitle: "No More Clickbait — kayıt hedefine ulaşıldı",
   notifyCaptureBody:
     "$2 akış yanıtında $1 farklı gönderi kaydedildi (hedef $3). Kayıt sürüyor; durdurmak için Seçenekler'de kapat.",

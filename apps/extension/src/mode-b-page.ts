@@ -1,4 +1,4 @@
-import type { ModeBPageKind, ModeBPageReport } from "./messages.js";
+import { isModeBStepMessage, type ModeBPageKind, type ModeBPageReport } from "./messages.js";
 
 /**
  * Mode B, page side: one scroll step in the run's x.com tab, driven by a
@@ -61,6 +61,26 @@ function toBottom(doc: Document, win: Window): void {
   // Hidden documents skip rendering, so the browser may not fire the
   // scroll event the infinite list listens for; send one ourselves.
   win.dispatchEvent(new Event("scroll"));
+}
+
+/**
+ * The content script's answer to a worker message: a step report, or
+ * undefined for anything that is not this extension's step (no answer).
+ * A step meant for another site's feed answers "away": the run's tab is
+ * not where it expects.
+ */
+export function answerModeBStep(
+  message: unknown,
+  sender: Pick<chrome.runtime.MessageSender, "id">,
+  extensionId: string,
+  doc: Document,
+  win: Window,
+): ModeBPageReport | undefined {
+  if (sender.id !== extensionId || !isModeBStepMessage(message)) return undefined;
+  if (message.source !== undefined) {
+    return { kind: "mode-b-page", page: "away", hidden: doc.hidden, scrolled: false };
+  }
+  return scrollStep(doc, win);
 }
 
 /** One step: jump to the bottom of the timeline. Reports the page state. */

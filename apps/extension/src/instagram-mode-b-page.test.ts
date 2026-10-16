@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  answerInstagramModeBStep,
   classifyInstagramPage,
   instagramScrollStep,
   type InstagramPageFacts,
@@ -76,5 +77,36 @@ describe("instagramScrollStep", () => {
     const report = instagramScrollStep(doc as never, win as never, { kind: "mode-b-step" });
     expect(report.page).toBe("away");
     expect(win.scrollTo).not.toHaveBeenCalled();
+  });
+});
+
+describe("answerInstagramModeBStep (the content script's listener)", () => {
+  const step = { kind: "mode-b-step", source: "instagram" };
+
+  it("ignores a step from another extension, or from no extension at all", () => {
+    const { win, doc } = fakePage(9_000);
+    for (const sender of [{ id: "someone-else" }, {}]) {
+      expect(
+        answerInstagramModeBStep(step, sender, "nmc", doc as never, win as never),
+      ).toBeUndefined();
+    }
+    expect(win.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("ignores messages that are not a well-formed step", () => {
+    const { win, doc } = fakePage(9_000);
+    for (const message of [undefined, { kind: "instagram-capture" }, { ...step, source: 1 }]) {
+      expect(
+        answerInstagramModeBStep(message, { id: "nmc" }, "nmc", doc as never, win as never),
+      ).toBeUndefined();
+    }
+    expect(win.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("scrolls on its own step", () => {
+    const { win, doc } = fakePage(9_000);
+    expect(
+      answerInstagramModeBStep(step, { id: "nmc" }, "nmc", doc as never, win as never),
+    ).toMatchObject({ page: "timeline", scrolled: true });
   });
 });

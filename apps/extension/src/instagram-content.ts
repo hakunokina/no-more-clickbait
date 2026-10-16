@@ -1,11 +1,10 @@
 import {
   isInstagramResponseMessage,
-  isModeBStepMessage,
   PAGE_MESSAGE_SOURCE,
   type InstagramArmMessage,
   type WorkerInstagramCaptureMessage,
 } from "./messages.js";
-import { instagramScrollStep } from "./instagram-mode-b-page.js";
+import { answerInstagramModeBStep } from "./instagram-mode-b-page.js";
 import { InstagramSsrCollector } from "./instagram-page.js";
 import { SETTINGS_STORAGE_KEY } from "./settings-key.js";
 
@@ -68,8 +67,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 
 /** Mode B: the worker drives scrolling one step at a time (see instagram-mode-b-page.ts). */
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
-  if (sender.id !== chrome.runtime.id || !isModeBStepMessage(message)) return;
-  sendResponse(instagramScrollStep(document, window, message));
+  const report = answerInstagramModeBStep(message, sender, chrome.runtime.id, document, window);
+  if (report) sendResponse(report);
 });
 
 void feedWanted()

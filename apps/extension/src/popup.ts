@@ -17,7 +17,9 @@ openOptions?.addEventListener("click", () => {
 
 const modeBButton = document.querySelector<HTMLButtonElement>("#mode-b-run");
 const modeBStatus = document.querySelector<HTMLElement>("#mode-b-status");
-if (modeBButton && modeBStatus) bindModeBControls({ button: modeBButton, status: modeBStatus });
+if (modeBButton && modeBStatus) {
+  bindModeBControls({ button: modeBButton, status: modeBStatus, permissionInOptions: true });
+}
 
 const progressLine = document.querySelector<HTMLElement>("#collect-progress");
 const finish = document.querySelector<HTMLButtonElement>("#collect-finish");

@@ -44,11 +44,22 @@ export interface ModeBControls {
   status: HTMLElement;
   /** Options page only: the last run's numbers. */
   lastRun?: HTMLElement | null;
+  /**
+   * Popup: a permission prompt can close it before the run starts, so a
+   * missing permission sends the user to Options, which asks for it.
+   */
+  permissionInOptions?: boolean;
+  /** Options page: why a run must not start now (edits not saved yet), or null. */
+  startBlocked?: () => string | null;
 }
 
 /** Must be called inside the click/submit handler, before any await (user gesture). */
 export function requestModeBPermissions(): Promise<boolean> {
   return chrome.permissions.request({ permissions: MODE_B_PERMISSIONS }).catch(() => false);
+}
+
+function hasModeBPermissions(): Promise<boolean> {
+  return chrome.permissions.contains({ permissions: MODE_B_PERMISSIONS }).catch(() => false);
 }
 
 /** Sends a command; resolves to the worker's answer (a start says when nothing could run). */
@@ -150,7 +161,13 @@ function renderRows(target: HTMLElement, rows: [string, string][]): void {
   );
 }
 
-export function bindModeBControls({ button, status, lastRun }: ModeBControls): void {
+export function bindModeBControls({
+  button,
+  status,
+  lastRun,
+  permissionInOptions = false,
+  startBlocked,
+}: ModeBControls): void {
   let running = false;
 
   const render = async (): Promise<void> => {
@@ -201,10 +218,18 @@ export function bindModeBControls({ button, status, lastRun }: ModeBControls): v
       send("stop");
       return;
     }
-    const permission = requestModeBPermissions();
+    const blocked = startBlocked?.() ?? null;
+    if (blocked !== null) {
+      status.textContent = blocked;
+      return;
+    }
+    const permission = permissionInOptions ? hasModeBPermissions() : requestModeBPermissions();
     void permission.then(async (granted) => {
       if (!granted) {
-        status.textContent = t("modeBNeedsAlarms");
+        status.textContent = t(
+          permissionInOptions ? "modeBGrantInOptions" : "modeBNeedsAlarms",
+        );
+        if (permissionInOptions) await chrome.runtime.openOptionsPage().catch(() => undefined);
         return;
       }
       if ((await send("start")) === "no-sources") status.textContent = t("collectNoSources");

@@ -54,6 +54,7 @@ const RUN_ENDING_STOPS: ReadonlySet<ModeBStopReason> = new Set([
   "tab-closed",
   "permission-missing",
   "failed-to-open",
+  "host-unreachable",
 ]);
 /** chrome.storage.session: the run in progress (read by the UI pages). */
 export const MODE_B_RUN_KEY = "nmc-mode-b-run";
@@ -62,7 +63,8 @@ export const MODE_B_LAST_RUN_KEY = "nmc-mode-b-last-run";
 /**
  * chrome.storage.local: where the pacing trial kept its choice before it
  * moved into Settings (`modeBPacing`). Its values (`fixed`, `response`)
- * both map to the default `normal`, so it is only removed.
+ * both map to the default `normal`, so it is only removed, once, when the
+ * extension is installed or updated (`removeLegacyModeBPacing`).
  */
 export const LEGACY_MODE_B_PACING_KEY = "nmc-mode-b-pacing";
 export const DEFAULT_MODE_B_PACING: ModeBPacing = "normal";
@@ -408,6 +410,7 @@ const STOP_REASON_TEXT: Record<ModeBStopReason, MessageKey> = {
   "settings-changed": "stopSettingsChanged",
   "permission-missing": "stopPermissionMissing",
   "failed-to-open": "stopFailedToOpen",
+  "host-unreachable": "stopHostUnreachable",
 };
 
 /** Where a reason names the site, Instagram has its own words. */
@@ -455,10 +458,7 @@ export function legsText(legs: readonly ModeBLeg[]): string {
 export interface ModeBBrowser {
   focusedWindowBounds(): Promise<WindowBounds>;
   openWindow(create: chrome.windows.CreateData): Promise<{ windowId: number; tabId: number }>;
-  /** Unused since the background tab was retired. */
-  openTab(create: chrome.tabs.CreateProperties): Promise<{ tabId: number }>;
   closeWindow(windowId: number): Promise<void>;
-  closeTab(tabId: number): Promise<void>;
   sendStep(tabId: number, message: ModeBStepMessage): Promise<unknown>;
   /** Loads the next feed's page in the run's tab. */
   navigate(tabId: number, url: string): Promise<void>;
@@ -476,19 +476,21 @@ export interface ModeBHooks {
   onLegFinish?(summary: ModeBRunSummary, next: CollectSource): Promise<void>;
 }
 
-/**
- * The pacing for the next run, from Settings; anything unreadable means
- * the default. Also drops the pacing trial's old storage key.
- */
-export async function loadModeBPacing(
-  load: () => Promise<{ modeBPacing: ModeBPacing }> = loadSettings,
+/** Drops the pacing trial's old storage key (on install/update). */
+export async function removeLegacyModeBPacing(
   local: Pick<chrome.storage.StorageArea, "remove"> = chrome.storage.local,
-): Promise<ModeBPacing> {
+): Promise<void> {
   try {
     await local.remove(LEGACY_MODE_B_PACING_KEY);
   } catch {
-    // Retried on the next run.
+    // Retried at the next update.
   }
+}
+
+/** The pacing for the next run, from Settings; anything unreadable means the default. */
+export async function loadModeBPacing(
+  load: () => Promise<{ modeBPacing: ModeBPacing }> = loadSettings,
+): Promise<ModeBPacing> {
   try {
     return (await load()).modeBPacing;
   } catch {
@@ -582,7 +584,7 @@ export class ModeBRunner {
       const pacing = await this.#loadPacing();
       const now = Date.now();
       const [first = "x", ...rest] = start.sources ?? [];
-      let surface: { tabId: number; windowId: number | null };
+      let surface: { tabId: number; windowId: number };
       try {
         surface = await this.#open(start.strategy, SOURCE_HOME_URLS[first]);
       } catch (error) {
@@ -601,8 +603,7 @@ export class ModeBRunner {
         // A run that is not stored does not exist: forget it and its surface.
         this.#run = null;
         try {
-          if (surface.windowId !== null) await this.#browser.closeWindow(surface.windowId);
-          else await this.#browser.closeTab(surface.tabId);
+          await this.#browser.closeWindow(surface.windowId);
         } catch {
           // Already gone.
         }
@@ -613,10 +614,11 @@ export class ModeBRunner {
     });
   }
 
-  stop(reason: ModeBStopReason = "cancelled"): Promise<void> {
+  /** Ends the run in progress, if any; `error` says what went wrong in the browser's words. */
+  stop(reason: ModeBStopReason = "cancelled", error: string | null = null): Promise<void> {
     return this.#enqueue(async () => {
       const run = await this.#load();
-      if (run) await this.#finish(run, reason);
+      if (run) await this.#finish(run, reason, true, error);
     });
   }
 
@@ -647,11 +649,16 @@ export class ModeBRunner {
     return this.#enqueue(async () => {
       const run = await this.#load();
       if (!run || tabId !== run.tabId || runSource(run) !== source) return;
-      run.responseCount += 1;
       if (rateLimited) {
+        // The last step's responses count now; the rate-limit answer itself
+        // brings no posts, so it is a response but not a step's new one.
+        if (hasNewResponse(run)) run.stepsWithNewResponse += 1;
+        run.responseCount += 1;
+        run.responsesAtLastStep = run.responseCount;
         await this.#finish(run, "rate-limited");
         return;
       }
+      run.responseCount += 1;
       await this.#save();
     });
   }
@@ -741,9 +748,13 @@ export class ModeBRunner {
     }
   }
 
-  async #finish(run: ModeBRun, reason: ModeBStopReason, close = true): Promise<void> {
+  async #finish(
+    run: ModeBRun,
+    reason: ModeBStopReason,
+    close = true,
+    error: string | null = reason === "page-unresponsive" ? run.lastError : null,
+  ): Promise<void> {
     this.#cancelTimer();
-    const error = reason === "page-unresponsive" ? run.lastError : null;
     const summary = summarize(run, Date.now(), reason, error);
     const legs = [...(run.legs ?? []), legOf(summary)];
     const pending = [...(run.nextSources ?? [])];
@@ -766,7 +777,6 @@ export class ModeBRunner {
     if (close) {
       try {
         if (run.windowId !== null) await this.#browser.closeWindow(run.windowId);
-        else await this.#browser.closeTab(run.tabId);
       } catch {
         // Already gone (closed by the user or the browser).
       }

@@ -902,6 +902,8 @@ export const ModeBStopReasonSchema = z.enum([
   "settings-changed",
   "permission-missing",
   "failed-to-open",
+  /** The native host never answered (not installed or would not start). */
+  "host-unreachable",
 ]);
 export type ModeBStopReason = z.infer<typeof ModeBStopReasonSchema>;
 
