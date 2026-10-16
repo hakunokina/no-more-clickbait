@@ -102,7 +102,7 @@ export type TimelineStatus = z.infer<typeof TimelineStatusSchema>;
  * every source failed the doc is an `error` doc instead.
  */
 export const MissingSourceSchema = z.object({
-  /** Mostly `SourceCount.label`'s vocabulary ("x", "instagram", "reddit", "custom:<rule>"); a custom site that stored no item is named by its siteId (host/path) for now. */
+  /** `SourceCount.label`'s vocabulary ("x", "instagram", "reddit", "custom:<rule>"); a custom site that stored no item and whose outcome had no name (older extension) goes by its siteId (host/path). */
   label: z.string().min(1),
   /** Plain-language cause, for the reader (no secrets, no feed content). */
   reason: z.string().min(1).optional(),

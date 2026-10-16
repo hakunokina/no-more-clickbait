@@ -4,6 +4,7 @@ import {
   BridgeReplySchema,
   CollectionCompleteSchema,
   FeedBatchSchema,
+  SiteCollectOutcomeSchema,
   type GenericItem,
 } from "./schemas.js";
 
@@ -68,6 +69,17 @@ describe("FeedBatchSchema", () => {
         ...complete,
         sites: [{ siteId: "a", status: "great", itemCount: 1 }],
       }).success,
+    ).toBe(false);
+  });
+
+  it("takes an optional site name; outcomes without one stay valid", () => {
+    const outcome = { siteId: "broken.example/feed", status: "error", itemCount: 0 };
+    expect(SiteCollectOutcomeSchema.parse(outcome)).toEqual(outcome);
+    const named = { ...outcome, name: "Broken News" };
+    expect(SiteCollectOutcomeSchema.parse(named)).toEqual(named);
+    expect(SiteCollectOutcomeSchema.safeParse({ ...outcome, name: "" }).success).toBe(false);
+    expect(
+      SiteCollectOutcomeSchema.safeParse({ ...outcome, name: "x".repeat(81) }).success,
     ).toBe(false);
   });
 });
