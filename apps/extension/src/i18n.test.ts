@@ -73,14 +73,18 @@ describe("UI messages", () => {
   });
 
   it.each([
-    ["tr", ["en-US"], "en", "tr"],
-    ["en", ["tr-TR"], "tr", "en"],
+    // The desktop's language wins over a stale stored choice (a browser it
+    // does not collect in never gets its settings pushed).
+    ["tr", ["en-US"], "en", "en"],
+    ["en", ["tr-TR"], "tr", "tr"],
     // "system" is the desktop's language (its OS's), whatever the browser speaks.
     ["system", ["de-DE", "en"], "tr", "tr"],
     ["system", ["tr-TR"], "en", "en"],
     [undefined, ["fr-FR"], "tr", "tr"],
     ["system", ["de-DE"], "de", "en"], // nothing valid from the desktop: the browser's
-    // The desktop never linked up: the browser's first language.
+    ["tr", ["de-DE"], "de", "tr"],
+    // The desktop never said its language: the stored choice, else the browser's first.
+    ["tr", ["en-US"], undefined, "tr"],
     ["system", ["de-DE", "en"], undefined, "en"],
     ["system", ["tr-TR", "en"], undefined, "tr"],
     [undefined, ["tr"], undefined, "tr"],
@@ -105,13 +109,22 @@ describe("UI messages", () => {
     store.push("tr", "local", "nmc-desktop-lang");
     store.push("tr", "local", "nmc-desktop-lang");
     expect(changes).toEqual(["tr"]);
-    // An explicit choice wins over the desktop's language, until "system" again.
+    // Once the desktop said its language, a stored choice no longer decides.
     store.push({ uiLanguage: "en" });
+    expect(changes).toEqual(["tr"]);
     store.push("en", "local", "nmc-desktop-lang");
-    store.push("tr", "local", "nmc-desktop-lang");
     expect(changes).toEqual(["tr", "en"]);
-    store.push({ uiLanguage: "system" });
-    expect(changes).toEqual(["tr", "en", "tr"]);
+  });
+
+  it("follows the desktop over an old explicit choice it never pushed here", async () => {
+    // Chrome, not the collecting browser: "tr" saved long ago, the desktop now shows English.
+    vi.stubGlobal("navigator", { languages: ["de-DE"] });
+    const store = storage({ uiLanguage: "tr" });
+    const changes: string[] = [];
+    await watchUiLang((lang) => changes.push(lang));
+    expect(uiLang()).toBe("tr");
+    store.push("en", "local", "nmc-desktop-lang");
+    expect(changes).toEqual(["en"]);
   });
 
   it("reports a pushed language once, and nothing for other changes", async () => {

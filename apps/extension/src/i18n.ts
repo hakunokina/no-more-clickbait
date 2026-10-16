@@ -3,15 +3,15 @@ import { EN, TR, type MessageKey } from "./i18n/messages.js";
 import { DESKTOP_LANG_STORAGE_KEY, SETTINGS_STORAGE_KEY } from "./settings-key.js";
 
 /**
- * UI text in the language the desktop app is set to (English default,
- * Turkish; leader decision #778): the managed setting `uiLanguage`,
- * stored with the other settings in chrome.storage.local. "system" (or
- * nothing stored yet) is the language the desktop app shows, which it
- * resolves against the OS and pushes (`ui-lang`, stored under
- * DESKTOP_LANG_STORAGE_KEY) — the browser's own language may be any
- * other. Only before the desktop app ever linked up does "system"
- * follow the browser's first language: Turkish for `tr*`, English for
- * anything else. Messages live in
+ * UI text in the language the desktop app shows (English default,
+ * Turkish; leader decision #778): it resolves its `uiLanguage` against
+ * the OS and pushes the result (`ui-lang`, stored under
+ * DESKTOP_LANG_STORAGE_KEY) to every browser — the browser's own
+ * language may be any other. Before the desktop app ever said its
+ * language, the managed setting `uiLanguage` (stored with the other
+ * settings in chrome.storage.local) decides; "system" (or nothing
+ * stored) follows the browser's first language: Turkish for `tr*`,
+ * English for anything else. Messages live in
  * `i18n/messages.ts`; `_locales` is built from them only for the
  * manifest's name and description, which the browser localizes itself.
  */
@@ -34,12 +34,17 @@ const browserLocales = (): readonly string[] => globalThis.navigator?.languages 
 
 /** The language these stored settings and the desktop's last stored language ask for. */
 export function langOf(settings: unknown, desktopLang?: unknown): UiLang {
+  // The desktop's language is its own choice already resolved; the stored
+  // uiLanguage is only a copy, which a browser it does not collect in
+  // never gets updated.
+  const desktop = UiLangSchema.safeParse(desktopLang);
+  if (desktop.success) return desktop.data;
   const choice = UiLanguageSchema.safeParse(
     (settings as { uiLanguage?: unknown } | undefined)?.uiLanguage,
   );
-  if (choice.success && choice.data !== "system") return choice.data;
-  const desktop = UiLangSchema.safeParse(desktopLang);
-  return desktop.success ? desktop.data : resolveUiLang("system", browserLocales());
+  return choice.success && choice.data !== "system"
+    ? choice.data
+    : resolveUiLang("system", browserLocales());
 }
 
 /** English until `watchUiLang` has read the stored language. */

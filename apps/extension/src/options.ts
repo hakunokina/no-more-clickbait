@@ -7,7 +7,7 @@ import {
 } from "@nmc/core";
 import { t, uiLang, watchUiLang } from "./i18n.js";
 import { localizePage } from "./i18n-dom.js";
-import { createLangReloader } from "./lang-reload.js";
+import { createLangReloader, createStatusLine } from "./lang-reload.js";
 import { bindModeBControls, requestModeBPermissions } from "./mode-b-view.js";
 import {
   fillPipelineFields,
@@ -43,22 +43,14 @@ const form = document.querySelector<HTMLFormElement>("#settings-form");
 let dirty = false;
 let sitesSection: SitesSection | undefined;
 
+const statusLine = createStatusLine(status, () => t("optLangPending"));
 // The page stays in the language it opened in; a new one comes with a reload.
 const langReloader = createLangReloader({
   pageLang: uiLang,
   busy: () => dirty || (sitesSection?.busy() ?? false),
   reload: () => location.reload(),
-  notePending: (pending) => {
-    if (!status) return;
-    const note = t("optLangPending");
-    const text = status.textContent ?? "";
-    if (pending && !text.includes(note)) status.textContent = note;
-    if (!pending) status.textContent = text.replace(note, "").trim();
-  },
+  notePending: (pending) => statusLine.notePending(pending),
 });
-
-/** " <language waits>" while a new language waits for this page to settle. */
-const langNote = (): string => (langReloader.pending() ? ` ${t("optLangPending")}` : "");
 
 await watchUiLang((lang) => langReloader.changed(lang));
 localizePage(document);
@@ -100,11 +92,11 @@ async function init(): Promise<void> {
       settings = loaded;
       syncStatus.textContent = "";
       if (dirty) {
-        status.textContent = t("optDesktopChangedDirty") + langNote();
+        statusLine.say(t("optDesktopChangedDirty"));
         return;
       }
       fill(loaded);
-      status.textContent = t("optDesktopUpdated");
+      statusLine.say(t("optDesktopUpdated"));
     });
   });
   controls.get("verifyEnabled")?.input.addEventListener("change", () => {
@@ -113,7 +105,7 @@ async function init(): Promise<void> {
   pipelineDefaults.addEventListener("click", () => {
     fillPipelineFields(controls, defaultSyncedSettings());
     dirty = true;
-    status.textContent = t("optDefaultsRestored");
+    statusLine.say(t("optDefaultsRestored"));
   });
   bindModeBControls({ button: modeBRun, status: modeBStatus, lastRun: modeBLastRun });
   const syncSettings = createSettingsSyncer(sendNativeOnce);
@@ -123,7 +115,7 @@ async function init(): Promise<void> {
     const pipeline = readPipelineForm(readPipelineFields(controls), settings);
     showPipelineErrors(controls, pipeline);
     if (!pipeline.ok) {
-      status.textContent = t("optNotSaved");
+      statusLine.say(t("optNotSaved"));
       syncStatus.textContent = "";
       return;
     }
@@ -148,9 +140,9 @@ async function init(): Promise<void> {
         stamp = { updatedAt: new Date().toISOString(), source: "extension" };
         await saveSettings(settings, stamp);
         dirty = false;
-        status.textContent = granted ? t("optSaved") : t("optSavedNoAlarms");
+        statusLine.say(granted ? t("optSaved") : t("optSavedNoAlarms"));
       } catch {
-        status.textContent = t("optSaveFailed");
+        statusLine.say(t("optSaveFailed"));
         return;
       }
       syncStatus.textContent = "";
