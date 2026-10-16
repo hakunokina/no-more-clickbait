@@ -1,7 +1,12 @@
 import type { CollectSourceOutcome } from "@nmc/core";
 import { describeLink, formatCount } from "../shared/format.js";
 import { messages, type DesktopMessages } from "../shared/i18n.js";
-import { isRunActive, type DesktopStatus, type FeedProgress } from "../shared/status.js";
+import {
+  isRunActive,
+  type CollectionSite,
+  type DesktopStatus,
+  type FeedProgress,
+} from "../shared/status.js";
 
 /**
  * What the monitor shows for a status, as plain data; renderer.ts only
@@ -32,12 +37,32 @@ export interface PillView {
   spoken: string;
 }
 
+export interface SiteRowView {
+  name: string;
+  state: "done" | "now" | "next" | "warn" | "bad";
+  /** Read out before the name, as on the pills. */
+  spoken: string;
+  /** The site's state in words, with its items once it has finished. */
+  status: string;
+}
+
+export interface SitesView {
+  /** "Custom sites · 2/5 done", and how many went wrong. */
+  title: string;
+  problem: boolean;
+  rows: SiteRowView[];
+  /** Listed open at first: few enough not to push the buttons down. */
+  open: boolean;
+}
+
 export interface MonitorView {
   /** Null: no ring (an error says so in words instead). */
   ring: RingView | null;
   title: string;
   tone: Tone;
   pills: PillView[];
+  /** The collection's custom sites (null: none, or an extension that does not report them). */
+  sites: SitesView | null;
   lead: string;
   /** Labelled counts under the buttons (empty: none to show). */
   summary: { label: string; value: string }[];
@@ -59,14 +84,14 @@ function percent(part: number, whole: number): number {
   return Math.round(Math.min(1, part / whole) * 100);
 }
 
-function spoken(m: DesktopMessages, state: PillView["state"]): string {
+function spoken(m: DesktopMessages, state: SiteRowView["state"]): string {
   return state === "done"
     ? m.stepDone
     : state === "now"
       ? m.stepCurrent
       : state === "next"
         ? m.stepWaiting
-        : "";
+        : m.stepIncomplete;
 }
 
 function pill(m: DesktopMessages, text: string, state: PillView["state"]): PillView {
@@ -170,6 +195,47 @@ function outcomePills(
   );
 }
 
+/** Up to this many sites are listed open; more fold under their title. */
+const OPEN_SITES = 3;
+
+const SITE_STATES: Readonly<Record<CollectionSite["status"], SiteRowView["state"]>> = {
+  waiting: "next",
+  collecting: "now",
+  ok: "done",
+  empty: "warn",
+  error: "bad",
+  timeout: "warn",
+  skipped: "warn",
+};
+
+function sitesView(status: DesktopStatus, m: DesktopMessages): SitesView | null {
+  const sites = status.collection.sites ?? [];
+  if (sites.length === 0) return null;
+  const rows = sites.map((site): SiteRowView => {
+    const state = SITE_STATES[site.status];
+    const finished = state !== "now" && state !== "next";
+    // Items count once the site is done; a failed site with none needs no "0 items".
+    const items = site.status === "ok" || (finished && site.itemCount > 0);
+    return {
+      name: site.name,
+      state,
+      spoken: spoken(m, state),
+      status: items
+        ? `${m.siteStatus(site.status)} · ${m.siteItems(site.itemCount)}`
+        : m.siteStatus(site.status),
+    };
+  });
+  const done = rows.filter((row) => row.state !== "now" && row.state !== "next").length;
+  const problems = rows.filter((row) => row.state === "warn" || row.state === "bad").length;
+  const title = m.sitesTitle(done, rows.length);
+  return {
+    title: problems > 0 ? `${title} · ${m.sitesProblems(problems)}` : title,
+    problem: problems > 0,
+    rows,
+    open: rows.length <= OPEN_SITES,
+  };
+}
+
 function summary(status: DesktopStatus, m: DesktopMessages): MonitorView["summary"] {
   const { counts } = status.run;
   const count = (value: number | null) => formatCount(value, status.lang);
@@ -187,7 +253,10 @@ function summary(status: DesktopStatus, m: DesktopMessages): MonitorView["summar
     rows.push({ label: m.statFilteredOut, value: count(counts.filteredOut) });
   }
   if (counts.verifyTotal > 0) {
-    rows.push({ label: m.statVerified, value: `${counts.verifyDone} / ${counts.verifyTotal}` });
+    rows.push({
+      label: m.statVerified,
+      value: `${count(counts.verifyDone)} / ${count(counts.verifyTotal)}`,
+    });
   }
   return rows;
 }
@@ -207,6 +276,7 @@ export function monitorView(status: DesktopStatus): MonitorView {
     title: "",
     tone: "plain",
     pills: [],
+    sites: null,
     lead: "",
     summary: [],
     tagline: false,
@@ -227,6 +297,7 @@ export function monitorView(status: DesktopStatus): MonitorView {
       ring: collectingRing(status, m),
       title: collection.state === "cancelling" ? m.collectCancelling : m.collectingTitle,
       pills: feeds && feeds.length > 0 ? feedPills(m, feeds, collection.target) : [],
+      sites: sitesView(status, m),
     };
   }
   if (pending) {
@@ -246,6 +317,7 @@ export function monitorView(status: DesktopStatus): MonitorView {
       },
       title: m.pendingTitle(pending.uniquePostCount),
       pills: outcomePills(m, outcomes),
+      sites: sitesView(status, m),
       lead:
         outcomes.length > 0
           ? m.pendingFeeds(pending.mode, outcomes)

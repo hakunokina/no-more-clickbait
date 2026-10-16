@@ -6,6 +6,7 @@ import {
   type CollectSourceOutcome,
   type MessageRef,
   type MessageTable,
+  type SiteProgress,
   type UiLang,
 } from "@nmc/core";
 import type { FeedProgress, RunStage } from "./status.js";
@@ -120,6 +121,27 @@ const TR_STAGES: Readonly<Record<RunStage, string>> = {
   cancelled: "iptal edildi",
 };
 
+/** A custom site's state, as the monitor's site list words it. */
+const EN_SITE_STATUS: Readonly<Record<SiteProgress["status"], string>> = {
+  waiting: "Waiting",
+  collecting: "Collecting",
+  ok: "Done",
+  empty: "No items",
+  error: "Could not be read",
+  timeout: "Timed out",
+  skipped: "Skipped",
+};
+
+const TR_SITE_STATUS: Readonly<Record<SiteProgress["status"], string>> = {
+  waiting: "Sırada",
+  collecting: "Toplanıyor",
+  ok: "Bitti",
+  empty: "Öğe yok",
+  error: "Okunamadı",
+  timeout: "Zaman aşımı",
+  skipped: "Atlandı",
+};
+
 const en = {
   appTagline: "Your feed, filtered. Finite by design.",
   // Monitor
@@ -153,6 +175,12 @@ const en = {
   /** The word under the ring's number. */
   unitPosts: (n: number) => plural("en", n, { one: "post", other: "posts" }),
   unitClaims: (n: number) => plural("en", n, { one: "claim", other: "claims" }),
+  /** The custom sites of a collection, one line each under the feeds. */
+  sitesTitle: (done: number, total: number) => `Custom sites · ${done}/${total} done`,
+  sitesProblems: (n: number) =>
+    `${enCount(n)} ${plural("en", n, { one: "problem", other: "problems" })}`,
+  siteStatus: (status: SiteProgress["status"]) => EN_SITE_STATUS[status],
+  siteItems: (n: number) => `${enCount(n)} ${plural("en", n, { one: "item", other: "items" })}`,
   llmNotChecked: "Not checked yet.",
   llmCheck: "Check the claude CLI",
   llmChecking: "Checking…",
@@ -307,6 +335,7 @@ const en = {
   stepDone: "Done: ",
   stepCurrent: "In progress: ",
   stepWaiting: "Up next: ",
+  stepIncomplete: "Incomplete: ",
   prepCollected: "Collected",
   posts: (posts: number) => enPosts(posts),
   prepSetAside: "Ads, repeats and media-only posts set aside",
@@ -479,6 +508,10 @@ const tr: MessageTable<DesktopMessages> = {
   // Turkish keeps the noun singular after a number.
   unitPosts: (_n) => "gönderi",
   unitClaims: (_n) => "iddia",
+  sitesTitle: (done, total) => `Özel siteler · ${done}/${total} bitti`,
+  sitesProblems: (n) => `${trCount(n)} sorun`,
+  siteStatus: (status) => TR_SITE_STATUS[status],
+  siteItems: (n) => `${trCount(n)} öğe`,
   llmNotChecked: "Henüz denetlenmedi.",
   llmCheck: "claude CLI'ı denetle",
   llmChecking: "Denetleniyor…",
@@ -613,6 +646,7 @@ const tr: MessageTable<DesktopMessages> = {
   stepDone: "Tamam: ",
   stepCurrent: "Sürüyor: ",
   stepWaiting: "Sırada: ",
+  stepIncomplete: "Eksik: ",
   prepCollected: "Toplandı",
   posts: (posts) => `${posts} gönderi`,
   prepSetAside: "Reklam, tekrar ve yalnız-medya ayrıldı",
