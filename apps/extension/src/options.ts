@@ -5,8 +5,9 @@ import {
   type Settings,
   type SettingsStamp,
 } from "@nmc/core";
-import { t } from "./i18n.js";
+import { t, uiLang, watchUiLang } from "./i18n.js";
 import { localizePage } from "./i18n-dom.js";
+import { createLangReloader } from "./lang-reload.js";
 import { bindModeBControls, requestModeBPermissions } from "./mode-b-view.js";
 import {
   fillPipelineFields,
@@ -26,8 +27,6 @@ import { SitesSection } from "./sites/sites-section.js";
 import { fetchText } from "./sites/fetch-text.js";
 import { SITE_NEW_RULE_KEY, touchesSites } from "./sites/storage-keys.js";
 
-localizePage(document);
-
 const modeB = document.querySelector<HTMLInputElement>("#mode-b");
 const modeBStrategy = document.querySelector<HTMLSelectElement>("#mode-b-strategy");
 const modeBPacing = document.querySelector<HTMLSelectElement>("#mode-b-pacing");
@@ -40,6 +39,29 @@ const pipelineDefaults = document.querySelector<HTMLButtonElement>("#pipeline-de
 const status = document.querySelector<HTMLElement>("#status");
 const syncStatus = document.querySelector<HTMLElement>("#sync-status");
 const form = document.querySelector<HTMLFormElement>("#settings-form");
+/** The form holds edits not saved yet; a desktop change must not wipe them. */
+let dirty = false;
+let sitesSection: SitesSection | undefined;
+
+// The page stays in the language it opened in; a new one comes with a reload.
+const langReloader = createLangReloader({
+  pageLang: uiLang,
+  busy: () => dirty || (sitesSection?.busy() ?? false),
+  reload: () => location.reload(),
+  notePending: (pending) => {
+    if (!status) return;
+    const note = t("optLangPending");
+    const text = status.textContent ?? "";
+    if (pending && !text.includes(note)) status.textContent = note;
+    if (!pending) status.textContent = text.replace(note, "").trim();
+  },
+});
+
+/** " <language waits>" while a new language waits for this page to settle. */
+const langNote = (): string => (langReloader.pending() ? ` ${t("optLangPending")}` : "");
+
+await watchUiLang((lang) => langReloader.changed(lang));
+localizePage(document);
 
 async function init(): Promise<void> {
   if (
@@ -67,8 +89,6 @@ async function init(): Promise<void> {
     fillPipelineFields(controls, values);
   };
   fill(settings);
-  /** The form holds edits not saved yet; a desktop change must not wipe them. */
-  let dirty = false;
   form.addEventListener("input", () => {
     dirty = true;
   });
@@ -80,7 +100,7 @@ async function init(): Promise<void> {
       settings = loaded;
       syncStatus.textContent = "";
       if (dirty) {
-        status.textContent = t("optDesktopChangedDirty");
+        status.textContent = t("optDesktopChangedDirty") + langNote();
         return;
       }
       fill(loaded);
@@ -136,6 +156,7 @@ async function init(): Promise<void> {
       syncStatus.textContent = "";
       const synced = await syncSettings(settings, stamp);
       syncStatus.textContent = describeSyncResult(synced);
+      langReloader.settle();
     })();
   });
 }
@@ -164,7 +185,9 @@ async function initSites(): Promise<void> {
       setTimeout(() => URL.revokeObjectURL(url), 10_000);
     },
     copy: (text) => navigator.clipboard.writeText(text),
+    onSettle: () => langReloader.settle(),
   });
+  sitesSection = sites;
   await sites.refresh();
   // Closing Options inside a delete's Undo window still gives the permission back.
   window.addEventListener("pagehide", () => sites.finishPendingNow());

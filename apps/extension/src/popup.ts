@@ -1,6 +1,13 @@
+import { setUiLang, watchUiLang } from "./i18n.js";
 import { localizePage } from "./i18n-dom.js";
 import { bindModeBControls } from "./mode-b-view.js";
 
+// A language change applies at once: the static texts here, and the
+// Mode B controls re-render on the same storage change (after this).
+await watchUiLang((lang) => {
+  setUiLang(lang);
+  localizePage(document);
+});
 localizePage(document);
 
 const openOptions = document.querySelector<HTMLButtonElement>("#open-options");

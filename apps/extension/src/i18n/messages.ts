@@ -1,9 +1,11 @@
 /**
  * The extension's UI messages (Sites, picker, Options, popup, worker; leader
  * decision #778): English default, Turkish (the design's Turkish texts
- * are the source). `$1`…`$9` are positional arguments. The build writes
- * these out as `_locales/<lang>/messages.json` for `chrome.i18n`; `TR`
- * must hold every key of `EN` (the type checks it).
+ * are the source). `$1`…`$9` are positional arguments. The language
+ * follows the desktop app's setting (i18n.ts); the build also writes
+ * these out as `_locales/<lang>/messages.json`, which only the
+ * manifest's `__MSG_…__` name and description use. `TR` must hold
+ * every key of `EN` (the type checks it).
  */
 
 export const EN = {
@@ -398,6 +400,8 @@ export const EN = {
   optDesktopChangedDirty:
     "Changed in the desktop app. Your unsaved edits are kept: Save keeps them, reloading this page shows the desktop's values.",
   optDesktopUpdated: "Updated from the desktop app.",
+  optLangPending:
+    "The desktop app changed the language: this page switches once your changes are saved or closed.",
   optDefaultsRestored: "Defaults restored in the form — press Save to keep them.",
   optNotSaved: "Not saved — fix the highlighted values first.",
   optSaved: "Saved.",
@@ -854,6 +858,8 @@ export const TR: Record<MessageKey, string> = {
   optDesktopChangedDirty:
     "Masaüstü uygulamasında değiştirildi. Kaydedilmemiş düzenlemelerin duruyor: Kaydet onları korur, sayfayı yenilemek masaüstünün değerlerini gösterir.",
   optDesktopUpdated: "Masaüstü uygulamasından güncellendi.",
+  optLangPending:
+    "Masaüstü uygulaması dili değiştirdi: değişikliklerin kaydedilince ya da kapatılınca bu sayfa yeni dile geçer.",
   optDefaultsRestored: "Formda varsayılanlara dönüldü — korumak için Kaydet'e bas.",
   optNotSaved: "Kaydedilmedi — önce işaretli değerleri düzelt.",
   optSaved: "Kaydedildi.",

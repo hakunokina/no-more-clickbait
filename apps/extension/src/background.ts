@@ -19,7 +19,7 @@ import {
 } from "@nmc/core";
 import { CaptureSession } from "./capture-session.js";
 import { installDevCaptureScripts } from "./dev-capture-scripts.js";
-import { t } from "./i18n.js";
+import { setUiLang, t, watchUiLang } from "./i18n.js";
 import {
   isModeBCommandMessage,
   isWorkerCaptureMessage,
@@ -135,6 +135,8 @@ let linkTimer: ReturnType<typeof setTimeout> | null = null;
 let desktopLinked = false;
 
 const channel = new NativeChannel(openNativePort);
+/** Notification texts wait for the desktop's language (a restarted worker reads it again). */
+const uiLangReady = watchUiLang(setUiLang);
 
 function openNativePort(): chrome.runtime.Port {
   const opened = chrome.runtime.connectNative(NATIVE_HOST_NAME);
@@ -250,6 +252,7 @@ async function reflectCaptureStats(
   const reached = await session.reachedTarget(stats.uniquePostCount, settings.collectTarget);
   if (!reached || replyGeneration !== generation) return;
   await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
+  await uiLangReady;
   try {
     await chrome.notifications.create(CAPTURE_NOTIFICATION_ID, {
       type: "basic",
@@ -514,6 +517,7 @@ async function finishModeB(summary: ModeBRunSummary): Promise<void> {
   await chrome.action.setBadgeBackgroundColor({
     color: reached ? TARGET_BADGE_COLOR : DEFAULT_BADGE_COLOR,
   });
+  await uiLangReady;
   try {
     await chrome.notifications.create(MODE_B_NOTIFICATION_ID, {
       type: "basic",
