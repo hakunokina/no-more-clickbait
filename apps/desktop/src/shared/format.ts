@@ -29,44 +29,6 @@ export function formatDuration(ms: number | null, lang: UiLang): string {
   return rest === 0 ? m.minutes(minutes) : m.minutesSeconds(minutes, rest);
 }
 
-/** One status line for the monitor. */
-export function describeRun(status: DesktopStatus): string {
-  const { run, collection } = status;
-  const m = messages(status.lang);
-  switch (run.stage) {
-    case "checking":
-      return m.runChecking;
-    case "filtering":
-      return m.runFiltering;
-    case "scoring":
-      return m.runScoring(run.counts.afterHardFilter);
-    case "verifying":
-      return m.runVerifying(run.counts.verifyDone, run.counts.verifyTotal);
-    case "rendering":
-      return m.runRendering;
-    case "ready":
-      return m.runReady(run.counts.selected);
-    case "error":
-      return m.runError;
-    case "cancelled":
-      return m.runCancelled;
-    case "idle":
-      if (collection.state === "requested") return m.collectRequested;
-      if (collection.state === "cancelling") return m.collectCancelling;
-      if (collection.state === "collecting") {
-        // Several feeds: each one's count (custom sites alone: nothing to count).
-        if (collection.sources && collection.sources.length > 0) {
-          return m.collectProgressFeeds(collection.sources, collection.target);
-        }
-        if (collection.count !== null && collection.target) {
-          return m.collectProgress(collection.count, collection.target);
-        }
-        return collection.target ? m.collectTarget(collection.target) : m.collectAny;
-      }
-      return m.idle;
-  }
-}
-
 export function describeLink(status: DesktopStatus): string {
   const { link } = status;
   const m = messages(status.lang);

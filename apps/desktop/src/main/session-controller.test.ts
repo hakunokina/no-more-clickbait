@@ -18,7 +18,6 @@ import {
 } from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
-import { describeRun } from "../shared/format.js";
 import { messages, note, say } from "../shared/i18n.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
@@ -1056,8 +1055,8 @@ describe("SessionController", () => {
         { source: "instagram", count: 12 },
       ],
     });
-    expect(describeRun(c.status)).toBe(
-      "Collecting in the browser… X 100 / 100 · Instagram 12 / 100",
+    expect(messages("en").feedCountsLine(c.status.collection.sources ?? [], 100)).toBe(
+      "X 100 / 100 · Instagram 12 / 100",
     );
     expect(messages("en").collectingFeeds(100, ["x", "instagram"])).toMatch(
       /^The extension is collecting 100 posts from each of X and Instagram, one after the other\./,
@@ -1065,8 +1064,8 @@ describe("SessionController", () => {
     expect(messages("tr").collectingFeeds(100, ["x", "instagram"])).toMatch(
       /^Eklenti X ve Instagram akışlarının her birinden sırayla 100 gönderi topluyor\./,
     );
-    expect(describeRun({ ...c.status, lang: "tr" })).toBe(
-      "Tarayıcıda toplanıyor… X 100 / 100 · Instagram 12 / 100",
+    expect(messages("tr").feedCountsLine(c.status.collection.sources ?? [], 100)).toBe(
+      "X 100 / 100 · Instagram 12 / 100",
     );
   });
 
@@ -1181,8 +1180,6 @@ describe("SessionController", () => {
         { siteId: "news.example/world", name: "News", status: "collecting", itemCount: 0 },
       ],
     });
-    // No "0 / 100" for a collection without a feed.
-    expect(describeRun(c.status)).not.toContain("0 / 100");
 
     // An older extension (or host) sends counts only: no sites appear.
     await c.startCollection();

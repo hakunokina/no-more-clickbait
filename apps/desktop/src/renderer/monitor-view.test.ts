@@ -216,8 +216,8 @@ describe("monitorView", () => {
       problem: true,
       open: true,
       rows: [
-        { name: "Local News", state: "done", spoken: "Done: ", status: "Done · 12 items" },
-        { name: "b.example", state: "now", spoken: "In progress: ", status: "Collecting" },
+        { name: "Local News", state: "done", spoken: "", status: "Done · 12 items" },
+        { name: "b.example", state: "now", spoken: "", status: "Collecting" },
         {
           name: "Slow Blog",
           state: "warn",
@@ -253,13 +253,54 @@ describe("monitorView", () => {
       problem: true,
       open: false,
       rows: [
-        { name: "A", state: "next", spoken: "Sırada: ", status: "Sırada" },
-        { name: "B", state: "done", spoken: "Tamam: ", status: "Bitti · 1 öğe" },
+        { name: "A", state: "next", spoken: "", status: "Sırada" },
+        { name: "B", state: "done", spoken: "", status: "Bitti · 1 öğe" },
         { name: "C", state: "warn", spoken: "Eksik: ", status: "Öğe yok" },
         { name: "D", state: "bad", spoken: "Eksik: ", status: "Okunamadı" },
         { name: "E", state: "warn", spoken: "Eksik: ", status: "Atlandı" },
       ],
     });
+  });
+
+  it("says a site's state once to a screen reader, never as prefix and state both", () => {
+    const statuses = [
+      "waiting",
+      "collecting",
+      "ok",
+      "empty",
+      "error",
+      "timeout",
+      "skipped",
+    ] as const;
+    for (const lang of ["en", "tr"] as const) {
+      const view = monitorView(
+        status((s) => {
+          s.lang = lang;
+          s.collection = {
+            state: "collecting",
+            message: null,
+            target: null,
+            count: null,
+            sources: [],
+            sites: statuses.map((st) => ({
+              siteId: st,
+              name: "Site",
+              status: st,
+              itemCount: 2,
+            })),
+          };
+        }),
+      );
+      for (const row of view.sites?.rows ?? []) {
+        // What the row reads out: prefix, name, state — no word of the prefix again.
+        const words = (text: string) => text.toLowerCase().match(/\p{L}+/gu) ?? [];
+        const state = new Set(words(row.status));
+        expect(
+          words(row.spoken).filter((word) => state.has(word)),
+          `${lang} ${row.state}: ${row.spoken}${row.status}`,
+        ).toEqual([]);
+      }
+    }
   });
 
   it("keeps the finished sites while the collection waits for Build, none without the data", () => {
