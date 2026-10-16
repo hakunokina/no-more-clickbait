@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { CARDS_SCRIPTS, TIMELINE_SCRIPTS } from "./client-script.js";
 import { renderTimeline, TIMELINE_CSPS } from "./render.js";
 import { stateDocs } from "./state-docs.js";
-import { CARDS_CSS, TIMELINE_CSS } from "./styles.js";
+import { CARDS_CSS, SUGGESTED_CSS, TIMELINE_CSS } from "./styles.js";
 
 const load = (name: string) =>
   TimelineDocSchema.parse(
@@ -115,6 +115,24 @@ describe("mixed feed", () => {
       "<pre>scorer: zaman aşımı\nToplanamayan kaynak: blog (Site yanıt vermedi)</pre>",
     );
     expect(error).not.toContain('class="short-note"');
+  });
+
+  it("drops a reason's own full stop inside the brackets", () => {
+    const missing = (reason: string): TimelineDoc => ({
+      ...mixed,
+      missingSources: [{ label: "custom:blog", reason }],
+    });
+    expect(render(missing("Bu tarayıcıda oturum açık değil."))).toContain(
+      '<p class="short-note">blog (Bu tarayıcıda oturum açık değil) toplanamadı.',
+    );
+    expect(
+      renderTimeline(missing("Not logged in to Instagram in this browser."), {
+        timeZone: "Europe/Istanbul",
+        lang: "en",
+      }),
+    ).toContain(
+      '<p class="short-note">Nothing was collected from blog (Not logged in to Instagram in this browser). The timeline',
+    );
   });
 
   it("never loads a generic item's image or site icon", () => {
@@ -285,6 +303,46 @@ describe("Instagram card", () => {
     // Bad handle: no profile link; bad permalink: no "open on Instagram".
     expect(out).not.toContain("instagram.com/a");
     expect(article(out, "p1")).not.toContain("Instagram'da aç");
+  });
+
+  it("marks a suggested post 'Önerilen' / 'Suggested', in words", () => {
+    const doc = single({ ...igCard, post: { ...igCard.post, suggested: true } });
+    const tr = render(doc);
+    expect(article(tr, "p1")).toContain(
+      '<p class="ig__sub"><span class="ig__suggested">Önerilen</span> · <span class="ig__paid">Ücretli ortaklık</span>',
+    );
+    const en = renderTimeline(doc, { timeZone: "Europe/Istanbul", lang: "en" });
+    expect(article(en, "p1")).toContain(
+      '<p class="ig__sub"><span class="ig__suggested">Suggested</span> · ',
+    );
+    // The badge's style comes with it, inside the page's own CSP hash.
+    const css = TIMELINE_CSS + CARDS_CSS + SUGGESTED_CSS;
+    expect(tr).toContain(`<style>${css}</style>`);
+    expect(csp(tr)).toContain(`style-src ${hash(css)}`);
+    expect(tr).not.toMatch(/\sstyle="/);
+    // Alone in the sub-line when nothing else is there.
+    const bare = single({
+      ...igCard,
+      post: {
+        ...igCard.post,
+        suggested: true,
+        paidPartnership: undefined,
+        location: undefined,
+      },
+    });
+    expect(article(render(bare), "p1")).toContain(
+      '<p class="ig__sub"><span class="ig__suggested">Önerilen</span></p>',
+    );
+  });
+
+  it("leaves a page without suggested posts exactly as before", () => {
+    const page = render(single(igCard));
+    expect(render(single({ ...igCard, post: { ...igCard.post, suggested: false } }))).toBe(
+      page,
+    );
+    expect(page).toContain(`<style>${TIMELINE_CSS + CARDS_CSS}</style>`);
+    expect(page).not.toContain("ig__suggested");
+    expect(render(mixed)).not.toContain("ig__suggested");
   });
 
   it("counts only the frames it shows in the reading time", () => {

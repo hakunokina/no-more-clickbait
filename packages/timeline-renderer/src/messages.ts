@@ -64,6 +64,8 @@ const en = {
   /** Between an Instagram post's author and each co-author. */
   coauthorJoin: " and ",
   paidPartnership: "Paid partnership",
+  /** On an Instagram post from an account the reader does not follow. */
+  suggested: "Suggested",
   flair: "Flair: ",
   tallyScanned: "Scanned",
   tallyAds: "Ads",
@@ -213,6 +215,7 @@ const tr: RenderMessages = {
   image: "Görsel",
   coauthorJoin: " ve ",
   paidPartnership: "Ücretli ortaklık",
+  suggested: "Önerilen",
   flair: "Etiket: ",
   tallyScanned: "Taranan",
   tallyAds: "Reklam",
