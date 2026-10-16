@@ -3,9 +3,9 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { settingCopy } from "@nmc/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { format } from "./i18n.js";
+import { setUiLang, watchUiLang } from "./i18n.js";
 import { localizePage, richText } from "./i18n-dom.js";
-import { EN, TR, type MessageKey } from "./i18n/messages.js";
+import { EN, TR } from "./i18n/messages.js";
 import { renderPipelineFields } from "./pipeline-fields.js";
 
 const page = (name: string): string =>
@@ -21,11 +21,9 @@ function load(html: string): void {
   );
 }
 
-/** chrome.i18n as Brave answers it with the browser language set to Turkish. */
+/** The desktop app is set to Turkish. */
 function turkish(): void {
-  vi.stubGlobal("chrome", {
-    i18n: { getMessage: (key: MessageKey, subs: string[]) => format(TR[key], subs) },
-  });
+  setUiLang("tr");
 }
 
 /** Text a user reads that no `data-i18n` element owns (scripts/styles aside). */
@@ -42,7 +40,10 @@ function untranslated(): string[] {
 }
 
 describe("static pages (options.html, popup.html)", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setUiLang("en");
+  });
 
   it.each(["options.html", "popup.html"])("%s: every text has a known key", (name) => {
     load(page(name));
@@ -52,7 +53,7 @@ describe("static pages (options.html, popup.html)", () => {
     }
   });
 
-  it("shows the Options page in Turkish when the browser is Turkish", () => {
+  it("shows the Options page in Turkish when the desktop is set to Turkish", () => {
     turkish();
     load(page("options.html"));
     localizePage(document);
@@ -75,17 +76,32 @@ describe("static pages (options.html, popup.html)", () => {
     ]);
   });
 
-  it("shows the popup in Turkish, and in English without chrome.i18n", () => {
-    turkish();
+  it("shows the popup in the stored language, and switches it live on a desktop push", async () => {
+    // Brave in German: the desktop's choice decides, never the browser's language.
+    vi.stubGlobal("navigator", { languages: ["de-DE"] });
+    const listeners: ((changes: object, area: string) => void)[] = [];
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: { get: () => Promise.resolve({ "nmc-settings": { uiLanguage: "tr" } }) },
+        onChanged: { addListener: (fn: (typeof listeners)[number]) => listeners.push(fn) },
+      },
+    });
     load(page("popup.html"));
+    // What popup.ts does.
+    await watchUiLang((lang) => {
+      setUiLang(lang);
+      localizePage(document);
+    });
     localizePage(document);
+    expect(document.documentElement.lang).toBe("tr");
     expect(document.querySelector("#open-options")?.textContent).toBe("Seçenekler");
     expect(document.querySelector("p")?.textContent).toBe(TR.popupLead);
-    vi.unstubAllGlobals();
-    load(page("popup.html"));
-    localizePage(document);
+
+    for (const fn of listeners)
+      fn({ "nmc-settings": { newValue: { uiLanguage: "system" } } }, "local");
     expect(document.documentElement.lang).toBe("en");
     expect(document.querySelector("#open-options")?.textContent).toBe("Options");
+    expect(document.querySelector("p")?.textContent).toBe(EN.popupLead);
   });
 
   it("renders the pipeline fields with core's Turkish setting copy", () => {

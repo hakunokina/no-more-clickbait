@@ -60,6 +60,8 @@ export interface SitesDeps {
   copy(text: string): Promise<void>;
   /** Undo window of a delete (design: 8 s). */
   undoMs?: number;
+  /** Something that kept the section busy (see `busy()`) may have ended. */
+  onSettle?(): void;
 }
 
 type PatternChoice = {
@@ -124,6 +126,8 @@ export class SitesSection {
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   private undoFn: (() => void) | null = null;
   private finalizeFn: (() => void) | null = null;
+  /** Permission requests (and what follows them) still running. */
+  private work = 0;
 
   private readonly addBtn: HTMLButtonElement;
   private readonly form: HTMLFormElement;
@@ -725,6 +729,33 @@ export class SitesSection {
     this.finalizeFn = null;
     this.undoFn = null;
     finalize?.();
+    this.settled();
+  }
+
+  /**
+   * Work a reload would cut short: a delete's Undo window, the open
+   * "Add site" form or a dialog, a permission request still running.
+   */
+  busy(): boolean {
+    return (
+      this.finalizeFn !== null ||
+      this.work > 0 ||
+      !this.form.hidden ||
+      [this.exportDlg, this.importDlg, this.noteDlg].some((dialog) => dialog.open)
+    );
+  }
+
+  private track(work: Promise<void>): void {
+    this.work += 1;
+    void work.finally(() => {
+      this.work -= 1;
+      this.settled();
+    });
+  }
+
+  /** After the current task, so a notice that opens a new Undo window counts as busy. */
+  private settled(): void {
+    queueMicrotask(() => this.deps.onSettle?.());
   }
 
   // --- add site -------------------------------------------------------
@@ -740,6 +771,7 @@ export class SitesSection {
       this.urlInput.select();
     } else {
       this.addBtn.focus();
+      this.settled();
     }
   }
 
@@ -812,7 +844,7 @@ export class SitesSection {
     if (!pattern) return;
     const origin = originPattern(check.url.href);
     const granted = requestOrigins(this.deps.permissions, origin ? [origin] : []);
-    void this.afterGrant(granted, check.url, pattern);
+    this.track(this.afterGrant(granted, check.url, pattern));
   }
 
   private async afterGrant(
@@ -898,7 +930,7 @@ export class SitesSection {
       feedOrigin && feedOrigin !== originPattern(offer.url.href)
         ? requestOrigins(this.deps.permissions, [feedOrigin])
         : Promise.resolve(true);
-    void this.addFeedRule(granted, offer.url, offer.pattern, offer.feed);
+    this.track(this.addFeedRule(granted, offer.url, offer.pattern, offer.feed));
   }
 
   private async addFeedRule(
@@ -988,7 +1020,9 @@ export class SitesSection {
         return;
       case "perm":
         if (rule)
-          void this.grant(rule, requestOrigins(this.deps.permissions, siteOrigins(rule)));
+          this.track(
+            this.grant(rule, requestOrigins(this.deps.permissions, siteOrigins(rule))),
+          );
         return;
       case "export":
         if (rule) this.openExport(rule);
@@ -1134,7 +1168,7 @@ export class SitesSection {
     }
     this.importText.removeAttribute("aria-invalid");
     const granted = requestOrigins(this.deps.permissions, siteOrigins(result.rule));
-    void this.finishImport(result.rule, granted);
+    this.track(this.finishImport(result.rule, granted));
   }
 
   private async finishImport(rule: SiteRule, granted: Promise<boolean>): Promise<void> {
@@ -1262,6 +1296,7 @@ export class SitesSection {
       dialog.addEventListener("click", (event) => {
         if ((event.target as Element | null)?.closest("[data-close]")) dialog.close();
       });
+      dialog.addEventListener("close", () => this.settled());
     }
     this.toastUndo.addEventListener("click", () => {
       const undo = this.undoFn;
@@ -1269,6 +1304,7 @@ export class SitesSection {
       this.finalizeFn = null;
       this.toast.hidden = true;
       undo?.();
+      this.settled();
     });
     // The undo window pauses while the pointer or focus is on the notice.
     this.toast.addEventListener("mouseenter", () => clearTimeout(this.toastTimer));

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UiLanguageSchema, type UiLanguage } from "./i18n.js";
+import { UiLangSchema, UiLanguageSchema, type UiLanguage } from "./i18n.js";
 
 /**
  * Wire/storage schemas shared by the extension, the native host and the
@@ -1051,6 +1051,12 @@ export const BridgeReplySchema = z.discriminatedUnion("type", [
   }),
   /** Push: the desktop cancels the running collection (it ends as `cancelled`). */
   z.object({ type: z.literal("stop-collection") }),
+  /**
+   * Push: the language the desktop app shows — its `uiLanguage`, with
+   * "system" resolved against the OS. An extension set to "system"
+   * follows it rather than the browser's language.
+   */
+  z.object({ type: z.literal("ui-lang"), lang: UiLangSchema }),
   /** Push: which ends of the bridge are currently connected. */
   z.object({
     type: z.literal("link-status"),
