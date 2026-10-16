@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'">
+<title>Masaüstü UI — Yön B: Console</title>
+<!--
+  No More Clickbait — masaüstü monitör + Settings, tasarım yönü B "Console".
+  Gerekçe:
+  - Ton: ölçü aleti / konsol. Kart yok, kılçık çizgilerle bölünmüş yüzey; hat tek bakışta
+    5 parçalı şerit (COLLECT → WRITE). "Token monitor" adına en sadık yön: sayılar hep görünür.
+  - Yoğunluk: yüksek. Token tablosu katlanmaz; eylemler pencerenin dibinde sabit çubukta.
+    Settings bir özellik sayfası: etiket solda, denetim sağda, durum çubuğu altta (IDE gibi).
+  - Tipografi: etiketler system-ui, tüm sayı/durum satırları monospace (Cascadia Mono/Consolas),
+    küçük başlıklar BÜYÜK HARF 11 px. Vurgu teal (mavi okuma penceresinden ayrışır).
+  - Erişilebilirlik: iki temada metin ≥4.5:1, sınır ≥3:1; durum her yerde metin etiketiyle
+    ([OK] [WARN] [ERROR], ✓ ◐ ·, anahtar içinde ON/OFF); 2px odak; hedefler ≥32px.
+  Tamamen statik ve sentetik; dış kaynak/font yok. Üründe olmayan maket denetimleri kesikli çerçevede.
+-->
+<style>
+/* ── Token'lar ─────────────────────────────────────────────── */
+:root, [data-theme="light"] {
+  color-scheme: light;
+  --page: #dfe3e6; --bg: #fbfbfa; --panel: #f0f2f1; --text: #16181d; --muted: #50565f;
+  --line: #d4d7db; --control: #6f7782; --accent: #00695c; --accent-soft: #dff1ed; --on-accent: #ffffff;
+  --focus: #00695c;
+  --ok: #1b6b3a; --warn: #8a4a00; --bad: #b42318; --info: #374151;
+  --ok-bg: #e4f3ea; --warn-bg: #fbefdc; --bad-bg: #fbe9e7; --info-bg: #eceef1;
+  --bar: #ffffff;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #000000; --bg: #0b0d10; --panel: #12161b; --text: #e6e8eb; --muted: #9aa3ad;
+  --line: #252b33; --control: #687380; --accent: #5eead4; --accent-soft: #0f2a27; --on-accent: #04201c;
+  --focus: #5eead4;
+  --ok: #6ee7a0; --warn: #fbbf5a; --bad: #fca5a5; --info: #c3cad3;
+  --ok-bg: #0f2418; --warn-bg: #2a1d08; --bad-bg: #2c1212; --info-bg: #171c22;
+  --bar: #1f1f1f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --page: #000000; --bg: #0b0d10; --panel: #12161b; --text: #e6e8eb; --muted: #9aa3ad;
+    --line: #252b33; --control: #687380; --accent: #5eead4; --accent-soft: #0f2a27; --on-accent: #04201c;
+    --focus: #5eead4; --ok: #6ee7a0; --warn: #fbbf5a; --bad: #fca5a5; --info: #c3cad3;
+    --ok-bg: #0f2418; --warn-bg: #2a1d08; --bad-bg: #2c1212; --info-bg: #171c22; --bar: #1f1f1f;
+  }
+}
+:root {
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+  --fs: .875rem; --fs-s: .8125rem; --fs-xs: .75rem; --fs-cap: .6875rem;
+  --r: 4px;
+}
+
+/* ── Sayfa (maket) ─────────────────────────────────────────── */
+* { box-sizing: border-box; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+body { margin: 0; background: var(--page); color: var(--text); font: var(--fs)/1.45 var(--font); }
+button, input, select { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+svg.i { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
+
+.doc { max-width: 1180px; margin: 0 auto; padding: 24px 16px 8px; }
+.doc h1 { margin: 0 0 4px; font-size: 1.375rem; }
+.doc p { margin: 0 0 8px; color: var(--muted); max-width: 80ch; }
+.mock { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; padding: 8px 16px; background: var(--panel); border-bottom: 2px dashed var(--line); font-size: var(--fs-xs); }
+.mock__tag { font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.mock__group { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.mock__group > span { color: var(--muted); margin-right: 4px; }
+.seg { border: 1px solid var(--control); background: var(--bg); border-radius: 999px; padding: 4px 12px; min-height: 32px; cursor: pointer; }
+.seg[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+.gallery { background: var(--page); color: var(--text); padding: 8px 16px 24px; }
+.gallery__title { max-width: 1180px; margin: 16px auto 12px; font-size: 1.0625rem; display: flex; gap: 8px; align-items: baseline; }
+.gallery__title small { color: var(--muted); font-weight: 400; font-size: var(--fs-s); }
+.both .gallery__title::after { content: "· Light"; color: var(--muted); font-weight: 400; }
+.both .gallery.dup .gallery__title::after { content: "· Dark"; }
+.frames { max-width: 1180px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.frame { margin: 0; }
+.frame__cap { font-size: var(--fs-xs); color: var(--muted); margin-bottom: 6px; display: flex; justify-content: space-between; gap: 8px; }
+.frame__cap b { color: var(--text); }
+.win { width: var(--w); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg); box-shadow: 0 8px 24px rgb(0 0 0 / .14); }
+.win__bar { height: 32px; display: flex; align-items: center; justify-content: space-between; padding: 0 0 0 12px; background: var(--bar); font-size: .75rem; border-bottom: 1px solid var(--line); }
+.win__bar span:last-child { display: flex; }
+.win__bar i { width: 46px; text-align: center; font-style: normal; opacity: .8; }
+.win__body { height: var(--h); overflow-y: auto; }
+.win--settings { --w: 420px; }
+.stage-settings[data-sw="544"] .win--settings { --w: 544px; }
+
+/* ── Ortak ─────────────────────────────────────────────────── */
+.cap { margin: 0; font: 700 var(--fs-cap)/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 14px; border-radius: var(--r); border: 1px solid var(--control); background: var(--bg); cursor: pointer; font-weight: 600; font-size: var(--fs); }
+.btn:hover { background: var(--panel); }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn--primary:hover { background: color-mix(in srgb, var(--accent) 85%, var(--text)); }
+.btn:disabled { cursor: not-allowed; background: var(--panel); color: var(--muted); border-color: var(--line); }
+.btn--sm { min-height: 32px; padding: 4px 10px; font-size: var(--fs-s); }
+.link { display: inline-flex; align-items: center; min-height: 32px; padding: 0 4px; background: none; border: 0; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-size: var(--fs-s); }
+.icon-btn { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: var(--r); border: 1px solid var(--line); background: none; cursor: pointer; color: var(--muted); }
+.icon-btn:hover { color: var(--text); background: var(--panel); }
+.tag { display: inline-block; font: 700 var(--fs-cap)/1 var(--mono); letter-spacing: .04em; padding: 3px 5px; border-radius: 3px; border: 1px solid currentColor; flex: none; }
+.log { list-style: none; margin: 0; padding: 0; border-block: 1px solid var(--line); }
+.log li { display: flex; gap: 8px; align-items: flex-start; padding: 8px 12px; font-size: var(--fs-s); line-height: 1.4; border-top: 1px solid var(--line); }
+.log li:first-child { border-top: 0; }
+.log .t-ok { color: var(--ok); } .log .t-warn { color: var(--warn); } .log .t-bad { color: var(--bad); } .log .t-info { color: var(--info); }
+.log li.l-warn { background: var(--warn-bg); } .log li.l-bad { background: var(--bad-bg); } .log li.l-info { background: var(--info-bg); }
+
+/* ── Monitör ───────────────────────────────────────────────── */
+.m { display: flex; flex-direction: column; min-height: 100%; }
+.m-top { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.m-top__brand { margin: 0; font-weight: 700; flex: 1; }
+.link-st { display: inline-flex; align-items: center; gap: 6px; font: 600 var(--fs-xs) var(--mono); }
+.link-st--ok { color: var(--ok); } .link-st--bad { color: var(--bad); }
+.m-status { padding: 10px 12px 8px; display: grid; gap: 4px; }
+.m-status__line { margin: 0; font: 600 .9375rem/1.35 var(--mono); display: flex; gap: 8px; align-items: baseline; }
+.m-status__line .g { flex: none; width: 1.1em; text-align: center; }
+.m-status__line--ok { color: var(--ok); } .m-status__line--bad { color: var(--bad); }
+.m-status__sub { margin: 0; color: var(--muted); font-size: var(--fs-s); }
+
+.track { list-style: none; margin: 0; padding: 0 12px 10px; display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; }
+.track li { border: 1px solid var(--line); border-radius: 3px; padding: 4px 4px 6px; position: relative; overflow: hidden; }
+.track b { display: block; font: 700 var(--fs-cap)/1.2 var(--mono); letter-spacing: .03em; }
+.track span { display: block; font: var(--fs-cap)/1.2 var(--mono); color: var(--muted); margin-top: 2px; }
+.track .done { border-color: var(--ok); }
+.track .done b { color: var(--ok); }
+.track .now { border-color: var(--accent); border-width: 2px; padding: 3px 3px 5px; }
+.track .now b { color: var(--text); }
+.track .now::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: var(--p, 50%); background: var(--accent); }
+.track .warn { border-color: var(--warn); } .track .warn b { color: var(--warn); }
+.track .fail { border-color: var(--bad); border-width: 2px; padding: 3px 3px 5px; } .track .fail b { color: var(--bad); }
+
+.srcs { margin: 0; padding: 6px 12px 10px; display: grid; grid-template-columns: auto 1fr auto; gap: 6px 10px; align-items: center; font-size: var(--fs-s); }
+.srcs dt { font-weight: 600; display: flex; gap: 6px; align-items: center; }
+.srcs dd { margin: 0; }
+.srcs .n { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.srcs .why { grid-column: 1 / -1; margin-top: -4px; color: var(--muted); font-size: var(--fs-xs); }
+.bar { height: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.bar span { display: block; height: 100%; background: var(--accent); }
+.bar--warn span { background: var(--warn); }
+
+.counts { display: grid; grid-template-columns: repeat(4, 1fr); margin: 0; border-block: 1px solid var(--line); }
+.counts div { padding: 6px 8px; border-left: 1px solid var(--line); }
+.counts div:first-child { border-left: 0; }
+.counts dt { font: 700 var(--fs-cap)/1.2 var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.counts dd { margin: 2px 0 0; font: 600 1.0625rem/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+.counts dd small { font-size: var(--fs-xs); color: var(--muted); font-weight: 400; }
+
+.tok { padding: 8px 12px; }
+.tok dl { margin: 6px 0 0; display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 1px 10px; font-size: var(--fs-xs); }
+.tok dt { color: var(--muted); }
+.tok dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.tok .wide { grid-column: span 3; text-align: right; }
+
+.err { margin: 0 12px 10px; border: 1px solid var(--bad); border-left-width: 4px; border-radius: var(--r); background: var(--bad-bg); padding: 8px 10px; font-size: var(--fs-s); }
+.err p { margin: 0; display: flex; gap: 8px; }
+.err details { margin-top: 4px; font-size: var(--fs-xs); }
+.err summary { cursor: pointer; min-height: 24px; display: flex; align-items: center; color: var(--text); }
+.err pre { margin: 4px 0 0; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--fs-xs)/1.4 var(--mono); }
+
+.m-foot { margin-top: auto; border-top: 1px solid var(--line); background: var(--panel); }
+.m-foot__act { display: flex; gap: 8px; align-items: center; padding: 10px 12px 6px; }
+.m-foot__act .btn { flex: 1; }
+.m-foot__cli { display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; font: var(--fs-xs)/1.3 var(--mono); color: var(--muted); }
+.m-foot__cli span { flex: 1; min-width: 0; }
+.m-foot__cli .ok { color: var(--ok); } .m-foot__cli .bad { color: var(--bad); }
+
+/* ── Settings ──────────────────────────────────────────────── */
+.s { display: flex; flex-direction: column; min-height: 100%; }
+.s-head { padding: 12px 16px 8px; }
+.s-head h2 { margin: 0; font-size: 1rem; }
+.s-head p { margin: 2px 0 0; color: var(--muted); font-size: var(--fs-xs); }
+.sec { border-top: 1px solid var(--line); }
+.sec > h3 { position: sticky; top: 0; z-index: 1; margin: 0; padding: 8px 16px 6px; background: var(--bg); font: 700 var(--fs-cap)/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.prop { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: center; padding: 8px 16px; border-bottom: 1px solid var(--line); }
+.prop:last-child { border-bottom: 0; }
+.prop > label, .prop__label { font-size: var(--fs); }
+.prop__hint { grid-column: 1; margin: 0; color: var(--muted); font-size: var(--fs-xs); }
+.prop__err { grid-column: 1 / -1; margin: 0; color: var(--bad); font-size: var(--fs-xs); display: flex; gap: 6px; align-items: center; }
+.prop__err:empty { display: none; }
+.prop--sub { padding-left: 32px; }
+.prop--off > label, .prop--off .prop__hint { color: var(--muted); }
+.prop__ctl { grid-row: 1 / span 2; grid-column: 2; display: flex; align-items: center; gap: 6px; }
+
+.sw { appearance: none; margin: 0; position: relative; width: 56px; height: 26px; border: 1px solid var(--control); border-radius: var(--r); background: var(--bg); cursor: pointer; flex: none; }
+.sw::before { content: "OFF"; position: absolute; inset: 0 6px 0 auto; display: grid; place-items: center; font: 700 var(--fs-cap) var(--mono); color: var(--muted); }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 2px; background: var(--control); transition: transform .12s; }
+.sw:checked { background: var(--accent); border-color: var(--accent); }
+.sw:checked::before { content: "ON"; inset: 0 auto 0 8px; color: var(--on-accent); }
+.sw:checked::after { transform: translateX(30px); background: var(--on-accent); }
+.sw:disabled { opacity: .45; cursor: not-allowed; }
+
+.num { width: 76px; min-height: 32px; padding: 4px 8px; border: 1px solid var(--control); border-radius: var(--r); background: var(--bg); text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.num[aria-invalid="true"] { border-color: var(--bad); box-shadow: 0 0 0 1px var(--bad); }
+.range { font: var(--fs-xs) var(--mono); color: var(--muted); min-width: 4.5em; }
+.select { min-height: 32px; padding: 4px 8px; border: 1px solid var(--control); border-radius: var(--r); background: var(--bg); max-width: 220px; }
+.risk { grid-column: 1 / -1; margin: 6px 0 2px; display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border: 1px solid var(--warn); border-left-width: 4px; border-radius: var(--r); background: var(--warn-bg); color: var(--text); font-size: var(--fs-xs); }
+.risk .tag { color: var(--warn); }
+
+.s-status { position: sticky; bottom: 0; margin-top: auto; display: flex; align-items: center; gap: 12px; padding: 6px 16px; min-height: 32px; background: var(--panel); border-top: 1px solid var(--line); font: var(--fs-xs) var(--mono); color: var(--muted); }
+.s-status .save { display: inline-flex; gap: 6px; align-items: center; min-width: 9em; color: var(--muted); }
+.s-status .save--ok { color: var(--ok); } .s-status .save--bad { color: var(--bad); }
+.s-status .where { margin-left: auto; text-align: right; }
+
+.doc-notes { max-width: 1180px; margin: 0 auto; padding: 8px 16px 32px; font-size: var(--fs-s); }
+.doc-notes h2 { font-size: 1rem; margin: 16px 0 6px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l10 18H2z"/><path d="M12 10v5M12 18v.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2z"/><path d="M4 21V5"/></symbol>
+</svg>
+
+<div class="mock" role="group" aria-label="Maket denetimleri (üründe yok)">
+  <span class="mock__tag">Maket</span>
+  <div class="mock__group"><span>Tema</span>
+    <button class="seg" type="button" data-theme-btn="system" aria-pressed="true">Sistem</button>
+    <button class="seg" type="button" data-theme-btn="light" aria-pressed="false">Light</button>
+    <button class="seg" type="button" data-theme-btn="dark" aria-pressed="false">Dark</button>
+    <button class="seg" type="button" data-theme-btn="both" aria-pressed="false">İkisi yan yana</button>
+  </div>
+  <div class="mock__group"><span>Settings genişliği</span>
+    <button class="seg" type="button" data-sw-btn="420" aria-pressed="true">420 (en dar)</button>
+    <button class="seg" type="button" data-sw-btn="544" aria-pressed="false">544 (açılış)</button>
+  </div>
+</div>
+
+<header class="doc">
+  <h1>Yön B — Console</h1>
+  <p>Ölçü aleti tonu: kart yok, kılçık çizgiler; hat 5 parçalı şerit (COLLECT → FILTER → SCORE → VERIFY → WRITE), sayaçlar ve token tablosu hep açık, eylemler pencere dibinde sabit. Settings bir özellik sayfası: etiket solda, denetim sağda, altta durum çubuğu (kayıt + tarayıcı).</p>
+  <p>Etiketler system-ui, sayılar ve durum satırları monospace, küçük başlıklar BÜYÜK HARF. Vurgu teal. Durum hep metinle: [WARN]/[ERROR] etiketleri, ✓ ◐ · imleri, anahtarın içinde ON/OFF. İki temada metin ≥4.5:1, sınır ≥3:1, 2px odak, hedefler ≥32px.</p>
+</header>
+
+<!-- ═══════════════════════ MONİTÖR ═══════════════════════ -->
+<section class="gallery stage-monitor" data-gallery aria-labelledby="g-mon">
+  <h2 class="gallery__title" id="g-mon">Monitör <small>tepsi penceresi · 380×640 dış, 364×600 iç</small></h2>
+  <div class="frames">
+
+    <!-- 1 Boşta -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>1 · Idle</b><span>last run shown</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--ok"><svg class="i"><use href="#i-check"/></svg>Extension connected</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline</p><p class="m-status__line" role="status"><span class="g" aria-hidden="true">·</span>Idle</p><p class="m-status__sub">Your feed, filtered. Finite by design.</p></div>
+          <ol class="track" aria-label="Pipeline">
+            <li><b>COLLECT</b><span>—</span></li><li><b>FILTER</b><span>—</span></li><li><b>SCORE</b><span>—</span></li><li><b>VERIFY</b><span>—</span></li><li><b>WRITE</b><span>—</span></li>
+          </ol>
+          <dl class="counts">
+            <div><dt>Collected</dt><dd>—</dd></div><div><dt>Filtered</dt><dd>—</dd></div><div><dt>Verified</dt><dd>—</dd></div><div><dt>Kept</dt><dd>—</dd></div>
+          </dl>
+          <section class="tok" aria-label="Token monitor"><p class="cap">Token monitor</p>
+            <dl><dt>Input tokens</dt><dd>—</dd><dt>Output tokens</dt><dd>—</dd><dt>Cache tokens</dt><dd>—</dd><dt>Thinking tokens</dt><dd>—</dd><dt>Estimated cost</dt><dd>—</dd><dt>Run time</dt><dd>—</dd><dt>Last run</dt><dd class="wide">Never</dd></dl>
+          </section>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn btn--primary" type="button">Collect new timeline</button></div>
+            <div class="m-foot__cli"><span>claude CLI · Not checked yet.</span><button class="btn btn--sm" type="button">Check the claude CLI</button></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- 2 Toplanıyor -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>2 · Collecting</b><span>X + Instagram + sites</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--ok"><svg class="i"><use href="#i-check"/></svg>Extension connected</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline · Mode B</p><p class="m-status__line" role="status"><span class="g" aria-hidden="true">◐</span>Collecting in the browser…</p></div>
+          <ol class="track" aria-label="Pipeline">
+            <li class="now" style="--p:24%"><b>COLLECT</b><span>120/500</span></li><li><b>FILTER</b><span>·</span></li><li><b>SCORE</b><span>·</span></li><li><b>VERIFY</b><span>·</span></li><li><b>WRITE</b><span>·</span></li>
+          </ol>
+          <dl class="srcs" aria-label="X 120 / 250 · Instagram 0 / 250">
+            <dt>X</dt><dd><div class="bar" aria-hidden="true"><span style="width:48%"></span></div></dd><dd class="n">120/250</dd>
+            <dt>Instagram</dt><dd><div class="bar" aria-hidden="true"><span style="width:0"></span></div></dd><dd class="n">0/250</dd>
+            <dt>Sites</dt><dd class="mono" style="color:var(--muted);font-size:var(--fs-xs)">3 custom sites · after the feeds</dd><dd class="n">·</dd>
+          </dl>
+          <dl class="counts">
+            <div><dt>Collected</dt><dd>120</dd></div><div><dt>Filtered</dt><dd>—</dd></div><div><dt>Verified</dt><dd>—</dd></div><div><dt>Kept</dt><dd>—</dd></div>
+          </dl>
+          <section class="tok" aria-label="Token monitor"><p class="cap">Token monitor</p>
+            <dl><dt>Input tokens</dt><dd>—</dd><dt>Output tokens</dt><dd>—</dd><dt>Collection span</dt><dd class="wide">1 min 48 s</dd></dl>
+          </section>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn" type="button">Cancel collection</button></div>
+            <div class="m-foot__cli"><span class="ok">✓ Ready — claude CLI 2.1.4</span><button class="btn btn--sm" type="button">Check the claude CLI</button></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- 3 Onay bekleyen -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>3 · Waiting for “Build”</b><span>Mode B stopped early</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--ok"><svg class="i"><use href="#i-check"/></svg>Extension connected</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline</p><p class="m-status__line" role="status"><span class="g" aria-hidden="true">‖</span>290 posts collected</p><p class="m-status__sub">The collection stopped early. Build the timeline anyway? (Uses your claude CLI.)</p></div>
+          <ol class="track" aria-label="Pipeline">
+            <li class="warn"><b>COLLECT</b><span>⚠ 290</span></li><li><b>FILTER</b><span>·</span></li><li><b>SCORE</b><span>·</span></li><li><b>VERIFY</b><span>·</span></li><li><b>WRITE</b><span>·</span></li>
+          </ol>
+          <dl class="srcs">
+            <dt><span class="tag" style="color:var(--ok)">OK</span>X</dt><dd><div class="bar" aria-hidden="true"><span style="width:100%"></span></div></dd><dd class="n">250/250</dd>
+            <dt><span class="tag" style="color:var(--warn)">WARN</span>Instagram</dt><dd><div class="bar bar--warn" aria-hidden="true"><span style="width:16%"></span></div></dd><dd class="n">40/250</dd>
+            <dd class="why">Instagram: not logged in to Instagram in this browser.</dd>
+          </dl>
+          <dl class="counts">
+            <div><dt>Collected</dt><dd>290</dd></div><div><dt>Filtered</dt><dd>—</dd></div><div><dt>Verified</dt><dd>—</dd></div><div><dt>Kept</dt><dd>—</dd></div>
+          </dl>
+          <section class="tok" aria-label="Token monitor"><p class="cap">Token monitor</p>
+            <dl><dt>Collection span</dt><dd class="wide">9 min 12 s</dd></dl>
+          </section>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn btn--primary" type="button">Build timeline anyway</button></div>
+            <div class="m-foot__cli"><span><button class="link" type="button" style="padding:0">Collect new timeline</button></span><span class="ok" style="flex:none">✓ claude CLI 2.1.4</span></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- 4 Hat çalışıyor -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>4 · Pipeline running</b><span>verifying</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--ok"><svg class="i"><use href="#i-check"/></svg>Extension connected</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline</p><p class="m-status__line" role="status"><span class="g" aria-hidden="true">◐</span>Verifying claims 6/14…</p></div>
+          <ol class="track" aria-label="Pipeline">
+            <li class="done"><b>✓ COLLECT</b><span>290</span><span class="sr-only">done</span></li>
+            <li class="done"><b>✓ FILTER</b><span>−22</span><span class="sr-only">done</span></li>
+            <li class="done"><b>✓ SCORE</b><span>2:04</span><span class="sr-only">done</span></li>
+            <li class="now" style="--p:43%"><b>◐ VERIFY</b><span>6/14</span><span class="sr-only">in progress</span></li>
+            <li><b>WRITE</b><span>next</span></li>
+          </ol>
+          <dl class="counts">
+            <div><dt>Collected</dt><dd>268</dd></div><div><dt>Filtered</dt><dd>171</dd></div><div><dt>Verified</dt><dd>6<small>/14</small></dd></div><div><dt>Kept</dt><dd>—</dd></div>
+          </dl>
+          <section class="tok" aria-label="Token monitor"><p class="cap">Token monitor</p>
+            <dl><dt>Input tokens</dt><dd>118,402</dd><dt>Output tokens</dt><dd>8,915</dd><dt>Cache tokens</dt><dd>64,096</dd><dt>Thinking tokens</dt><dd>6,210</dd><dt>Estimated cost</dt><dd>$0.38</dd><dt>Run time</dt><dd>3 min 1 s</dd><dt>Stage times</dt><dd class="wide">score 2 min 4 s</dd><dt>Collection span</dt><dd class="wide">9 min 12 s</dd></dl>
+          </section>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn" type="button">Cancel run</button></div>
+            <div class="m-foot__cli"><span class="ok">✓ Ready — claude CLI 2.1.4</span></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- 5 Hazır -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>5 · Ready</b><span>reading window is the primary</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--ok"><svg class="i"><use href="#i-check"/></svg>Extension connected</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline</p><p class="m-status__line m-status__line--ok" role="status"><span class="g" aria-hidden="true">✓</span>Ready — 42 posts</p></div>
+          <ol class="track" aria-label="Pipeline, all done">
+            <li class="done"><b>✓ COLLECT</b><span>290</span></li><li class="done"><b>✓ FILTER</b><span>−22</span></li><li class="done"><b>✓ SCORE</b><span>2:04</span></li><li class="done"><b>✓ VERIFY</b><span>14/14</span></li><li class="done"><b>✓ WRITE</b><span>42</span></li>
+          </ol>
+          <dl class="counts">
+            <div><dt>Collected</dt><dd>268</dd></div><div><dt>Filtered</dt><dd>214</dd></div><div><dt>Verified</dt><dd>14<small>/14</small></dd></div><div><dt>Kept</dt><dd>42<small>/290</small></dd></div>
+          </dl>
+          <section class="tok" aria-label="Token monitor"><p class="cap">Token monitor</p>
+            <dl><dt>Input tokens</dt><dd>182,340</dd><dt>Output tokens</dt><dd>14,208</dd><dt>Cache tokens</dt><dd>96,512</dd><dt>Thinking tokens</dt><dd>9,870</dd><dt>Estimated cost</dt><dd>$0.61</dd><dt>Run time</dt><dd>4 min 37 s</dd><dt>Stage times</dt><dd class="wide">score 2 min 4 s · verify 2 min 12 s</dd><dt>Collection span</dt><dd class="wide">9 min 12 s</dd><dt>Last run</dt><dd class="wide">10/16/2026, 9:42:10 AM</dd></dl>
+          </section>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn btn--primary" type="button"><svg class="i"><use href="#i-book"/></svg>Open reading window</button></div>
+            <div class="m-foot__cli"><span><button class="link" type="button" style="padding:0">Collect new timeline</button></span><span class="ok" style="flex:none">✓ claude CLI 2.1.4</span></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- 6 Hata -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>6 · Error</b><span>claude CLI missing</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--ok"><svg class="i"><use href="#i-check"/></svg>Extension connected</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline</p><p class="m-status__line m-status__line--bad" role="status"><span class="g" aria-hidden="true">✕</span>The timeline could not be prepared</p></div>
+          <ol class="track" aria-label="Pipeline">
+            <li class="done"><b>✓ COLLECT</b><span>290</span></li><li class="done"><b>✓ FILTER</b><span>−22</span></li><li class="fail"><b>✕ SCORE</b><span>failed</span></li><li><b>VERIFY</b><span>·</span></li><li><b>WRITE</b><span>·</span></li>
+          </ol>
+          <div class="err" role="alert">
+            <p><span class="tag" style="color:var(--bad)">ERROR</span><span>The claude CLI was not found. Install Claude Code and log in, then try again.</span></p>
+            <details><summary>Technical detail</summary><pre>spawn claude ENOENT</pre></details>
+          </div>
+          <dl class="counts">
+            <div><dt>Collected</dt><dd>268</dd></div><div><dt>Filtered</dt><dd>—</dd></div><div><dt>Verified</dt><dd>—</dd></div><div><dt>Kept</dt><dd>—</dd></div>
+          </dl>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn btn--primary" type="button">Try again with the same posts</button></div>
+            <div class="m-foot__cli"><span class="bad">✕ claude CLI not found on PATH. Install it and log in, then check again.</span><button class="btn btn--sm" type="button">Check the claude CLI</button></div>
+            <div class="m-foot__cli"><button class="link" type="button" style="padding:0">Collect new timeline</button></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- 7 Bağlantı yok + eklenti eski -->
+    <figure class="frame" lang="en">
+      <figcaption class="frame__cap"><b>7 · No extension · outdated</b><span>collect disabled</span></figcaption>
+      <div class="win" style="--w:364px;--h:600px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait</span><span><i>—</i><i>✕</i></span></div>
+        <div class="win__body"><div class="m">
+          <div class="m-top"><p class="m-top__brand">No More Clickbait</p><span class="link-st link-st--bad"><svg class="i"><use href="#i-x"/></svg>No extension</span><button class="icon-btn" type="button" aria-label="Settings…"><svg class="i"><use href="#i-gear"/></svg></button></div>
+          <div class="m-status"><p class="cap">Timeline</p><p class="m-status__line" role="status"><span class="g" aria-hidden="true">·</span>Idle</p></div>
+          <ul class="log" aria-label="Notes">
+            <li class="l-bad"><span class="tag t-bad">ERROR</span><span>Browser extension not connected (open Brave/Chrome with the extension).</span></li>
+            <li class="l-warn"><span class="tag t-warn">WARN</span><span>The browser extension is older than this app: changes to “Mode B scroll pace” do not reach the browser. <button class="link" type="button" style="min-height:24px;padding:0">Open Settings</button></span></li>
+            <li class="l-info"><span class="tag t-info">INFO</span><span>1 earlier collection was not completed (latest started 10/15/2026, 11:02 PM). Its posts stay on disk; it is not built.</span></li>
+          </ul>
+          <section class="tok" aria-label="Token monitor"><p class="cap">Token monitor</p>
+            <dl><dt>Last run</dt><dd class="wide">10/15/2026, 8:10:44 PM</dd></dl>
+          </section>
+          <div class="m-foot">
+            <div class="m-foot__act"><button class="btn btn--primary" type="button" disabled>Collect new timeline</button></div>
+            <div class="m-foot__cli"><span>claude CLI · Not checked yet.</span><button class="btn btn--sm" type="button">Check the claude CLI</button></div>
+          </div>
+        </div></div>
+      </div>
+    </figure>
+
+  </div>
+</section>
+
+<!-- ═══════════════════════ SETTINGS ═══════════════════════ -->
+<section class="gallery stage-settings" data-gallery data-sw="420" aria-labelledby="g-set">
+  <h2 class="gallery__title" id="g-set">Settings <small>560×760 açılış, en dar 420 · iç yükseklik 720</small></h2>
+  <div class="frames">
+
+    <!-- S1 -->
+    <figure class="frame" lang="en" data-settings>
+      <figcaption class="frame__cap"><b>S1 · Defaults · just saved</b><span>change a field to see autosave</span></figcaption>
+      <div class="win win--settings" style="--h:720px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait — Settings</span><span><i>—</i><i>▢</i><i>✕</i></span></div>
+        <div class="win__body"><div class="s">
+          <div class="s-head"><h2>Settings</h2><p>Same as the extension's options page; changes are saved as you make them.</p></div>
+          <section class="sec" aria-labelledby="b1-src"><h3 id="b1-src">Sources</h3>
+            <div class="prop"><label for="b1-x">Collect from X</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b1-x" checked data-auto></div><p class="prop__hint">x.com/home</p></div>
+            <div class="prop"><label for="b1-ig">Collect from Instagram</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b1-ig" data-auto data-ig></div><p class="prop__hint">instagram.com · ads left out</p></div>
+            <div class="prop prop--sub prop--off" data-ig-sub><label for="b1-igf">Instagram: only accounts I follow</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b1-igf" disabled data-auto></div></div>
+          </section>
+          <section class="sec" aria-labelledby="b1-tl"><h3 id="b1-tl">Collection &amp; filter</h3>
+            <div class="prop"><label for="b1-ct">Posts to collect</label><div class="prop__ctl"><input class="num" id="b1-ct" type="number" inputmode="numeric" min="1" max="10000" value="250" data-auto aria-describedby="b1-ct-r b1-ct-e"><span class="range" id="b1-ct-r">1–10000</span></div><p class="prop__hint">per source</p><p class="prop__err" id="b1-ct-e"></p></div>
+            <div class="prop"><label for="b1-n">Posts per finished timeline</label><div class="prop__ctl"><input class="num" id="b1-n" type="number" inputmode="numeric" min="1" max="100" value="50" data-auto aria-describedby="b1-n-r b1-n-e"><span class="range" id="b1-n-r">1–100</span></div><p class="prop__err" id="b1-n-e"></p></div>
+            <div class="prop"><label for="b1-cb">Clickbait limit</label><div class="prop__ctl"><input class="num" id="b1-cb" type="number" inputmode="numeric" min="1" max="10" value="7" data-auto aria-describedby="b1-cb-r b1-cb-e"><span class="range" id="b1-cb-r">1–10</span></div><p class="prop__hint">below this passes</p><p class="prop__err" id="b1-cb-e"></p></div>
+            <div class="prop"><label for="b1-rv">Minimum read value</label><div class="prop__ctl"><input class="num" id="b1-rv" type="number" inputmode="numeric" min="0" max="10" value="2" data-auto aria-describedby="b1-rv-r b1-rv-e"><span class="range" id="b1-rv-r">0–10</span></div><p class="prop__err" id="b1-rv-e"></p></div>
+          </section>
+          <section class="sec" aria-labelledby="b1-ck"><h3 id="b1-ck">Checks</h3>
+            <div class="prop"><label for="b1-v">Check claims against sources</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b1-v" checked data-auto></div><p class="prop__hint">off: faster, cheaper runs</p></div>
+            <div class="prop"><label for="b1-vr">Verify posts from read value</label><div class="prop__ctl"><input class="num" id="b1-vr" type="number" inputmode="numeric" min="0" max="10" value="4" data-auto aria-describedby="b1-vr-r b1-vr-e"><span class="range" id="b1-vr-r">0–10</span></div><p class="prop__err" id="b1-vr-e"></p></div>
+            <div class="prop"><label for="b1-mv">Most source checks per run</label><div class="prop__ctl"><input class="num" id="b1-mv" type="number" inputmode="numeric" min="1" max="20" value="20" data-auto aria-describedby="b1-mv-r b1-mv-e"><span class="range" id="b1-mv-r">1–20</span></div><p class="prop__err" id="b1-mv-e"></p></div>
+          </section>
+          <section class="sec" aria-labelledby="b1-b"><h3 id="b1-b">Mode B · automatic</h3>
+            <div class="prop"><label for="b1-mb">Collect automatically in a hidden window</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b1-mb" data-auto data-mb></div><p class="prop__hint">off by default · risky</p></div>
+            <div class="prop" data-mb-extra hidden><label for="b1-pace">Mode B scroll pace</label><div class="prop__ctl"><select class="select" id="b1-pace" data-auto><option>Normal</option><option>Fast</option></select></div></div>
+            <div class="prop" data-mb-extra hidden><label for="b1-where">Where Mode B collects</label><div class="prop__ctl"><select class="select" id="b1-where" data-auto style="max-width:160px"><option>Minimized window</option><option>Small window in the screen corner (visible)</option></select></div></div>
+          </section>
+          <section class="sec" aria-labelledby="b1-br"><h3 id="b1-br">Browser &amp; language</h3>
+            <div class="prop"><label for="b1-bs">Collect in</label><div class="prop__ctl"><select class="select" id="b1-bs" data-auto style="max-width:180px"><option>System default browser</option><option selected>Brave (system default)</option><option>Chrome</option></select></div></div>
+            <div class="prop"><label for="b1-lang">Language</label><div class="prop__ctl"><select class="select" id="b1-lang" data-auto><option>System language</option><option>English</option><option>Türkçe</option></select></div><p class="prop__hint">System follows Windows</p></div>
+            <div class="prop"><label for="b1-dev">Developer capture: save raw timeline responses locally</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b1-dev" data-auto></div><p class="prop__hint">personal data · never share</p></div>
+          </section>
+          <div class="s-status"><span class="save save--ok" role="status" data-save><svg class="i"><use href="#i-check"/></svg>Saved.</span><span class="where">Brave · extension connected</span></div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- S2 -->
+    <figure class="frame" lang="en" data-settings>
+      <figcaption class="frame__cap"><b>S2 · Mode B on · invalid field</b><span>not all saved</span></figcaption>
+      <div class="win win--settings" style="--h:720px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait — Settings</span><span><i>—</i><i>▢</i><i>✕</i></span></div>
+        <div class="win__body"><div class="s">
+          <div class="s-head"><h2>Settings</h2><p>Same as the extension's options page; changes are saved as you make them.</p></div>
+          <ul class="log" aria-label="Notes"><li class="l-warn"><span class="tag t-warn">WARN</span><span>The marked fields are not saved — they keep their last valid value.</span></li></ul>
+          <section class="sec" aria-labelledby="b2-tl"><h3 id="b2-tl">Collection &amp; filter</h3>
+            <div class="prop"><label for="b2-ct">Posts to collect</label><div class="prop__ctl"><input class="num" id="b2-ct" type="number" inputmode="numeric" min="1" max="10000" value="250" data-auto aria-describedby="b2-ct-r b2-ct-e"><span class="range" id="b2-ct-r">1–10000</span></div><p class="prop__err" id="b2-ct-e"></p></div>
+            <div class="prop"><label for="b2-cb">Clickbait limit</label><div class="prop__ctl"><input class="num" id="b2-cb" type="number" inputmode="numeric" min="1" max="10" value="14" aria-invalid="true" data-auto aria-describedby="b2-cb-r b2-cb-e"><span class="range" id="b2-cb-r">1–10</span></div><p class="prop__err" id="b2-cb-e"><svg class="i"><use href="#i-x"/></svg>Enter a whole number between 1 and 10.</p></div>
+            <div class="prop"><label for="b2-rv">Minimum read value</label><div class="prop__ctl"><input class="num" id="b2-rv" type="number" inputmode="numeric" min="0" max="10" value="2" data-auto aria-describedby="b2-rv-r b2-rv-e"><span class="range" id="b2-rv-r">0–10</span></div><p class="prop__err" id="b2-rv-e"></p></div>
+          </section>
+          <section class="sec" aria-labelledby="b2-b"><h3 id="b2-b">Mode B · automatic</h3>
+            <div class="prop"><label for="b2-mb">Collect automatically in a hidden window</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b2-mb" checked data-auto data-mb aria-describedby="b2-risk"></div>
+              <p class="risk" id="b2-risk"><span class="tag">RISK</span><span>X and Instagram are opened out of sight and scrolled until enough posts are collected. Automated browsing sits in a grey area of X's and Instagram's terms and could put your accounts at risk.</span></p></div>
+            <div class="prop" data-mb-extra><label for="b2-pace">Mode B scroll pace</label><div class="prop__ctl"><select class="select" id="b2-pace" data-auto><option>Normal</option><option selected>Fast</option></select></div><p class="prop__hint">Fast: twice as quick, more likely noticed</p></div>
+            <div class="prop" data-mb-extra><label for="b2-where">Where Mode B collects</label><div class="prop__ctl"><select class="select" id="b2-where" data-auto style="max-width:160px"><option>Minimized window</option><option selected>Small window in the screen corner (visible)</option></select></div></div>
+          </section>
+          <div class="s-status"><span class="save save--bad" role="status" data-save><svg class="i"><use href="#i-warn"/></svg>Not all saved</span><span class="where">Brave · extension connected</span></div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- S3 -->
+    <figure class="frame" lang="en" data-settings>
+      <figcaption class="frame__cap"><b>S3 · Notes</b><span>pending · outdated · Mode B stayed off</span></figcaption>
+      <div class="win win--settings" style="--h:720px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait — Settings</span><span><i>—</i><i>▢</i><i>✕</i></span></div>
+        <div class="win__body"><div class="s">
+          <div class="s-head"><h2>Settings</h2><p>Same as the extension's options page; changes are saved as you make them.</p></div>
+          <ul class="log" aria-label="Notes">
+            <li class="l-info"><span class="tag t-info">INFO</span><span>Saved here — it will be applied when the browser connects.</span></li>
+            <li class="l-warn"><span class="tag t-warn">WARN</span><span>The browser extension is older than this app and does not know “Mode B scroll pace” and “Instagram: only accounts I follow”: changes to them do not reach the browser. Reload the extension on the browser's extensions page (for example brave://extensions), then make the change again.</span></li>
+            <li class="l-bad" role="alert"><span class="tag t-bad">ERROR</span><span>Mode B stayed off: only the extension's options page can ask the browser for its “alarms” permission. Turn Mode B on there once.</span></li>
+          </ul>
+          <section class="sec" aria-labelledby="b3-src"><h3 id="b3-src">Sources</h3>
+            <div class="prop"><label for="b3-x">Collect from X</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b3-x" checked data-auto></div></div>
+            <div class="prop"><label for="b3-ig">Collect from Instagram</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b3-ig" checked data-auto data-ig></div></div>
+            <div class="prop prop--sub" data-ig-sub><label for="b3-igf">Instagram: only accounts I follow</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b3-igf" checked data-auto></div><p class="prop__hint" style="color:var(--warn)"><span class="tag">WARN</span> not known by the extension</p></div>
+          </section>
+          <section class="sec" aria-labelledby="b3-b"><h3 id="b3-b">Mode B · automatic</h3>
+            <div class="prop"><label for="b3-mb">Collect automatically in a hidden window</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b3-mb" data-auto data-mb></div></div>
+          </section>
+          <section class="sec" aria-labelledby="b3-br"><h3 id="b3-br">Browser &amp; language</h3>
+            <div class="prop"><label for="b3-bs">Collect in</label><div class="prop__ctl"><select class="select" id="b3-bs" data-auto style="max-width:180px"><option>System default browser</option><option selected>Chrome</option></select></div></div>
+          </section>
+          <div class="s-status"><span class="save save--ok" role="status" data-save><svg class="i"><use href="#i-check"/></svg>Saved.</span><span class="where">Chrome · extension not connected right now</span></div>
+        </div></div>
+      </div>
+    </figure>
+
+    <!-- S4 -->
+    <figure class="frame" lang="en" data-settings>
+      <figcaption class="frame__cap"><b>S4 · Settings could not be read</b><span>new copy</span></figcaption>
+      <div class="win win--settings" style="--h:720px">
+        <div class="win__bar" aria-hidden="true"><span>No More Clickbait — Settings</span><span><i>—</i><i>▢</i><i>✕</i></span></div>
+        <div class="win__body"><div class="s">
+          <div class="s-head"><h2>Settings</h2><p>Same as the extension's options page; changes are saved as you make them.</p></div>
+          <ul class="log" aria-label="Notes">
+            <li class="l-bad" role="alert"><span class="tag t-bad">ERROR</span><span>Settings could not be read. Showing the last saved copy; changes are not saved until they load. <button class="link" type="button" style="min-height:24px;padding:0">Try again</button></span></li>
+          </ul>
+          <section class="sec" aria-labelledby="b4-src"><h3 id="b4-src">Sources</h3>
+            <div class="prop prop--off"><label for="b4-x">Collect from X</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b4-x" checked disabled></div></div>
+            <div class="prop prop--off"><label for="b4-ig">Collect from Instagram</label><div class="prop__ctl"><input class="sw" role="switch" type="checkbox" id="b4-ig" disabled></div></div>
+          </section>
+          <section class="sec" aria-labelledby="b4-tl"><h3 id="b4-tl">Collection &amp; filter</h3>
+            <div class="prop prop--off"><label for="b4-ct">Posts to collect</label><div class="prop__ctl"><input class="num" id="b4-ct" type="number" value="250" disabled><span class="range">1–10000</span></div></div>
+            <div class="prop prop--off"><label for="b4-cb">Clickbait limit</label><div class="prop__ctl"><input class="num" id="b4-cb" type="number" value="7" disabled><span class="range">1–10</span></div></div>
+          </section>
+          <div class="s-status"><span class="save save--bad" role="status"><svg class="i"><use href="#i-x"/></svg>Not saved</span><span class="where">— · extension unknown</span></div>
+        </div></div>
+      </div>
+    </figure>
+
+  </div>
+</section>
+
+<section class="doc-notes" aria-labelledby="dn">
+  <h2 id="dn">Bu yönün getirdiği değişiklikler (kodlarken)</h2>
+  <ul>
+    <li><b>5 parçalı hat şeridi</b> mevcut veriden çıkar (<code>run.stage</code>, <code>counts</code>, <code>stageDurationsMs</code>); yeni alan gerekmez. Şerit içi kısa etiketler (COLLECT…WRITE) yeni metin — TR: TOPLA · AYIKLA · PUANLA · DOĞRULA · YAZ.</li>
+    <li><b>Hazır durumda birincil eylem “Open reading window”</b>; bugün <code>monitorActions</code> burada <code>collect</code> döner.</li>
+    <li><b>Özel siteler satırı</b>: site başına ilerleme durumda yok; satır yalnız sayıyla çalışır.</li>
+    <li><b>Yeni kısa metinler</b>: “Not all saved”, “Not saved”, “Settings could not be read…”, kısaltılmış ipuçları (Settings'te tam açıklama yerine tek satır; tam metin <code>title</code>/yardım düğmesinde kalabilir — core açıklamaları kısaltılmaz).</li>
+    <li>Settings'te sayılar steppersız: klavyede ↑/↓ yerel adım verir; aralık her alanın yanında yazılı.</li>
+  </ul>
+</section>
+
+<script>
+(() => {
+  const root = document.documentElement;
+  const galleries = [...document.querySelectorAll("[data-gallery]")];
+  const REFS = ["for", "aria-labelledby", "aria-describedby", "aria-controls"];
+
+  function wire(scope) {
+    scope.querySelectorAll("[data-settings]").forEach((frame) => {
+      const save = frame.querySelector("[data-save]");
+      let t1, t2;
+      function saved(ok) {
+        if (!save) return;
+        clearTimeout(t1); clearTimeout(t2);
+        if (!ok) {
+          save.className = "save save--bad";
+          save.innerHTML = '<svg class="i"><use href="#i-warn"/></svg>Not all saved';
+          return;
+        }
+        save.className = "save";
+        save.textContent = "Saving…";
+        t1 = setTimeout(() => {
+          save.className = "save save--ok";
+          save.innerHTML = '<svg class="i"><use href="#i-check"/></svg>Saved.';
+          t2 = setTimeout(() => { save.textContent = ""; }, 2500);
+        }, 500);
+      }
+      function validate(input) {
+        if (input.type !== "number") return true;
+        const n = Number(input.value), min = Number(input.min), max = Number(input.max);
+        const ok = input.value.trim() !== "" && Number.isInteger(n) && n >= min && n <= max;
+        const err = frame.querySelector("#" + CSS.escape(input.getAttribute("aria-describedby").split(" ").pop()));
+        if (ok) input.removeAttribute("aria-invalid"); else input.setAttribute("aria-invalid", "true");
+        if (err) err.innerHTML = ok ? "" : '<svg class="i"><use href="#i-x"/></svg>Enter a whole number between ' + min + " and " + max + ".";
+        return ok;
+      }
+      function changed(input) {
+        const all = [...frame.querySelectorAll('input[type="number"][data-auto]')].every(validate);
+        saved(all && validate(input));
+      }
+      frame.querySelectorAll("[data-auto]").forEach((input) => {
+        input.addEventListener(input.type === "number" ? "input" : "change", () => changed(input));
+      });
+      frame.querySelectorAll("[data-step]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const input = btn.parentElement.querySelector("input");
+          const n = (Number(input.value) || 0) + Number(btn.dataset.step);
+          input.value = String(Math.min(Number(input.max), Math.max(Number(input.min), n)));
+          changed(input);
+        });
+      });
+      const mb = frame.querySelector("[data-mb]");
+      mb?.addEventListener("change", () => {
+        frame.querySelectorAll("[data-mb-extra]").forEach((row) => { row.hidden = !mb.checked; });
+      });
+      const ig = frame.querySelector("[data-ig]");
+      ig?.addEventListener("change", () => {
+        const sub = frame.querySelector("[data-ig-sub]");
+        sub.classList.toggle("row--off", !ig.checked);
+        sub.querySelector("input").disabled = !ig.checked;
+      });
+    });
+  }
+
+  function setTheme(theme) {
+    document.querySelectorAll("[data-theme-btn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.themeBtn === theme)));
+    document.querySelectorAll(".gallery.dup").forEach((n) => n.remove());
+    galleries.forEach((g) => g.removeAttribute("data-theme"));
+    root.classList.toggle("both", theme === "both");
+    if (theme === "system") { root.removeAttribute("data-theme"); return; }
+    if (theme !== "both") { root.dataset.theme = theme; return; }
+    root.dataset.theme = "light";
+    galleries.forEach((g) => {
+      const copy = g.cloneNode(true);
+      copy.classList.add("dup");
+      copy.dataset.theme = "dark";
+      copy.querySelectorAll("[id]").forEach((n) => { n.id += "-dk"; });
+      if (copy.id) copy.id += "-dk";
+      for (const a of REFS) {
+        copy.querySelectorAll("[" + a + "]").forEach((n) => n.setAttribute(a, n.getAttribute(a).split(" ").map((x) => x + "-dk").join(" ")));
+        if (copy.hasAttribute(a)) copy.setAttribute(a, copy.getAttribute(a) + "-dk");
+      }
+      copy.querySelectorAll('input[type="radio"]').forEach((r) => { r.name += "-dk"; });
+      g.after(copy);
+      wire(copy);
+    });
+  }
+
+  document.querySelectorAll("[data-theme-btn]").forEach((b) => b.addEventListener("click", () => setTheme(b.dataset.themeBtn)));
+  document.querySelectorAll("[data-sw-btn]").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll("[data-sw-btn]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    document.querySelectorAll(".stage-settings").forEach((g) => { g.dataset.sw = b.dataset.swBtn; });
+  }));
+  wire(document);
+})();
+</script>
+</body>
+</html>
