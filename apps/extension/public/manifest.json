@@ -8,7 +8,12 @@
   "default_locale": "en",
   "permissions": ["storage", "nativeMessaging", "notifications", "scripting", "offscreen"],
   "optional_permissions": ["alarms"],
-  "host_permissions": ["https://x.com/*", "https://twitter.com/*"],
+  "host_permissions": [
+    "https://x.com/*",
+    "https://twitter.com/*",
+    "https://www.reddit.com/*",
+    "https://www.instagram.com/*"
+  ],
   "optional_host_permissions": ["https://*/*", "http://*/*"],
   "background": {
     "service_worker": "background.js",
