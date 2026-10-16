@@ -4,6 +4,7 @@ import {
   type ModeBRunSummary,
   type ModeBStrategy,
 } from "@nmc/core";
+import { t, type MessageKey } from "./i18n.js";
 import type { ModeBCommandMessage } from "./messages.js";
 import {
   describeStopReason,
@@ -20,15 +21,15 @@ import { loadSettings } from "./settings.js";
  * local: the last finished run).
  */
 
-export const STRATEGY_LABEL: Record<ModeBStrategy, string> = {
-  "minimized-window": "minimized window",
-  "background-tab": "background tab (retired)",
-  "offscreen-window": "small window in the screen corner (visible)",
+const STRATEGY_LABEL: Record<ModeBStrategy, MessageKey> = {
+  "minimized-window": "strategyMinimized",
+  "background-tab": "strategyBackgroundTab",
+  "offscreen-window": "strategyOffscreen",
 };
 
-export const PACING_LABEL: Record<ModeBPacing, string> = {
-  normal: "normal (default)",
-  fast: "fast",
+const PACING_LABEL: Record<ModeBPacing, MessageKey> = {
+  normal: "pacingNormal",
+  fast: "pacingFast",
 };
 
 export interface ModeBControls {
@@ -57,42 +58,60 @@ function runningCount(value: unknown): { count: number; target: number } | null 
 }
 
 export function lastRunLine(run: ModeBRunSummary): string {
-  return (
-    `Last run: ${run.uniquePostCount} / ${run.target} posts via ` +
-    `${STRATEGY_LABEL[run.strategy]} — ${describeStopReason(run.stopReason)}` +
-    `${run.error === undefined ? "" : ` (${run.error})`}.`
+  return t(
+    "modeBLastRun",
+    run.uniquePostCount,
+    run.target,
+    t(STRATEGY_LABEL[run.strategy]),
+    describeStopReason(run.stopReason),
+    run.error === undefined ? "" : ` (${run.error})`,
   );
 }
 
 /** Label/value rows for the options page's last-run summary. */
 export function lastRunRows(run: ModeBRunSummary): [string, string][] {
-  const rows: [string, string][] = [["Result", describeStopReason(run.stopReason)]];
-  if (run.error !== undefined) rows.push(["Error", `${run.stopReason}: ${run.error}`]);
+  const lang = t("langCode");
+  const rows: [string, string][] = [[t("rowResult"), describeStopReason(run.stopReason)]];
+  if (run.error !== undefined) rows.push([t("rowError"), `${run.stopReason}: ${run.error}`]);
   rows.push(
-    ["Hidden surface", STRATEGY_LABEL[run.strategy]],
-    ["Pacing", run.pacing === undefined ? "—" : PACING_LABEL[run.pacing]],
+    [t("rowSurface"), t(STRATEGY_LABEL[run.strategy])],
+    [t("rowPacing"), run.pacing === undefined ? "—" : t(PACING_LABEL[run.pacing])],
     [
-      "Distinct posts",
-      `${run.uniquePostCount} of ${run.target} (counted by the ${run.counter})`,
+      t("rowDistinct"),
+      t(
+        "rowDistinctValue",
+        run.uniquePostCount,
+        run.target,
+        t(run.counter === "host" ? "counterHost" : "counterExtension"),
+      ),
     ],
-    ["Duration", `${(run.durationMs / 1000).toFixed(1)} s`],
-    ["Scroll steps", `${run.scrollCount} (position moved in ${run.scrollMovedCount})`],
     [
-      "Scrolls per minute",
+      t("rowDuration"),
+      t(
+        "rowDurationValue",
+        (run.durationMs / 1000).toLocaleString(lang, {
+          minimumFractionDigits: 1,
+          maximumFractionDigits: 1,
+        }),
+      ),
+    ],
+    [t("rowScrolls"), t("rowScrollsValue", run.scrollCount, run.scrollMovedCount)],
+    [
+      t("rowScrollsPerMinute"),
       run.scrollsPerMinute === undefined ? "—" : String(run.scrollsPerMinute),
     ],
-    ["Steps while page hidden", String(run.hiddenStepCount)],
+    [t("rowHiddenSteps"), String(run.hiddenStepCount)],
     [
-      "Timeline responses",
+      t("rowResponses"),
       run.responseCount === 0 && run.stopReason !== "failed-to-open"
-        ? "0 — X never loaded the timeline in the run's tab"
+        ? t("rowResponsesNone")
         : String(run.responseCount),
     ],
     [
-      "Steps that brought a new response (after the first)",
+      t("rowNewResponseSteps"),
       run.stepsWithNewResponse === undefined ? "—" : String(run.stepsWithNewResponse),
     ],
-    ["Ended", new Date(run.endedAt).toLocaleString()],
+    [t("rowEnded"), new Date(run.endedAt).toLocaleString(lang)],
   );
   return rows;
 }
@@ -123,15 +142,15 @@ export function bindModeBControls({ button, status, lastRun }: ModeBControls): v
     running = current !== null;
     button.disabled = !settings.modeBEnabled && !running;
     if (running && current) {
-      button.textContent = "Stop collecting";
-      status.textContent = `Collecting in the background… ${current.count} / ${current.target} distinct posts.`;
+      button.textContent = t("modeBStop");
+      status.textContent = t("modeBCollecting", current.count, current.target);
     } else {
-      button.textContent = `Collect feed (${settings.collectTarget})`;
+      button.textContent = t("modeBCollect", settings.collectTarget);
       status.textContent = !settings.modeBEnabled
-        ? "Mode B is off — turn it on in Options to collect automatically."
+        ? t("modeBOff")
         : last.success
           ? lastRunLine(last.data)
-          : "No run yet.";
+          : t("modeBNoRun");
     }
     if (lastRun) {
       if (last.success) renderRows(lastRun, lastRunRows(last.data));
@@ -141,7 +160,7 @@ export function bindModeBControls({ button, status, lastRun }: ModeBControls): v
 
   const refresh = (): void => {
     void render().catch(() => {
-      status.textContent = "Could not read the Mode B state.";
+      status.textContent = t("modeBStateFailed");
     });
   };
 
@@ -153,7 +172,7 @@ export function bindModeBControls({ button, status, lastRun }: ModeBControls): v
     const permission = requestModeBPermissions();
     void permission.then((granted) => {
       if (granted) send("start");
-      else status.textContent = "Mode B needs the “alarms” permission to run.";
+      else status.textContent = t("modeBNeedsAlarms");
     });
   });
   chrome.storage.onChanged.addListener(refresh);

@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>No More Clickbait — options</title>
+    <title data-i18n="optTitle">No More Clickbait — options</title>
     <style>
       body { font-family: system-ui, sans-serif; max-width: 38rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.5; }
-      fieldset { margin-bottom: 1.5rem; }
+      fieldset { margin-bottom: 1.5rem; min-width: 0; }
       .hint { color: #444; font-size: 0.92rem; }
       .risk { border: 1px solid #b3261e; border-radius: 0.5rem; padding: 0.75rem 1rem; }
       label { display: block; margin: 0.5rem 0; }
@@ -18,7 +18,7 @@
       .field { margin-bottom: 1rem; }
       .field .hint { margin: 0.25rem 0 0; }
       .field.off { opacity: 0.6; }
-      select { min-height: 2.75rem; }
+      select { min-height: 2.75rem; max-width: 100%; }
       dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.2rem 1rem; margin: 0.5rem 0; }
       dt { color: #444; }
       dd { margin: 0; overflow-wrap: anywhere; }
@@ -30,81 +30,81 @@
     <link rel="stylesheet" href="sites.css" />
   </head>
   <body>
-    <h1>No More Clickbait — options</h1>
+    <h1 data-i18n="optTitle">No More Clickbait — options</h1>
     <form id="settings-form" novalidate>
       <fieldset aria-describedby="pipeline-hint">
-        <legend>Filter and verification</legend>
-        <p id="pipeline-hint" class="hint">
+        <legend data-i18n="optPipelineLegend">Filter and verification</legend>
+        <p id="pipeline-hint" class="hint" data-i18n="optPipelineHint">
           How the desktop app collects, filters and checks your timeline. Saving also sends these
           settings to the desktop app.
         </p>
         <div id="pipeline-fields"></div>
-        <button id="pipeline-defaults" type="button">Restore defaults</button>
+        <button id="pipeline-defaults" type="button" data-i18n="optRestoreDefaults">Restore defaults</button>
       </fieldset>
 
       <fieldset>
-        <legend>Collection modes</legend>
-        <p>
+        <legend data-i18n="optModesLegend">Collection modes</legend>
+        <p data-i18n="optModeA">
           <strong>Mode A (always available):</strong> while you browse X yourself, the extension
           passively keeps the timeline responses your browser already received.
         </p>
         <div class="risk">
           <label>
             <input id="mode-b" type="checkbox" aria-describedby="mode-b-risk" />
-            Mode B: collect automatically in a hidden tab
+            <span data-i18n="optModeBLabel">Mode B: collect automatically in a hidden tab</span>
           </label>
-          <p id="mode-b-risk" class="hint">
+          <p id="mode-b-risk" class="hint" data-i18n="optModeBRisk">
             <strong>Off by default, and risky.</strong> Mode B opens X in a hidden tab and scrolls
             it automatically until enough posts are gathered. Automated browsing sits in a grey
             area of X's Terms of Service and may put your account at risk (rate limits, locks or
             suspension). Only enable it if you understand and accept that. See the README section
             “Mode B and its risks”.
           </p>
-          <p class="hint">
+          <p class="hint" data-i18n="optModeBRun">
             A run collects “Posts to collect” distinct organic posts (no ads, no repeats). It also
             stops after 10 minutes, after about 20 seconds without a new post, or when X shows a
             login, error or rate-limit page. The hidden window closes when the run ends.
           </p>
           <label>
-            Where to collect
+            <span data-i18n="optStrategyLabel">Where to collect</span>
             <select id="mode-b-strategy" aria-describedby="mode-b-strategy-hint">
-              <option value="minimized-window">Minimized window (default)</option>
-              <option value="offscreen-window">Small window in the screen corner (visible)</option>
+              <option value="minimized-window" data-i18n="optStrategyMinimized">Minimized window (default)</option>
+              <option value="offscreen-window" data-i18n="optStrategyOffscreen">Small window in the screen corner (visible)</option>
             </select>
           </label>
-          <p id="mode-b-strategy-hint" class="hint">
+          <p id="mode-b-strategy-hint" class="hint" data-i18n="optStrategyHint">
             Use the corner window if the minimized one stops loading posts. Browsers keep at least
             half of a window on screen, so the corner window stays partly visible. A background tab
             is not offered: X stopped loading there.
           </p>
           <label>
-            Scroll pace
+            <span data-i18n="optPacingLabel">Scroll pace</span>
             <select id="mode-b-pacing" aria-describedby="mode-b-pacing-hint">
-              <option value="normal">Normal (default)</option>
-              <option value="fast">Fast</option>
+              <option value="normal" data-i18n="optPacingNormal">Normal (default)</option>
+              <option value="fast" data-i18n="optPacingFast">Fast</option>
             </select>
           </label>
-          <p id="mode-b-pacing-hint" class="hint">
+          <p id="mode-b-pacing-hint" class="hint" data-i18n="optPacingHint">
             Fast scrolls twice as quickly, but may be more likely to be noticed by X. Save before
             collecting.
           </p>
-          <button id="mode-b-run" type="button" aria-describedby="mode-b-status">
+          <button id="mode-b-run" type="button" aria-describedby="mode-b-status" data-i18n="modeBCollectIdle">
             Collect feed
           </button>
           <p id="mode-b-status" role="status" aria-live="polite"></p>
-          <h2>Last run</h2>
+          <h2 data-i18n="optLastRunHeading">Last run</h2>
           <dl id="mode-b-last-run"></dl>
         </div>
       </fieldset>
 
       <fieldset>
-        <legend>Developer capture</legend>
+        <legend data-i18n="optDevLegend">Developer capture</legend>
         <div class="risk">
           <label>
             <input id="dev-capture" type="checkbox" aria-describedby="dev-capture-risk" />
-            Developer capture: save raw timeline responses locally
+            <span data-i18n="optDevLabel">Developer capture: save raw timeline responses locally</span>
           </label>
-          <p id="dev-capture-risk" class="hint">
+          <p id="dev-capture-risk" class="hint" data-i18n="optDevRisk">
             <strong>Off by default.</strong> While on, the HomeTimeline responses X sends your
             browser are forwarded verbatim to the native host, which writes them
             <em>outside the repo</em> to
@@ -113,13 +113,13 @@
             These raw dumps are <strong>personal data</strong> (your own home timeline) — never
             share them and never commit them. For development/debugging only.
           </p>
-          <p class="hint">
+          <p class="hint" data-i18n="optDevBadge">
             The badge shows the running count of distinct organic posts (ads and repeats not
             counted); you get a notification when “Posts to collect” were captured. Capture does
             not stop at that number. Toggling developer capture starts a new count and a new
             capture folder.
           </p>
-          <p class="hint">
+          <p class="hint" data-i18n="optDevReddit">
             Reddit is captured too, into a separate <code>…-reddit</code> folder. Rebuild the
             native host (<code>pnpm build</code>) before opening a Reddit tab with capture on — an
             older host mixes Reddit data into the X folder.
@@ -127,7 +127,7 @@
         </div>
       </fieldset>
 
-      <button type="submit">Save</button>
+      <button type="submit" data-i18n="save">Save</button>
       <p id="status" role="status" aria-live="polite"></p>
       <p id="sync-status" class="warning" role="status" aria-live="polite"></p>
     </form>

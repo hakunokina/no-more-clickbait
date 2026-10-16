@@ -6,8 +6,6 @@ import { EN, type MessageKey } from "./i18n/messages.js";
  * them out as `_locales/<lang>/messages.json` (positional `$1`… become
  * named placeholders). Where `chrome.i18n` is missing (tests) or has no
  * entry, the English text is used, so a key never shows raw.
- *
- * The existing English Options sections are not translated (yet).
  */
 
 export type { MessageKey };

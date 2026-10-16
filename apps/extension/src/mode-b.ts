@@ -7,6 +7,7 @@ import {
   type ModeBSurface,
 } from "@nmc/core";
 import type { SessionArea } from "./capture-session.js";
+import { t, type MessageKey } from "./i18n.js";
 import { isModeBPageReport, type ModeBPageReport, type ModeBStepMessage } from "./messages.js";
 import { loadSettings } from "./settings.js";
 
@@ -305,24 +306,24 @@ export function refusedRun(
   return summarize(newRun(start, pacing, now, -1, null), now, reason, error);
 }
 
-const STOP_REASON_TEXT: Record<ModeBStopReason, string> = {
-  "target-reached": "target reached",
-  timeout: "time limit reached",
-  stalled: "no new posts for about 20 s of scrolling",
-  "not-logged-in": "not logged in to X in this browser",
-  "error-page": "X showed an error page",
-  "navigated-away": "the tab left x.com/home",
-  "rate-limited": "X rate-limited the timeline",
-  "page-unresponsive": "the page stopped answering scroll steps",
-  "tab-closed": "the tab was closed",
-  cancelled: "stopped by you",
-  "settings-changed": "settings changed during the run",
-  "permission-missing": "Mode B permission not granted — re-enable Mode B in Options",
-  "failed-to-open": "could not open the collection tab or window",
+const STOP_REASON_TEXT: Record<ModeBStopReason, MessageKey> = {
+  "target-reached": "stopTargetReached",
+  timeout: "stopTimeout",
+  stalled: "stopStalled",
+  "not-logged-in": "stopNotLoggedIn",
+  "error-page": "stopErrorPage",
+  "navigated-away": "stopNavigatedAway",
+  "rate-limited": "stopRateLimited",
+  "page-unresponsive": "stopPageUnresponsive",
+  "tab-closed": "stopTabClosed",
+  cancelled: "stopCancelled",
+  "settings-changed": "stopSettingsChanged",
+  "permission-missing": "stopPermissionMissing",
+  "failed-to-open": "stopFailedToOpen",
 };
 
 export function describeStopReason(reason: ModeBStopReason): string {
-  return STOP_REASON_TEXT[reason];
+  return t(STOP_REASON_TEXT[reason]);
 }
 
 /** The browser surface the runner needs (adapter over chrome.* in background.ts). */
