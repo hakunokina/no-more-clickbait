@@ -4,6 +4,7 @@ import {
   ipcMain,
   Menu,
   nativeImage,
+  nativeTheme,
   Notification,
   protocol,
   Tray,
@@ -288,6 +289,14 @@ async function openReader(): Promise<void> {
   reader.open(showTimeline ? await controller.availableTimeline() : null);
 }
 
+/**
+ * The windows' page colour (renderer CSS `--bg`), so a dark window does
+ * not flash white before its page paints.
+ */
+function windowBackground(): string {
+  return nativeTheme.shouldUseDarkColors ? "#171513" : "#faf7f2";
+}
+
 function createMonitor(): BrowserWindow {
   const win = new BrowserWindow({
     width: 380,
@@ -296,6 +305,7 @@ function createMonitor(): BrowserWindow {
     show: false,
     title: "No More Clickbait",
     autoHideMenuBar: true,
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload,
       sandbox: true,
@@ -332,6 +342,7 @@ function createSettingsWindow(): BrowserWindow {
     show: false,
     title: messages(lang).settingsWindowTitle,
     autoHideMenuBar: true,
+    backgroundColor: windowBackground(),
     webPreferences: {
       preload,
       sandbox: true,
