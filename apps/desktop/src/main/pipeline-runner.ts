@@ -262,7 +262,9 @@ export class PipelineRunner {
       const result = await Promise.race([
         runPipeline(
           {
-            hardFilter: createHardFilter(),
+            hardFilter: createHardFilter(undefined, {
+              dropSuggested: settings.instagramFollowedOnly,
+            }),
             scorer,
             selector,
             ...(config.verify ? { verifier } : {}),

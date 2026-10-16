@@ -28,6 +28,7 @@ describe("pipeline settings form", () => {
       collectTarget: 250,
       collectFromX: true,
       collectFromInstagram: false,
+      instagramFollowedOnly: false,
       timelineSize: 50,
       maxClickbait: 7,
       minReadValue: 2,

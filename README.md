@@ -107,9 +107,11 @@ of the page's text.
   in, no new posts…). One source falling short never stops the other; a
   cancel ends both.
 - Ads are dropped, posts Instagram suggests from accounts you do not
-  follow are kept (marked "suggested"), and posts without a caption are
-  set aside like X's media-only posts. Reload an Instagram tab that was
-  open when you ticked it.
+  follow are kept (marked "suggested") — or left out with **Instagram:
+  only accounts I follow** (off by default; they then do not count towards
+  the target, and the timeline's breakdown counts them apart) — and posts
+  without a caption are set aside like X's media-only posts. Reload an
+  Instagram tab that was open when you ticked it.
 - With X, Instagram and every custom site off, "Collect" says there is
   nothing to collect; with only custom sites on, it collects them at once.
 

@@ -214,6 +214,29 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
     }
   });
 
+  it("drops suggestions under their own reason only with 'only accounts I follow'", () => {
+    const suggested = byId(ssr.posts, "3100000000000000004");
+    const followed = byId(ssr.posts, "3100000000000000001");
+    expect([suggested.suggested, followed.suggested]).toEqual([true, undefined]);
+
+    const followedOnly = createHardFilter(undefined, { dropSuggested: true });
+    expect(followedOnly.check(suggested)).toBe("not-followed");
+    expect(followedOnly.check(followed)).toBeNull();
+    expect(followedOnly.stats.dropped).toEqual({
+      promoted: 0,
+      duplicate: 0,
+      "duplicate-repost": 0,
+      "not-followed": 1,
+    });
+    expect(followedOnly.stats.kept).toBe(1);
+
+    // Off (the default): the suggestion is kept, and no such reason appears.
+    const all = createHardFilter();
+    expect(all.keep(suggested)).toBe(true);
+    expect(all.keep(followed)).toBe(true);
+    expect(all.stats.dropped).toEqual({ promoted: 0, duplicate: 0, "duplicate-repost": 0 });
+  });
+
   it("feeds the hard filter: ad dropped, cross-response repeat dropped, caption-less flagged", () => {
     const filter = createHardFilter();
     const kept = [...ssr.posts, ...page2.posts].filter((post) => filter.keep(post));

@@ -569,6 +569,15 @@ export const SYNCED_SETTING_FIELDS = {
       "Ads are left out; posts without a caption are kept but not scored. Reload an " +
       "Instagram tab that was open when you turned this on.",
   },
+  instagramFollowedOnly: {
+    kind: "boolean",
+    default: false,
+    label: "Instagram: only accounts I follow",
+    description:
+      "Leave out the posts Instagram suggests from accounts you do not follow. They do not " +
+      "count towards “Posts to collect”; the timeline's breakdown counts them apart. Off, " +
+      "they are kept and marked “Suggested”.",
+  },
   ...PIPELINE_SETTING_FIELDS,
 } as const satisfies Record<string, IntegerSettingField | BooleanSettingField>;
 
@@ -609,6 +618,11 @@ export const SettingsFieldsSchema = z.object({
     .boolean()
     .default(SYNCED_SETTING_FIELDS.collectFromInstagram.default)
     .describe(SYNCED_SETTING_FIELDS.collectFromInstagram.description),
+  /** Drop Instagram's suggestions (accounts not followed) instead of marking them. */
+  instagramFollowedOnly: z
+    .boolean()
+    .default(SYNCED_SETTING_FIELDS.instagramFollowedOnly.default)
+    .describe(SYNCED_SETTING_FIELDS.instagramFollowedOnly.description),
   /** The hidden surface Mode B scrolls in. */
   modeBStrategy: ModeBSurfaceSchema.default("minimized-window"),
   /** Mode B scroll pace; `fast` may be likelier to draw X's attention. */
@@ -666,6 +680,7 @@ export const SyncedSettingsSchema = SettingsFieldsSchema.pick({
   collectTarget: true,
   collectFromX: true,
   collectFromInstagram: true,
+  instagramFollowedOnly: true,
   timelineSize: true,
   maxClickbait: true,
   minReadValue: true,
@@ -783,6 +798,7 @@ export const ManagedSettingsSchema = SettingsFieldsSchema.pick({
   collectTarget: true,
   collectFromX: true,
   collectFromInstagram: true,
+  instagramFollowedOnly: true,
   timelineSize: true,
   maxClickbait: true,
   minReadValue: true,

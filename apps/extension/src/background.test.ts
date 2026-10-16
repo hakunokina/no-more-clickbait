@@ -508,6 +508,7 @@ describe("background worker", () => {
       collectTarget: 300,
       collectFromX: true,
       collectFromInstagram: true,
+      instagramFollowedOnly: true,
       timelineSize: 40,
       maxClickbait: 3,
       minReadValue: 2,
@@ -1038,6 +1039,21 @@ describe("Instagram as a collection source", () => {
     expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
       instagram: { count: 5 },
     });
+  });
+
+  it("with 'only accounts I follow', a suggestion is sent but never counted", async () => {
+    await setSettings({
+      collectTarget: 100,
+      collectFromInstagram: true,
+      instagramFollowedOnly: true,
+    });
+    await settle();
+    captureInstagram();
+    await settle();
+    // The batch is whole (the pipeline drops the suggestion, counted apart) …
+    expect(feedBatches(currentPort())[0]?.items).toHaveLength(6);
+    // … but the target counts 4: 6 posts less the ad and the suggestion.
+    expect(fake.badge.text).toBe("4");
   });
 
   it("with X's tick off, X responses are neither sent nor counted", async () => {

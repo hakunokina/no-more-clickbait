@@ -521,7 +521,12 @@ async function handleInstagramCapture(
   const posts = parseInstagramTimeline(parseInstagramBody(message.bodyText));
   if (posts.length === 0 || (await igSession.closedReason()) !== null) return;
   sendFeedBatch({ capturedAt: new Date().toISOString(), items: posts });
-  const count = await igSession.countPosts(posts);
+  // "Only accounts I follow": suggestions still ride along (the pipeline's
+  // hard filter drops them, counted apart) but never count towards the target.
+  const counted = settings.instagramFollowedOnly
+    ? posts.filter((post) => post.suggested !== true)
+    : posts;
+  const count = await igSession.countPosts(counted);
   if (captureGeneration !== generation) return;
   await showCount("instagram", count, settings);
   const run = await modeB.current();

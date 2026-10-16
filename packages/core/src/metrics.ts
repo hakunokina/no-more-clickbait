@@ -109,6 +109,11 @@ export const FunnelCountsSchema = z
     ads: z.number().int().nonnegative(),
     /** Repeats of a post already seen in the run (overlap, reposts). */
     duplicates: z.number().int().nonnegative(),
+    /**
+     * Instagram's suggestions (accounts not followed), left out on the
+     * user's request; absent when none was.
+     */
+    notFollowed: z.number().int().nonnegative().optional(),
     /** Media-only posts: no text to judge, never scored or shown. */
     mediaOnly: z.number().int().nonnegative(),
     /** The Scorer returned no usable score for these. */
@@ -129,6 +134,7 @@ export const FunnelCountsSchema = z
       f.scanned ===
       f.ads +
         f.duplicates +
+        (f.notFollowed ?? 0) +
         f.mediaOnly +
         f.scoringFailed +
         f.clickbait +

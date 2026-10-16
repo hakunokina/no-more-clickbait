@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { feedItemKey } from "./feed-item.js";
 import { createHardFilter } from "./hard-filter.js";
 import { FunnelCountsSchema, type FunnelCounts } from "./metrics.js";
 import {
@@ -12,6 +13,7 @@ import {
 } from "./pipeline.js";
 import {
   SettingsSchema,
+  type InstagramPost,
   type Post,
   type ScoreEntry,
   type VerificationResult,
@@ -472,7 +474,7 @@ describe("runPipeline funnel", () => {
   /** Sum of every bucket except `scanned`. */
   function bucketSum(f: FunnelCounts): number {
     const { scanned: _scanned, ...buckets } = f;
-    return Object.values(buckets).reduce((a, b) => a + b, 0);
+    return Object.values(buckets).reduce<number>((a, b) => a + (b ?? 0), 0);
   }
 
   // One post per fate, in feed order. Read values rank k1 > k2 > k3 > k4.
@@ -573,6 +575,46 @@ describe("runPipeline funnel", () => {
       rankedOut: 0,
       shown: 0,
     });
+  });
+
+  it("counts Instagram's suggestions apart when only followed accounts are wanted", async () => {
+    const ig = (id: string, suggested = false): InstagramPost => ({
+      platform: "instagram",
+      id,
+      url: `https://www.instagram.com/p/${id}/`,
+      authorHandle: "synthetic_ig",
+      caption: `synthetic caption ${id}`,
+      kind: "post",
+      media: [],
+      publishedAt: "2026-01-01T00:00:00.000Z",
+      promoted: false,
+      ...(suggested ? { suggested: true } : {}),
+    });
+    const items = [post("x1"), ig("followed"), ig("suggested", true)];
+    const run = (dropSuggested: boolean) =>
+      runPipeline(
+        {
+          hardFilter: createHardFilter(undefined, { dropSuggested }),
+          scorer: { score: async (posts) => posts.map((p) => score(feedItemKey(p))) },
+          selector: createThresholdSelector({
+            maxClickbaitScore: 0.7,
+            minReadWorthinessScore: 0.2,
+          }),
+        },
+        items,
+        { timelineSize: 10, verifyConcurrency: 1 },
+      );
+
+    const followedOnly = await run(true);
+    expect(followedOnly.posts.map((r) => r.post.id)).toEqual(["x1", "followed"]);
+    expect(followedOnly.funnel).toMatchObject({ scanned: 3, notFollowed: 1, shown: 2 });
+    expect(bucketSum(followedOnly.funnel)).toBe(3);
+    expect(FunnelCountsSchema.safeParse(followedOnly.funnel).success).toBe(true);
+
+    // Off (the default): the suggestion stays, and the funnel has no such bucket.
+    const all = await run(false);
+    expect(all.posts.map((r) => r.post.id)).toEqual(["x1", "followed", "suggested"]);
+    expect(all.funnel).not.toHaveProperty("notFollowed");
   });
 
   it("schema rejects a funnel that does not add up", () => {

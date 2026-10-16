@@ -40,6 +40,13 @@ const TR: { [K in ManagedSettingKey]: FieldCopy<Fields[K]> } = {
       "Reklamlar çıkarılır; açıklamasız gönderiler tutulur ama puanlanmaz. Bunu açtığında " +
       "açık olan bir Instagram sekmesini yenile.",
   },
+  instagramFollowedOnly: {
+    label: "Instagram: yalnız takip ettiklerim",
+    description:
+      "Instagram'ın takip etmediğin hesaplardan önerdiği gönderileri dışarıda bırakır. Bunlar " +
+      "“Toplanacak gönderi” sayısına girmez; akışın dökümü onları ayrı sayar. Kapalıyken " +
+      "tutulur ve “Önerilen” diye işaretlenir.",
+  },
   timelineSize: {
     label: "Bitmiş akıştaki gönderi",
     description:

@@ -1049,6 +1049,57 @@ describe("SessionController", () => {
     expect(html).toContain(messages("en").sourceNotLoggedInX);
   });
 
+  it("leaves Instagram's suggestions out on 'only accounts I follow', counted apart", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch({
+      capturedAt: "2026-01-01T10:00:02.000Z",
+      items: [instagramPost("ig1"), { ...instagramPost("ig2"), suggested: true }],
+    });
+    const id = (await store.complete({
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 100,
+    })) as string;
+    runStages = stages({
+      scorer: {
+        score: async (items) =>
+          items.map((item) => ({
+            postId: feedItemKey(item),
+            clickbaitScore: 0.1,
+            readWorthinessScore: 0.6,
+            checkWorthy: false,
+            checkWorthyClaim: null,
+          })),
+      },
+    });
+    const run = async (instagramFollowedOnly: boolean) => {
+      const c = controller(undefined, {
+        loadSettings: async () => SettingsSchema.parse({ instagramFollowedOnly }),
+        renderTimeline: (doc, lang) => renderTimeline(doc, { actions: true, lang }),
+      });
+      await c.runSession(id);
+      expect(c.status.run.stage).toBe("ready");
+      return {
+        doc: JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+          cards: { post: { id: string } }[];
+          funnel: Record<string, number>;
+        },
+        html: await readFile(join(root, id, TIMELINE_FILE), "utf8"),
+      };
+    };
+    const followedOnly = await run(true);
+    expect(followedOnly.doc.cards.map((card) => card.post.id)).toEqual(["ig1"]);
+    expect(followedOnly.doc.funnel).toMatchObject({ scanned: 2, notFollowed: 1, shown: 1 });
+    expect(followedOnly.html).toContain("Instagram posts from accounts you do not follow");
+
+    const all = await run(false);
+    expect(all.doc.cards.map((card) => card.post.id).sort()).toEqual(["ig1", "ig2"]);
+    expect(all.doc.funnel).not.toHaveProperty("notFollowed");
+    expect(all.html).not.toContain("Instagram posts from accounts you do not follow");
+  });
+
   it("waits for the user's go on a Mode A collection finished early, with each feed's count", async () => {
     const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
     await store.addBatch(batch(["1", "2", "3"]));
