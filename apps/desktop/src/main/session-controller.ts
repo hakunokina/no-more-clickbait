@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import {
   TimelineDocSchema,
   toTimelineDoc,
+  type CollectSource,
+  type CollectSourceOutcome,
   type MissingSource,
   type Settings,
   type SiteCollectOutcome,
@@ -25,6 +27,7 @@ import {
   initialStatus,
   isRunActive,
   type DesktopStatus,
+  type FeedProgress,
   type PendingCollection,
   type RunError,
   type RunErrorKind,
@@ -102,6 +105,16 @@ const BUILD_AFTER_STOP: ReadonlySet<string> = new Set([
   "page-unresponsive",
   "rate-limited",
   "error-page",
+  // Only custom sites were on: collected at once, as asked.
+  "sites-collected",
+]);
+
+/** Stops of a whole run over several feeds (not one feed's): they decide alone. */
+const WHOLE_RUN_STOPS: ReadonlySet<string> = new Set([
+  "cancelled",
+  "tab-closed",
+  "settings-changed",
+  "failed-to-open",
 ]);
 
 /**
@@ -117,16 +130,40 @@ const QUIET_STOPS: ReadonlySet<string> = new Set(["settings-changed"]);
  * - "ask": Mode A, or a Mode B stop that may not reflect the user's
  *   intent (not logged in, tab closed…) — wait for "Build timeline";
  * - "drop": the user cancelled it — never built.
+ *
+ * Over several feeds (`sources`), each feed stopped for its own reason:
+ * the run builds when any feed ended normally (one feed not logged in
+ * does not hold the other back), unless the run as a whole was stopped.
  */
-export function planCompletion(mode: "A" | "B", reason: string): "build" | "ask" | "drop" {
+export function planCompletion(
+  mode: "A" | "B",
+  reason: string,
+  sources?: readonly CollectSourceOutcome[],
+): "build" | "ask" | "drop" {
   if (mode === "A") return "ask";
   if (reason === "cancelled") return "drop";
+  if (sources && sources.length > 0 && !WHOLE_RUN_STOPS.has(reason)) {
+    return sources.some((source) => BUILD_AFTER_STOP.has(source.reason)) ? "build" : "ask";
+  }
   return BUILD_AFTER_STOP.has(reason) ? "build" : "ask";
+}
+
+/** Distinct posts a collection gathered: X's, or every feed's together when not X alone. */
+export function collectedCount(
+  uniquePostCount: number,
+  sources: readonly CollectSourceOutcome[] | undefined,
+): number {
+  return sources && sources.length > 0
+    ? sources.reduce((sum, source) => sum + source.uniquePostCount, 0)
+    : uniquePostCount;
 }
 
 /** Why a source may have brought nothing (page text, see missingSourcesOf). */
 const SOURCE_REASONS = [
   "nothingFromSource",
+  "sourceNotLoggedInX",
+  "sourceNotLoggedInInstagram",
+  "sourceStalled",
   "siteError",
   "siteTimeout",
   "siteEmpty",
@@ -150,21 +187,33 @@ const SITE_REASONS: Readonly<Record<SiteCollectOutcome["status"], SourceReason>>
   skipped: "siteSkipped",
 };
 
+/** Why a scrolled feed brought nothing, from its stop. */
+function feedReason(feed: CollectSourceOutcome): SourceReason {
+  if (feed.reason === "not-logged-in") {
+    return feed.source === "x" ? "sourceNotLoggedInX" : "sourceNotLoggedInInstagram";
+  }
+  return feed.reason === "stalled" ? "sourceStalled" : "nothingFromSource";
+}
+
 /**
- * Sources a desktop run collects from: the extension's X home timeline
- * and the custom sites the collection reported (`sites`). A site whose
- * items are in the session counts under its items' own label (bySource);
- * one that stored nothing is expected under the same label
- * (`custom:<rule name>`), or under its id when an older extension sent
- * no name, with its outcome as the reason.
+ * Sources a desktop run collects from: the scrolled feeds (`feeds`, each
+ * under its label — "x", "instagram" — with its stop as the reason; an
+ * older extension or X alone: X) and the custom sites the collection
+ * reported (`sites`). A site whose items are in the session counts under
+ * its items' own label (bySource); one that stored nothing is expected
+ * under the same label (`custom:<rule name>`), or under its id when an
+ * older extension sent no name, with its outcome as the reason.
  */
 export function runSourcesOf(
   sites: readonly SiteCollectOutcome[] | undefined,
   storedSiteIds: readonly string[],
+  feeds?: readonly CollectSourceOutcome[],
 ): RunSource[] {
   const stored = new Set(storedSiteIds);
   return [
-    { label: "x", reason: "nothingFromSource" },
+    ...(feeds
+      ? feeds.map((feed) => ({ label: feed.source, reason: feedReason(feed) }))
+      : [{ label: "x", reason: "nothingFromSource" as const }]),
     ...(sites ?? [])
       .filter((site) => !stored.has(site.siteId))
       .map((site) => ({
@@ -416,22 +465,30 @@ export class SessionController {
       return;
     }
     if (event.type === "collection-start-result") {
+      // The feeds a collection that is not X alone scrolls, each from zero.
+      const sources = event.sources?.map((source): FeedProgress => ({ source, count: null }));
+      const feeds = sources ? { sources } : {};
       this.#setCollection((status) => {
         const target = event.target ?? status.collection.target;
         switch (event.outcome) {
           case "busy":
             // A run that began before our request: its session is older.
             this.#requestedAt = null;
-            return { state: "collecting", message: null, target, count: null };
+            return { state: "collecting", message: null, target, count: null, ...feeds };
           case "started":
-            return { state: "collecting", message: null, target, count: null };
+            return { state: "collecting", message: null, target, count: null, ...feeds };
           case "mode-b-off":
             return {
               state: "refused",
-              message: note("modeBOff", target),
+              message:
+                event.sources && event.sources.length > 0
+                  ? note("modeBOffFeeds", target, event.sources)
+                  : note("modeBOff", target),
               target,
               count: null,
             };
+          case "no-sources":
+            return { state: "refused", message: note("noSources"), target, count: null };
           case "permission-missing":
             return {
               state: "refused",
@@ -454,11 +511,12 @@ export class SessionController {
       // A collection the silence timeout gave up on comes back to life.
       const { state } = this.#status.collection;
       if (state === "idle" || (state === "refused" && !this.#silent)) return;
-      this.#setCollection(() => ({
+      this.#setCollection((status) => ({
         state: "collecting",
         message: null,
         target: event.target,
         count: event.uniquePostCount,
+        ...withFeedCount(status.collection.sources, event.source ?? "x", event.uniquePostCount),
       }));
       return;
     }
@@ -473,6 +531,7 @@ export class SessionController {
       reason: event.reason,
       uniquePostCount: event.uniquePostCount,
       target: event.target ?? this.#status.collection.target,
+      ...(event.sources ? { sources: event.sources } : {}),
       live: true,
     }).catch((error: unknown) => this.#deps.log?.(`completion failed: ${String(error)}`));
   }
@@ -484,16 +543,18 @@ export class SessionController {
     reason: string;
     uniquePostCount: number;
     target: number | null;
+    /** Each feed's outcome, when the collection was not X alone. */
+    sources?: CollectSourceOutcome[];
     /** Announced just now (not found on disk at start-up): notify the user. */
     live: boolean;
   }): Promise<void> {
     // Batches of ads/repeats only leave a folder but no post to build from;
-    // a run with only custom-site items stored is not empty.
+    // a run with only custom-site (or Instagram) items stored is not empty.
     const empty =
       done.sessionId === null ||
       (done.uniquePostCount === 0 &&
         (await storedFeedItemCount(this.#deps.sessionsRoot, done.sessionId)) === 0);
-    let plan = empty ? "drop" : planCompletion(done.mode, done.reason);
+    let plan = empty ? "drop" : planCompletion(done.mode, done.reason, done.sources);
     if (plan === "build" && this.#status.collection.state === "cancelling") {
       // The user already cancelled: a late complete (e.g. target-reached
       // racing the stop) waits for their go instead of spending LLM.
@@ -501,16 +562,23 @@ export class SessionController {
     }
     const reached = done.reason === "target-reached";
     const { uniquePostCount: count, target, reason } = done;
+    // Over several feeds, each feed's count and stop is named.
+    const feeds = done.sources && done.sources.length > 0 ? done.sources : null;
     let message: DesktopStatus["collection"]["message"] = null;
     if (empty) {
-      message = note("endedEmpty", reason);
+      message = feeds ? note("feedsEndedEmpty", feeds) : note("endedEmpty", reason);
     } else if (plan === "drop") {
       message = note("stoppedDropped", reason);
     } else if (!reached) {
-      message =
-        plan === "build"
-          ? note("targetNotReached", count, target, reason)
-          : note("stoppedEarly", count, target, reason);
+      if (feeds) {
+        message =
+          plan === "build" ? note("feedsNotReached", feeds) : note("feedsStoppedEarly", feeds);
+      } else {
+        message =
+          plan === "build"
+            ? note("targetNotReached", count, target, reason)
+            : note("stoppedEarly", count, target, reason);
+      }
     }
     // A session found on disk must not end a collection that is running now.
     const { state } = this.#status.collection;
@@ -529,10 +597,11 @@ export class SessionController {
       await this.#awaitConfirmation(
         {
           sessionId: done.sessionId,
-          uniquePostCount: done.uniquePostCount,
+          uniquePostCount: collectedCount(done.uniquePostCount, done.sources),
           mode: done.mode,
           reason: done.reason,
           target: done.target,
+          ...(feeds ? { sources: feeds } : {}),
         },
         done.live && !QUIET_STOPS.has(done.reason),
       );
@@ -715,6 +784,7 @@ export class SessionController {
       reason: newest.completion.reason,
       uniquePostCount: newest.completion.uniquePostCount,
       target: newest.completion.target ?? null,
+      ...(newest.completion.sources ? { sources: newest.completion.sources } : {}),
       live: false,
     });
   }
@@ -848,7 +918,11 @@ export class SessionController {
           ...(collection ? { collection } : {}),
           metrics: outcome.result.metrics,
           missingSources: missingSourcesOf(
-            runSourcesOf(session.completion?.sites, session.feedSiteIds),
+            runSourcesOf(
+              session.completion?.sites,
+              session.feedSiteIds,
+              session.completion?.sources,
+            ),
             outcome.result.metrics.bySource,
             this.#status.lang,
           ),
@@ -920,6 +994,24 @@ export class SessionController {
     // earlier timeline, when this run did not end in a new one) follows.
     else void this.#relabelTimeline();
   }
+}
+
+/**
+ * The per-feed counts with `source`'s new count; a feed the list did not
+ * have yet (an Instagram count before the start's answer) joins it. X
+ * alone (no list, an X count) stays without one.
+ */
+function withFeedCount(
+  feeds: readonly FeedProgress[] | undefined,
+  source: CollectSource,
+  count: number,
+): { sources?: FeedProgress[] } {
+  if (!feeds && source === "x") return {};
+  const list = feeds ? [...feeds] : [];
+  const at = list.findIndex((feed) => feed.source === source);
+  if (at === -1) list.push({ source, count });
+  else list[at] = { source, count };
+  return { sources: list };
 }
 
 /** A collection this app asked for may still be running. */

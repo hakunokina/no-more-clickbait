@@ -98,6 +98,30 @@ describe("developer capture MAIN-world scripts", () => {
     }
   });
 
+  it("registers Instagram's listener alone while Instagram is a source", async () => {
+    const { api, registered } = fakeScripting(["nmc-site-hook"]);
+    await syncDevCaptureScripts(api, false, true);
+    expect([...registered.keys()].sort()).toEqual(["nmc-instagram-injected", "nmc-site-hook"]);
+    await syncDevCaptureScripts(api, false, true);
+    expect(api.registerContentScripts).toHaveBeenCalledTimes(1);
+    // Developer capture on as well: both; then both off: none.
+    await syncDevCaptureScripts(api, true, true);
+    expect([...registered.keys()].sort()).toEqual(["nmc-site-hook", ...IDS].sort());
+    await syncDevCaptureScripts(api, false, false);
+    expect([...registered.keys()]).toEqual(["nmc-site-hook"]);
+  });
+
+  it("follows the stored Instagram tick too", async () => {
+    const { api, registered } = fakeScripting();
+    const { storage, set } = fakeStorage({ collectFromInstagram: true });
+    const sync = installDevCaptureScripts(api, storage);
+    await sync();
+    expect([...registered.keys()]).toEqual(["nmc-instagram-injected"]);
+    set({ collectFromInstagram: false });
+    await sync();
+    expect(registered.size).toBe(0);
+  });
+
   it("repairs a half registration", async () => {
     const { api, registered } = fakeScripting(["nmc-reddit-injected"]);
     await syncDevCaptureScripts(api, true);

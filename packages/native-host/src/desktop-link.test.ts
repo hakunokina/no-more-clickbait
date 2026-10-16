@@ -208,6 +208,10 @@ describe("desktop link", () => {
       uniquePostCount: 120,
       responseCount: 9,
       sites: [{ siteId: "news.example/world", status: "ok", method: "rss", itemCount: 2 }],
+      sources: [
+        { source: "x", uniquePostCount: 120, reason: "target-reached", target: 120 },
+        { source: "instagram", uniquePostCount: 30, reason: "stalled", target: 120 },
+      ],
     };
     expect(link.send(complete)).toBe(true);
     await waitFor(() => events.length === 1);

@@ -26,6 +26,8 @@ describe("pipeline settings form", () => {
   it("defaults to the schema defaults (verify from read value 4, timeline 50)", () => {
     expect(defaultSyncedSettings()).toEqual({
       collectTarget: 250,
+      collectFromX: true,
+      collectFromInstagram: false,
       timelineSize: 50,
       maxClickbait: 7,
       minReadValue: 2,

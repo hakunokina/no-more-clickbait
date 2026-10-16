@@ -361,7 +361,7 @@ describe("CaptureStore for Instagram", () => {
         unknown: 1,
         empty: 1,
       },
-      skipped: { "invalid-media": 1, repeated: 1 },
+      skipped: { "invalid-media": 1, repeated: 1, "ad-carousel-card": 0 },
       kept: 7,
       kinds: { post: 5, reel: 1, carousel: 1 },
       suggested: 2,

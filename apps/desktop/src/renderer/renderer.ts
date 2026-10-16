@@ -64,9 +64,11 @@ function render(status: DesktopStatus): void {
     "pending-note",
     pending === null
       ? ""
-      : pending.mode === "A"
-        ? m.pendingModeA(pending.uniquePostCount)
-        : m.pendingModeB(pending.reason, pending.uniquePostCount),
+      : pending.sources && pending.sources.length > 0
+        ? m.pendingFeeds(pending.mode, pending.sources)
+        : pending.mode === "A"
+          ? m.pendingModeA(pending.uniquePostCount)
+          : m.pendingModeB(pending.reason, pending.uniquePostCount),
   );
 
   const error = el("run-error");
@@ -86,15 +88,17 @@ function render(status: DesktopStatus): void {
   const counts = run.counts;
   const { collection } = status;
   const count = (value: number | null) => formatCount(value, lang);
-  const collecting =
-    !active &&
-    (collection.state === "collecting" || collection.state === "cancelling") &&
-    collection.count !== null;
+  const inCollection =
+    !active && (collection.state === "collecting" || collection.state === "cancelling");
+  const feeds = inCollection && collection.sources?.length ? collection.sources : null;
+  const collecting = inCollection && collection.count !== null;
   text(
     "posts-collected",
-    collecting
-      ? `${count(collection.count)} / ${count(collection.target)}`
-      : count(counts.afterHardFilter ?? counts.postsIn),
+    feeds
+      ? m.feedCountsLine(feeds, collection.target)
+      : collecting
+        ? `${count(collection.count)} / ${count(collection.target)}`
+        : count(counts.afterHardFilter ?? counts.postsIn),
   );
   text("posts-filtered", count(counts.filteredOut));
   text(

@@ -54,6 +54,10 @@ export function describeRun(status: DesktopStatus): string {
       if (collection.state === "requested") return m.collectRequested;
       if (collection.state === "cancelling") return m.collectCancelling;
       if (collection.state === "collecting") {
+        // Several feeds: each one's count (custom sites alone: nothing to count).
+        if (collection.sources && collection.sources.length > 0) {
+          return m.collectProgressFeeds(collection.sources, collection.target);
+        }
         if (collection.count !== null && collection.target) {
           return m.collectProgress(collection.count, collection.target);
         }

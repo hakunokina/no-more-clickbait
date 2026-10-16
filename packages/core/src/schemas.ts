@@ -433,6 +433,14 @@ export type ModeBSurface = z.infer<typeof ModeBSurfaceSchema>;
 export const ModeBPacingSchema = z.enum(["normal", "fast"]);
 export type ModeBPacing = z.infer<typeof ModeBPacingSchema>;
 
+/**
+ * The feeds the extension collects by scrolling (each with its own tick
+ * and its own `collectTarget`); custom sites are collected apart. In
+ * Mode B they are scrolled one after the other, in this order.
+ */
+export const CollectSourceSchema = z.enum(["x", "instagram"]);
+export type CollectSource = z.infer<typeof CollectSourceSchema>;
+
 /** Paces of the pacing trial, read from older run summaries: `fixed` became `normal`. */
 const LEGACY_MODE_B_PACING: Record<string, ModeBPacing | undefined> = {
   fixed: "normal",
@@ -545,6 +553,22 @@ export const SYNCED_SETTING_FIELDS = {
       "automatically in Mode B) before the timeline is built. More posts give " +
       "the filters more to choose from but take longer to collect and judge.",
   },
+  collectFromX: {
+    kind: "boolean",
+    default: true,
+    label: "Collect from X",
+    description: "Collect posts from your X home timeline (x.com/home).",
+  },
+  collectFromInstagram: {
+    kind: "boolean",
+    default: false,
+    label: "Collect from Instagram",
+    description:
+      "Collect posts from your Instagram home feed (instagram.com). Each source gathers its " +
+      "own “Posts to collect”; in Mode B, Instagram is scrolled after X in the same window. " +
+      "Ads are left out; posts without a caption are kept but not scored. Reload an " +
+      "Instagram tab that was open when you turned this on.",
+  },
   ...PIPELINE_SETTING_FIELDS,
 } as const satisfies Record<string, IntegerSettingField | BooleanSettingField>;
 
@@ -575,6 +599,16 @@ export const SettingsFieldsSchema = z.object({
   modeBTarget: z.number().int().min(1).max(1000).default(100),
   /** Distinct organic posts to collect (Mode A and Mode B) before a run. */
   collectTarget: integerSetting(SYNCED_SETTING_FIELDS.collectTarget),
+  /** Collect the X home timeline (ON by default). */
+  collectFromX: z
+    .boolean()
+    .default(SYNCED_SETTING_FIELDS.collectFromX.default)
+    .describe(SYNCED_SETTING_FIELDS.collectFromX.description),
+  /** Collect the Instagram home feed (OFF by default). */
+  collectFromInstagram: z
+    .boolean()
+    .default(SYNCED_SETTING_FIELDS.collectFromInstagram.default)
+    .describe(SYNCED_SETTING_FIELDS.collectFromInstagram.description),
   /** The hidden surface Mode B scrolls in. */
   modeBStrategy: ModeBSurfaceSchema.default("minimized-window"),
   /** Mode B scroll pace; `fast` may be likelier to draw X's attention. */
@@ -630,6 +664,8 @@ export type Settings = z.infer<typeof SettingsSchema>;
 /** The settings `settings-sync` carries to the desktop. */
 export const SyncedSettingsSchema = SettingsFieldsSchema.pick({
   collectTarget: true,
+  collectFromX: true,
+  collectFromInstagram: true,
   timelineSize: true,
   maxClickbait: true,
   minReadValue: true,
@@ -638,6 +674,15 @@ export const SyncedSettingsSchema = SettingsFieldsSchema.pick({
   verifyEnabled: true,
 });
 export type SyncedSettings = z.infer<typeof SyncedSettingsSchema>;
+
+/** The feeds a collection scrolls, in their Mode B order (X first). */
+export function enabledCollectSources(
+  settings: Pick<Settings, "collectFromX" | "collectFromInstagram">,
+): CollectSource[] {
+  return CollectSourceSchema.options.filter((source) =>
+    source === "x" ? settings.collectFromX : settings.collectFromInstagram,
+  );
+}
 
 interface ChoiceSettingField<V extends string = string> {
   kind: "choice";
@@ -736,6 +781,8 @@ export type ManagedSettingKey = keyof typeof MANAGED_SETTING_FIELDS;
  */
 export const ManagedSettingsSchema = SettingsFieldsSchema.pick({
   collectTarget: true,
+  collectFromX: true,
+  collectFromInstagram: true,
   timelineSize: true,
   maxClickbait: true,
   minReadValue: true,
@@ -842,9 +889,27 @@ export const ModeBStopReasonSchema = z.enum([
 export type ModeBStopReason = z.infer<typeof ModeBStopReasonSchema>;
 
 /**
+ * One feed's part of a Mode B run that scrolled several (X, then
+ * Instagram in the same window): its own counts and why it ended.
+ */
+export const ModeBLegSchema = z.object({
+  source: CollectSourceSchema,
+  counter: z.enum(["host", "extension"]),
+  target: z.number().int().min(1),
+  uniquePostCount: z.number().int().nonnegative(),
+  responseCount: z.number().int().nonnegative(),
+  scrollCount: z.number().int().nonnegative(),
+  durationMs: z.number().int().nonnegative(),
+  stopReason: ModeBStopReasonSchema,
+});
+export type ModeBLeg = z.infer<typeof ModeBLegSchema>;
+
+/**
  * Counts and times of one Mode B run — never content. `counter` says
  * which side counted `uniquePostCount`: the host (developer capture on)
  * or the extension's own session counter; both run the same hard filter.
+ * A run over several feeds reports its last feed here (`source`) and
+ * every feed in `legs`.
  */
 export const ModeBRunSummarySchema = z.object({
   strategy: ModeBStrategySchema,
@@ -879,6 +944,10 @@ export const ModeBRunSummarySchema = z.object({
   avgResponseLatencyMs: z.number().int().nonnegative().optional(),
   /** The browser's error text behind the stop (e.g. why the window did not open). */
   error: z.string().max(500).optional(),
+  /** The feed these counts are from (absent: X). */
+  source: CollectSourceSchema.optional(),
+  /** Every feed of a run that scrolled more than one, in order (absent: one feed). */
+  legs: z.array(ModeBLegSchema).max(2).optional(),
 });
 export type ModeBRunSummary = z.infer<typeof ModeBRunSummarySchema>;
 
@@ -900,6 +969,19 @@ export const SiteCollectOutcomeSchema = z.object({
 });
 export type SiteCollectOutcome = z.infer<typeof SiteCollectOutcomeSchema>;
 
+/**
+ * How one scrolled feed's part of a collection went: its own distinct
+ * posts against its own target, and why it stopped ("target-reached",
+ * a ModeBStopReason, or the collection's own end such as "finished-early").
+ */
+export const CollectSourceOutcomeSchema = z.object({
+  source: CollectSourceSchema,
+  uniquePostCount: z.number().int().nonnegative(),
+  reason: z.string().min(1).max(64),
+  target: z.number().int().min(1).max(10_000).optional(),
+});
+export type CollectSourceOutcome = z.infer<typeof CollectSourceOutcomeSchema>;
+
 export const CollectionCompleteSchema = z.object({
   type: z.literal("collection-complete"),
   /** Capture/collection session the counts belong to, when there is one. */
@@ -915,6 +997,12 @@ export const CollectionCompleteSchema = z.object({
   target: z.number().int().min(1).max(10_000).optional(),
   /** Custom sites collected alongside X, one outcome each (a failed site never fails the rest). */
   sites: z.array(SiteCollectOutcomeSchema).max(100).optional(),
+  /**
+   * Each scrolled feed's outcome, in order, when the collection was not
+   * X alone (absent: X only, whose counts are the ones above). The
+   * top-level counts stay X's.
+   */
+  sources: z.array(CollectSourceOutcomeSchema).max(2).optional(),
 });
 export type CollectionComplete = z.infer<typeof CollectionCompleteSchema>;
 
@@ -924,6 +1012,8 @@ export const CollectionProgressSchema = z.object({
   mode: z.literal("B"),
   uniquePostCount: z.number().int().nonnegative(),
   target: z.number().int().min(1).max(10_000),
+  /** The feed being scrolled (absent: X). */
+  source: CollectSourceSchema.optional(),
 });
 export type CollectionProgress = z.infer<typeof CollectionProgressSchema>;
 
@@ -953,10 +1043,14 @@ export const CollectionStartResultSchema = z.object({
     "busy",
     /** Mode B lacks an optional permission it needs. */
     "permission-missing",
+    /** X, Instagram and every custom site are off: nothing to collect. */
+    "no-sources",
     "error",
   ]),
   /** Distinct posts the collection is working towards. */
   target: z.number().int().min(1).max(10_000).optional(),
+  /** The feeds it scrolls, in order, when not X alone (`[]`: custom sites only). */
+  sources: z.array(CollectSourceSchema).max(2).optional(),
 });
 export type CollectionStartResult = z.infer<typeof CollectionStartResultSchema>;
 

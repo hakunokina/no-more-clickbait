@@ -6,6 +6,7 @@ import {
   BridgeMessageSchema,
   bridgeMessageByteLength,
   BridgeReplySchema,
+  enabledCollectSources,
   EXTENSION_SETTING_FIELDS,
   isNewerStamp,
   MANAGED_SETTING_FIELDS,
@@ -53,6 +54,8 @@ describe("SettingsSchema", () => {
       modeBStrategy: "minimized-window",
       modeBPacing: "normal",
       collectTarget: 9,
+      collectFromX: true,
+      collectFromInstagram: false,
       maxClickbait: 7,
       minReadValue: 2,
       minReadForVerify: 4,
@@ -249,6 +252,62 @@ describe("collection and settings bridge messages", () => {
     );
   });
 
+  it("collects X alone by default; the ticks pick the scrolled feeds, X first", () => {
+    expect(SettingsSchema.parse({})).toMatchObject({
+      collectFromX: true,
+      collectFromInstagram: false,
+    });
+    const sources = (x: boolean, instagram: boolean) =>
+      enabledCollectSources(
+        SettingsSchema.parse({ collectFromX: x, collectFromInstagram: instagram }),
+      );
+    expect(sources(true, false)).toEqual(["x"]);
+    expect(sources(false, true)).toEqual(["instagram"]);
+    expect(sources(true, true)).toEqual(["x", "instagram"]);
+    expect(sources(false, false)).toEqual([]);
+    // Settings saved before the ticks existed keep collecting X only.
+    expect(enabledCollectSources(SettingsSchema.parse({ collectTarget: 40 }))).toEqual(["x"]);
+  });
+
+  it("carries each feed's outcome on collection-complete; the top-level counts stay X's", () => {
+    const message = {
+      type: "collection-complete",
+      mode: "B",
+      reason: "stalled",
+      uniquePostCount: 250,
+      responseCount: 9,
+      target: 250,
+      sources: [
+        { source: "x", uniquePostCount: 250, reason: "target-reached", target: 250 },
+        { source: "instagram", uniquePostCount: 40, reason: "stalled", target: 250 },
+      ],
+    };
+    expect(BridgeMessageSchema.parse(message)).toEqual(message);
+    expect(
+      BridgeMessageSchema.safeParse({
+        ...message,
+        sources: [{ source: "reddit", uniquePostCount: 1, reason: "stalled" }],
+      }).success,
+    ).toBe(false);
+    const progress = {
+      type: "collection-progress",
+      mode: "B",
+      uniquePostCount: 12,
+      target: 250,
+      source: "instagram",
+    };
+    expect(BridgeMessageSchema.parse(progress)).toEqual(progress);
+    const refused = { type: "collection-start-result", outcome: "no-sources", target: 250 };
+    expect(BridgeMessageSchema.parse(refused)).toEqual(refused);
+    const started = {
+      type: "collection-start-result",
+      outcome: "started",
+      target: 250,
+      sources: ["x", "instagram"],
+    };
+    expect(BridgeMessageSchema.parse(started)).toEqual(started);
+  });
+
   it("accepts the extension's answer to start-collection", () => {
     const message = { type: "collection-start-result", outcome: "mode-b-off", target: 250 };
     expect(BridgeMessageSchema.parse(message)).toEqual(message);
@@ -264,6 +323,8 @@ describe("collection and settings bridge messages", () => {
     expect(Object.keys(synced).sort()).toEqual(Object.keys(SYNCED_SETTING_FIELDS).sort());
     expect(synced).toEqual({
       collectTarget: 250,
+      collectFromX: true,
+      collectFromInstagram: false,
       timelineSize: 50,
       maxClickbait: 7,
       minReadValue: 2,

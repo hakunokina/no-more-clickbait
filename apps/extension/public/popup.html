@@ -9,6 +9,7 @@
       h1 { font-size: 1rem; margin: 0 0 0.5rem; }
       button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
       .status { font-size: 0.92rem; color: #444; margin: 0.5rem 0 0; }
+      .status:empty { display: none; }
       :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
     </style>
   </head>
@@ -20,6 +21,11 @@
     </p>
     <button id="mode-b-run" type="button" aria-describedby="mode-b-status" data-i18n="modeBCollectIdle">Collect feed</button>
     <p id="mode-b-status" class="status" role="status" aria-live="polite"></p>
+    <p id="collect-progress" class="status" role="status" aria-live="polite"></p>
+    <button id="collect-finish" type="button" aria-describedby="collect-finish-hint" data-i18n="collectFinish" hidden>Finish now</button>
+    <p id="collect-finish-hint" class="status" data-i18n="collectFinishHint" hidden>
+      Ends this collection short of its target; the desktop app asks before building the timeline.
+    </p>
     <button id="open-options" type="button" data-i18n="popupOptions">Options</button>
     <script type="module" src="popup.js"></script>
   </body>

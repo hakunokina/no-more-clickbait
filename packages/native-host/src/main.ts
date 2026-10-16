@@ -119,6 +119,7 @@ function dispatch(raw: string): void {
       responseCount,
       target,
       sites,
+      sources,
     }) => {
       const counts = {
         mode,
@@ -127,6 +128,7 @@ function dispatch(raw: string): void {
         responseCount,
         ...(target !== undefined ? { target } : {}),
         ...(sites !== undefined ? { sites } : {}),
+        ...(sources !== undefined ? { sources } : {}),
       };
       const sessionId = await sessionStore.complete(counts);
       // Desktop closed: it finds the complete session on disk at its next start.

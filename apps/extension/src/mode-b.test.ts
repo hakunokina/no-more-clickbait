@@ -4,12 +4,14 @@ import type { SessionArea } from "./capture-session.js";
 import type { ModeBPageReport } from "./messages.js";
 import {
   applyStep,
+  INSTAGRAM_HOME_URL,
   isRateLimited,
   loadModeBPacing,
   LEGACY_MODE_B_PACING_KEY,
   MODE_B_LIMITS,
   MODE_B_RUN_KEY,
   ModeBRunner,
+  runStopReason,
   stepDelayMs,
   summarize,
   surfaceRequest,
@@ -217,6 +219,7 @@ function fakeBrowser(answer: () => unknown = () => page()) {
     closeWindow: vi.fn((_id: number) => Promise.resolve()),
     closeTab: vi.fn((_id: number) => Promise.resolve()),
     sendStep: vi.fn((_tabId: number, _message: unknown) => Promise.resolve(answer())),
+    navigate: vi.fn((_tabId: number, _url: string) => Promise.resolve()),
   } satisfies ModeBBrowser;
   return browser;
 }
@@ -442,6 +445,179 @@ describe("ModeBRunner", () => {
     area.data.set(MODE_B_RUN_KEY, { strategy: "teleport", tabId: 1 });
     const runner = new ModeBRunner(fakeBrowser(), area, hooks, fixed);
     expect(await runner.current()).toBeNull();
+  });
+});
+
+describe("ModeBRunner over several feeds", () => {
+  let area: ReturnType<typeof fakeArea>;
+  let finished: ModeBRunSummary[];
+  let legEnds: [ModeBRunSummary, string][];
+  const hooks = {
+    onFinish: (summary: ModeBRunSummary) => {
+      finished.push(summary);
+      return Promise.resolve();
+    },
+    onLegFinish: (summary: ModeBRunSummary, next: string) => {
+      legEnds.push([summary, next]);
+      return Promise.resolve();
+    },
+  };
+  const both = {
+    strategy: "minimized-window",
+    target: 50,
+    counter: "host",
+    sources: ["x", "instagram"],
+  } as const;
+  const fixed = { loadPacing: () => Promise.resolve("normal" as const), random: () => 0 };
+  const legsOfRun = (summary: ModeBRunSummary | undefined) =>
+    summary?.legs?.map((leg) => [leg.source, leg.uniquePostCount, leg.stopReason]);
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T10:00:00.000Z"));
+    area = fakeArea();
+    finished = [];
+    legEnds = [];
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("scrolls X, then Instagram in the same window; each feed stops at its own target", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(both);
+    expect(browser.openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ url: X_HOME_URL }),
+    );
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    expect(browser.sendStep).toHaveBeenLastCalledWith(7, { kind: "mode-b-step" });
+
+    // A feed's count means nothing while the other one is scrolled.
+    await runner.onCount(50, "extension", "instagram");
+    expect(browser.navigate).not.toHaveBeenCalled();
+    await runner.onCount(50, "host");
+    expect(browser.navigate).toHaveBeenCalledWith(7, INSTAGRAM_HOME_URL);
+    expect(browser.closeWindow).not.toHaveBeenCalled();
+    expect(legEnds.map(([leg, next]) => [leg.source, leg.stopReason, next])).toEqual([
+      [undefined, "target-reached", "instagram"],
+    ]);
+    expect(await runner.current()).toMatchObject({
+      source: "instagram",
+      counter: "extension",
+      uniquePostCount: 0,
+      tabId: 7,
+      windowId: 3,
+    });
+
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    expect(browser.sendStep).toHaveBeenLastCalledWith(7, {
+      kind: "mode-b-step",
+      source: "instagram",
+    });
+    await runner.onCount(60, "host");
+    await runner.onResponse(7, false, "instagram");
+    await runner.onCount(50, "extension", "instagram");
+    expect(browser.closeWindow).toHaveBeenCalledWith(3);
+    expect(finished).toHaveLength(1);
+    expect(finished[0]).toMatchObject({
+      source: "instagram",
+      counter: "extension",
+      uniquePostCount: 50,
+      responseCount: 1,
+      stopReason: "target-reached",
+    });
+    expect(legsOfRun(finished[0])).toEqual([
+      ["x", 50, "target-reached"],
+      ["instagram", 50, "target-reached"],
+    ]);
+    expect(runStopReason(finished[0] as ModeBRunSummary)).toBe("target-reached");
+  });
+
+  it("moves on to Instagram when X is not logged in, and says so", async () => {
+    let calls = 0;
+    const browser = fakeBrowser(() =>
+      page({ page: (calls += 1) === 1 ? "login" : "timeline" }),
+    );
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(both);
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    expect(browser.navigate).toHaveBeenCalledWith(7, INSTAGRAM_HOME_URL);
+    await vi.advanceTimersByTimeAsync(MODE_B_LIMITS.firstStepDelayMs);
+    await runner.onCount(50, "extension", "instagram");
+    expect(legsOfRun(finished[0])).toEqual([
+      ["x", 0, "not-logged-in"],
+      ["instagram", 50, "target-reached"],
+    ]);
+    expect(runStopReason(finished[0] as ModeBRunSummary)).toBe("not-logged-in");
+  });
+
+  it("a cancel ends both feeds; the one never reached counts nothing", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(both);
+    await runner.onCount(20, "host");
+    await runner.stop("cancelled");
+    expect(browser.navigate).not.toHaveBeenCalled();
+    expect(browser.closeWindow).toHaveBeenCalledWith(3);
+    expect(legsOfRun(finished[0])).toEqual([
+      ["x", 20, "cancelled"],
+      ["instagram", 0, "cancelled"],
+    ]);
+    expect(runStopReason(finished[0] as ModeBRunSummary)).toBe("cancelled");
+  });
+
+  it("a cancel during Instagram ends the run as cancelled", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(both);
+    await runner.onCount(50, "host");
+    await runner.onCount(10, "extension", "instagram");
+    await runner.stop("cancelled");
+    expect(legsOfRun(finished[0])).toEqual([
+      ["x", 50, "target-reached"],
+      ["instagram", 10, "cancelled"],
+    ]);
+    expect(runStopReason(finished[0] as ModeBRunSummary)).toBe("cancelled");
+  });
+
+  it("opens Instagram straight away when it is the only feed", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start({ ...both, sources: ["instagram"] });
+    expect(browser.openWindow).toHaveBeenCalledWith(
+      expect.objectContaining({ url: INSTAGRAM_HOME_URL }),
+    );
+    await runner.onCount(50, "extension", "instagram");
+    expect(finished[0]).toMatchObject({ source: "instagram", stopReason: "target-reached" });
+    expect(finished[0]?.legs).toBeUndefined();
+  });
+
+  it("ends the run when the window will not load the next feed", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const browser = fakeBrowser();
+    browser.navigate.mockRejectedValueOnce(new Error("No tab with id: 7."));
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(both);
+    await runner.onCount(50, "host");
+    expect(await runner.current()).toBeNull();
+    expect(finished[0]).toMatchObject({ error: "No tab with id: 7." });
+    expect(legsOfRun(finished[0])).toEqual([
+      ["x", 50, "target-reached"],
+      ["instagram", 0, "failed-to-open"],
+    ]);
+  });
+
+  it("resumes the Instagram leg after a service-worker restart", async () => {
+    const browser = fakeBrowser();
+    const runner = new ModeBRunner(browser, area, hooks, fixed);
+    await runner.start(both);
+    await runner.onCount(50, "host");
+    const restarted = new ModeBRunner(browser, area, hooks, fixed);
+    expect(await restarted.current()).toMatchObject({ source: "instagram" });
+    await restarted.onCount(50, "extension", "instagram");
+    expect(legsOfRun(finished[0])).toHaveLength(2);
   });
 });
 

@@ -88,6 +88,31 @@ How a run behaves:
   any). With developer capture on, the same counts are added to that
   capture's `summary.json`.
 
+### Instagram
+
+Next to X, the Instagram home feed is a source of its own: tick
+**Collect from Instagram** (and/or untick **Collect from X**) in the
+extension options or the desktop Settings. It is read the same way as X —
+from the responses the page itself loads (the first page embedded in the
+document, then its `/graphql/query` pages); no extra requests, no reading
+of the page's text.
+
+- **Per source.** "Posts to collect" applies to each ticked source on its
+  own (N from X, N from Instagram). Mode A completes once every ticked
+  source reached it; a source that did is closed for that collection.
+  The popup shows each source's count and **Finish now** ends your own
+  collection early (the desktop app asks before building).
+- **Mode B** scrolls the sources one after the other in the same window:
+  X first, then Instagram, each until its own target or stop (not logged
+  in, no new posts…). One source falling short never stops the other; a
+  cancel ends both.
+- Ads are dropped, posts Instagram suggests from accounts you do not
+  follow are kept (marked "suggested"), and posts without a caption are
+  set aside like X's media-only posts. Reload an Instagram tab that was
+  open when you ticked it.
+- With X, Instagram and every custom site off, "Collect" says there is
+  nothing to collect; with only custom sites on, it collects them at once.
+
 ### Custom sites
 
 Options › **Sites** adds news sites, blogs or forums next to X. For each

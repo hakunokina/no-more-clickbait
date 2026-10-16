@@ -1,8 +1,8 @@
 import {
   createHardFilter,
   type CountingHardFilter,
+  type FeedItem,
   type HardFilterState,
-  type Post,
 } from "@nmc/core";
 
 /**
@@ -12,6 +12,11 @@ import {
  * the filter state lives in `chrome.storage.session` (memory-only,
  * cleared with the browser session) and is resumed on the next message.
  * A session ends when developer capture is toggled — `reset()`.
+ *
+ * One session per scrolled feed (X, Instagram: each its own storage
+ * key). A feed whose part of a collection ended while another feed is
+ * still collecting is `close`d: its later posts stay out of the
+ * collection until the next session.
  */
 
 /** The subset of `chrome.storage.session` this needs (fakeable in tests). */
@@ -21,17 +26,22 @@ export interface SessionArea {
   remove(key: string): Promise<void>;
 }
 
-const STATE_KEY = "nmc-capture-session";
+/** The X session's key (the first, kept as it was). */
+export const X_SESSION_KEY = "nmc-capture-session";
+export const INSTAGRAM_SESSION_KEY = "nmc-capture-session-instagram";
 
 interface StoredState {
   filter: HardFilterState;
   /** The target notification already fired for the current crossing. */
   notified: boolean;
+  /** Why this feed's part of the collection ended (absent: still collecting). */
+  closed?: string;
 }
 
 interface LiveState {
   filter: CountingHardFilter;
   notified: boolean;
+  closed: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,6 +70,7 @@ function isHardFilterStats(value: unknown): boolean {
 
 function isStoredState(value: unknown): value is StoredState {
   if (!isRecord(value) || typeof value["notified"] !== "boolean") return false;
+  if (value["closed"] !== undefined && typeof value["closed"] !== "string") return false;
   const filter = value["filter"];
   return (
     isRecord(filter) &&
@@ -74,16 +85,18 @@ function isStoredState(value: unknown): value is StoredState {
 
 export class CaptureSession {
   readonly #area: SessionArea;
+  readonly #key: string;
   #live: LiveState | null = null;
   /** Serialises read-modify-write; capture messages arrive concurrently. */
   #queue: Promise<unknown> = Promise.resolve();
 
-  constructor(area: SessionArea) {
+  constructor(area: SessionArea, key: string = X_SESSION_KEY) {
     this.#area = area;
+    this.#key = key;
   }
 
   /** Feeds one response's posts; resolves to distinct organic posts so far. */
-  countPosts(posts: readonly Post[]): Promise<number> {
+  countPosts(posts: readonly FeedItem[]): Promise<number> {
     return this.#enqueue(async () => {
       const live = await this.#load();
       for (const post of posts) live.filter.keep(post);
@@ -115,26 +128,49 @@ export class CaptureSession {
     });
   }
 
-  /** Starts a new session: forgets every seen post and the notification. */
+  /** Ends this feed's part of the collection (the first reason stays). */
+  close(reason: string): Promise<void> {
+    return this.#enqueue(async () => {
+      const live = await this.#load();
+      if (live.closed !== null) return;
+      live.closed = reason;
+      await this.#save(live);
+    });
+  }
+
+  /** Why this feed's part ended, or null while it is still collecting. */
+  closedReason(): Promise<string | null> {
+    return this.#enqueue(async () => (await this.#load()).closed);
+  }
+
+  /** Starts a new session: forgets every seen post, the notification and the close. */
   reset(): Promise<void> {
     return this.#enqueue(async () => {
-      this.#live = { filter: createHardFilter(), notified: false };
-      await this.#area.remove(STATE_KEY);
+      this.#live = { filter: createHardFilter(), notified: false, closed: null };
+      await this.#area.remove(this.#key);
     });
   }
 
   async #load(): Promise<LiveState> {
     if (this.#live) return this.#live;
-    const stored = (await this.#area.get(STATE_KEY))[STATE_KEY];
+    const stored = (await this.#area.get(this.#key))[this.#key];
     this.#live = isStoredState(stored)
-      ? { filter: createHardFilter(stored.filter), notified: stored.notified }
-      : { filter: createHardFilter(), notified: false };
+      ? {
+          filter: createHardFilter(stored.filter),
+          notified: stored.notified,
+          closed: stored.closed ?? null,
+        }
+      : { filter: createHardFilter(), notified: false, closed: null };
     return this.#live;
   }
 
   async #save(live: LiveState): Promise<void> {
-    const state: StoredState = { filter: live.filter.snapshot(), notified: live.notified };
-    await this.#area.set({ [STATE_KEY]: state });
+    const state: StoredState = {
+      filter: live.filter.snapshot(),
+      notified: live.notified,
+      ...(live.closed === null ? {} : { closed: live.closed }),
+    };
+    await this.#area.set({ [this.#key]: state });
   }
 
   #enqueue<T>(work: () => Promise<T>): Promise<T> {

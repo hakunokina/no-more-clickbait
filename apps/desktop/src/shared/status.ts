@@ -1,4 +1,4 @@
-import type { FunnelCounts, UiLang } from "@nmc/core";
+import type { CollectSource, CollectSourceOutcome, FunnelCounts, UiLang } from "@nmc/core";
 import type { Note } from "./i18n.js";
 
 /**
@@ -60,6 +60,13 @@ export interface UsageTotals {
   costUsd: number | null;
 }
 
+/** One scrolled feed's count in a collection that is not X alone. */
+export interface FeedProgress {
+  source: CollectSource;
+  /** Distinct posts counted so far (null: none reported yet). */
+  count: number | null;
+}
+
 /** `cancelling`: "Cancel" was pressed; waiting for the extension to end the run. */
 export type CollectionState = "idle" | "requested" | "collecting" | "cancelling" | "refused";
 
@@ -82,6 +89,11 @@ export interface DesktopStatus {
     target: number | null;
     /** Distinct posts counted so far by the running collection. */
     count: number | null;
+    /**
+     * Each feed's count, in the order they are scrolled, when the
+     * collection is not X alone (absent: X alone; `[]`: custom sites only).
+     */
+    sources?: FeedProgress[];
   };
   /**
    * A finished collection waiting for the user's "Build timeline" (no
@@ -115,11 +127,14 @@ export interface DesktopStatus {
 
 export interface PendingCollection {
   sessionId: string;
+  /** Distinct posts collected: X's, or every feed's together when not X alone. */
   uniquePostCount: number;
   mode: "A" | "B";
   /** Why the collection ended ("target-reached" or a Mode B stop reason). */
   reason: string;
   target: number | null;
+  /** Each feed's outcome when the collection was not X alone. */
+  sources?: CollectSourceOutcome[];
 }
 
 export const EMPTY_COUNTS: RunCounts = {

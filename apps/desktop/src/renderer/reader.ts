@@ -128,11 +128,26 @@ function render(status: DesktopStatus): void {
   if (isRunActive(run.stage)) {
     content = preparing(status, m);
   } else if (collection.state === "requested" || collection.state === "collecting") {
+    // Several feeds, scrolled one after the other: each one's count.
+    const feeds = collection.sources?.length ? collection.sources : null;
     content = [
       h("h1", {}, m.collectingTitle),
-      h("p", {}, collection.target ? m.collectingTarget(collection.target) : m.collectingAny),
+      h(
+        "p",
+        {},
+        feeds
+          ? m.collectingFeeds(
+              collection.target,
+              feeds.map((feed) => feed.source),
+            )
+          : collection.target
+            ? m.collectingTarget(collection.target)
+            : m.collectingAny,
+      ),
     ];
-    if (collection.count !== null) {
+    if (feeds) {
+      content.push(h("p", { role: "status" }, m.feedCountsLine(feeds, collection.target)));
+    } else if (collection.count !== null) {
       content.push(h("p", { role: "status" }, m.soFar(collection.count, collection.target)));
     }
   } else if (status.pending) {

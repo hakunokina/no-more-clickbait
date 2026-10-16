@@ -469,6 +469,29 @@ export const EN = {
   notifyModeBFinished: "No More Clickbait — collection finished",
   notifyModeBStopped: "No More Clickbait — collection stopped",
   notifyModeBBody: "$1 of $2 distinct posts in $3 s ($4 scrolls): $5.",
+
+  // Collection sources (X, Instagram): per-feed progress, popup, notifications
+  sourceX: "X",
+  sourceInstagram: "Instagram",
+  progressSource: "$1 $2 / $3",
+  progressSourceDone: "$1 $2 / $3 ✓",
+  badgeTitleSources: "No More Clickbait — $1",
+  legLine: "$1: $2 / $3 ($4)",
+  notifyModeBLegsBody: "$1.",
+  modeBCollectingSource: "Collecting $1 in the background… $2 / $3 distinct posts.",
+  modeBLastRunLegs: "Last run: $1.",
+  collectNoSources:
+    "Nothing to collect: X, Instagram and every custom site are off. Turn one on in Options.",
+  collectSitesOnly: "X and Instagram are off — collecting only your custom sites.",
+  collectProgressLabel: "Collected so far: $1",
+  collectFinish: "Finish now",
+  collectFinishHint:
+    "Ends this collection short of its target; the desktop app asks before building the timeline.",
+  rowFeeds: "Feeds",
+  stopNotLoggedInInstagram: "not logged in to Instagram in this browser",
+  stopErrorPageInstagram: "Instagram showed an error page",
+  stopNavigatedAwayInstagram: "the tab left instagram.com",
+  stopRateLimitedInstagram: "Instagram rate-limited the feed",
 } as const;
 
 export type MessageKey = keyof typeof EN;
@@ -925,6 +948,28 @@ export const TR: Record<MessageKey, string> = {
   notifyModeBFinished: "No More Clickbait — toplama bitti",
   notifyModeBStopped: "No More Clickbait — toplama durdu",
   notifyModeBBody: "$3 sn'de $1 / $2 farklı gönderi ($4 kaydırma): $5.",
+
+  sourceX: "X",
+  sourceInstagram: "Instagram",
+  progressSource: "$1 $2 / $3",
+  progressSourceDone: "$1 $2 / $3 ✓",
+  badgeTitleSources: "No More Clickbait — $1",
+  legLine: "$1: $2 / $3 ($4)",
+  notifyModeBLegsBody: "$1.",
+  modeBCollectingSource: "Arka planda $1 toplanıyor… $2 / $3 farklı gönderi.",
+  modeBLastRunLegs: "Son çalıştırma: $1.",
+  collectNoSources:
+    "Toplanacak bir şey yok: X, Instagram ve tüm özel siteler kapalı. Seçenekler'de birini aç.",
+  collectSitesOnly: "X ve Instagram kapalı — yalnız özel sitelerin toplanıyor.",
+  collectProgressLabel: "Şu ana kadar toplanan: $1",
+  collectFinish: "Şimdi bitir",
+  collectFinishHint:
+    "Bu toplamayı hedefine ulaşmadan bitirir; masaüstü uygulaması akışı oluşturmadan önce sorar.",
+  rowFeeds: "Akışlar",
+  stopNotLoggedInInstagram: "bu tarayıcıda Instagram oturumu açık değil",
+  stopErrorPageInstagram: "Instagram bir hata sayfası gösterdi",
+  stopNavigatedAwayInstagram: "sekme instagram.com'dan ayrıldı",
+  stopRateLimitedInstagram: "Instagram akışı hız sınırına takıldı",
 };
 
 export const LOCALES: Record<string, Record<MessageKey, string>> = { en: EN, tr: TR };
