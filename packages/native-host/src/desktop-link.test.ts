@@ -140,6 +140,11 @@ describe("desktop link", () => {
       expect(server.send({ type: "start-collection" })).toBe(true);
       await waitFor(() => edgeCommands.length === 1);
       expect(server.send(push, (host) => host.browser.family === "vivaldi")).toBe(false);
+      // The desktop's language goes to every browser's extension.
+      expect(server.broadcast({ type: "ui-lang", lang: "tr" })).toBe(2);
+      await waitFor(() => commands.length === 2 && edgeCommands.length === 2);
+      expect(commands[1]).toEqual({ type: "ui-lang", lang: "tr" });
+      expect(edgeCommands[1]).toEqual({ type: "ui-lang", lang: "tr" });
 
       const state: HostEvent = {
         type: "settings-state",

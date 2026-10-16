@@ -11,15 +11,25 @@ import { newsPageHtml } from "./sites/test-fixtures.js";
 
 type Changes = Record<string, chrome.storage.StorageChange>;
 
-/** chrome.storage holding these settings (the desktop's push lands via `push`). */
-function storage(settings?: unknown, read: Promise<void> = Promise.resolve()) {
+/**
+ * chrome.storage holding these settings and the language the desktop
+ * last said it shows (none: it never linked up); pushes land via `push`.
+ */
+function storage(
+  settings?: unknown,
+  read: Promise<void> = Promise.resolve(),
+  desktopLang?: string,
+) {
   const listeners: ((changes: Changes, area: string) => void)[] = [];
   vi.stubGlobal("chrome", {
     storage: {
       local: {
         get: async () => {
           await read;
-          return settings === undefined ? {} : { "nmc-settings": settings };
+          return {
+            ...(settings === undefined ? {} : { "nmc-settings": settings }),
+            ...(desktopLang === undefined ? {} : { "nmc-desktop-lang": desktopLang }),
+          };
         },
       },
       onChanged: { addListener: (fn: (typeof listeners)[number]) => listeners.push(fn) },
@@ -63,22 +73,46 @@ describe("UI messages", () => {
   });
 
   it.each([
-    ["tr", ["en-US"], "tr"],
-    ["en", ["tr-TR"], "en"],
-    ["system", ["de-DE", "en"], "en"],
-    ["system", ["tr-TR", "en"], "tr"],
-    [undefined, ["tr"], "tr"],
-    [undefined, ["fr-FR"], "en"],
+    ["tr", ["en-US"], "en", "tr"],
+    ["en", ["tr-TR"], "tr", "en"],
+    // "system" is the desktop's language (its OS's), whatever the browser speaks.
+    ["system", ["de-DE", "en"], "tr", "tr"],
+    ["system", ["tr-TR"], "en", "en"],
+    [undefined, ["fr-FR"], "tr", "tr"],
+    ["system", ["de-DE"], "de", "en"], // nothing valid from the desktop: the browser's
+    // The desktop never linked up: the browser's first language.
+    ["system", ["de-DE", "en"], undefined, "en"],
+    ["system", ["tr-TR", "en"], undefined, "tr"],
+    [undefined, ["tr"], undefined, "tr"],
+    [undefined, ["fr-FR"], undefined, "en"],
   ] as const)(
-    "speaks the desktop's language: uiLanguage %s, browser %j → %s",
-    async (uiLanguage, languages, expected) => {
+    "speaks the desktop's language: uiLanguage %s, browser %j, desktop shows %s → %s",
+    async (uiLanguage, languages, desktopLang, expected) => {
       vi.stubGlobal("navigator", { languages });
-      storage(uiLanguage === undefined ? undefined : { uiLanguage });
+      storage(uiLanguage === undefined ? undefined : { uiLanguage }, undefined, desktopLang);
       await watchUiLang(() => undefined);
       expect(uiLang()).toBe(expected);
       expect(t("save")).toBe(expected === "tr" ? "Kaydet" : "Save");
     },
   );
+
+  it('follows the desktop\'s language pushes while set to "system"', async () => {
+    vi.stubGlobal("navigator", { languages: ["de-DE"] });
+    const store = storage({ uiLanguage: "system" });
+    const changes: string[] = [];
+    await watchUiLang((lang) => changes.push(lang));
+    expect(uiLang()).toBe("en");
+    store.push("tr", "local", "nmc-desktop-lang");
+    store.push("tr", "local", "nmc-desktop-lang");
+    expect(changes).toEqual(["tr"]);
+    // An explicit choice wins over the desktop's language, until "system" again.
+    store.push({ uiLanguage: "en" });
+    store.push("en", "local", "nmc-desktop-lang");
+    store.push("tr", "local", "nmc-desktop-lang");
+    expect(changes).toEqual(["tr", "en"]);
+    store.push({ uiLanguage: "system" });
+    expect(changes).toEqual(["tr", "en", "tr"]);
+  });
 
   it("reports a pushed language once, and nothing for other changes", async () => {
     vi.stubGlobal("navigator", { languages: ["de-DE"] });
@@ -109,6 +143,21 @@ describe("UI messages", () => {
     await ready;
     expect(uiLang()).toBe("tr");
     expect(changes).toEqual([]);
+  });
+
+  it("takes the desktop's language landing while the stored one is being read", async () => {
+    vi.stubGlobal("navigator", { languages: ["de-DE"] });
+    let finishRead: () => void = () => undefined;
+    const store = storage(
+      { uiLanguage: "system" },
+      new Promise<void>((resolve) => (finishRead = resolve)),
+      "en",
+    );
+    const ready = watchUiLang(() => undefined);
+    store.push("tr", "local", "nmc-desktop-lang");
+    finishRead();
+    await ready;
+    expect(uiLang()).toBe("tr");
   });
 });
 

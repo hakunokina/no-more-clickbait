@@ -328,6 +328,17 @@ describe("collection and settings bridge messages", () => {
     expect(BridgeMessageSchema.safeParse({ ...result, outcome: "maybe" }).success).toBe(false);
   });
 
+  it('accepts the desktop\'s language push (a resolved language, never "system")', () => {
+    expect(BridgeReplySchema.parse({ type: "ui-lang", lang: "tr" })).toEqual({
+      type: "ui-lang",
+      lang: "tr",
+    });
+    expect(BridgeReplySchema.safeParse({ type: "ui-lang", lang: "system" }).success).toBe(
+      false,
+    );
+    expect(BridgeReplySchema.safeParse({ type: "ui-lang", lang: "de" }).success).toBe(false);
+  });
+
   it("accepts the desktop's start-collection and link-status pushes", () => {
     expect(BridgeReplySchema.parse({ type: "start-collection" })).toEqual({
       type: "start-collection",

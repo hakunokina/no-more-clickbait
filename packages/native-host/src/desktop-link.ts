@@ -10,6 +10,7 @@ import {
   ManagedSettingsSchema,
   SettingsStampSchema,
   SiteCollectOutcomeSchema,
+  UiLangSchema,
 } from "@nmc/core";
 import {
   BrowserIdentitySchema,
@@ -139,6 +140,8 @@ export const DesktopCommandSchema = z.discriminatedUnion("type", [
     settings: ManagedSettingsSchema,
     stamp: SettingsStampSchema,
   }),
+  /** The language the desktop app shows, for extensions set to "system". */
+  z.object({ type: z.literal("ui-lang"), lang: UiLangSchema }),
 ]);
 export type DesktopCommand = z.infer<typeof DesktopCommandSchema>;
 
@@ -333,6 +336,11 @@ export class LinkServer {
   send(command: DesktopCommand, accept?: (host: LinkedHost) => boolean): boolean {
     const host = this.#hosts.filter((candidate) => accept?.(candidate.info) ?? true).pop();
     return host ? host.connection.send(command) : false;
+  }
+
+  /** Sends a command to every connected host; returns how many took it. */
+  broadcast(command: DesktopCommand): number {
+    return this.#hosts.filter((host) => host.connection.send(command)).length;
   }
 
   close(): Promise<void> {

@@ -15,6 +15,7 @@ import { z } from "zod";
 
 export const UI_LANGS = ["en", "tr"] as const;
 export type UiLang = (typeof UI_LANGS)[number];
+export const UiLangSchema = z.enum(UI_LANGS);
 
 /** The user's choice; "system" follows the OS (`resolveUiLang`). */
 export const UiLanguageSchema = z.enum(["system", "en", "tr"]);

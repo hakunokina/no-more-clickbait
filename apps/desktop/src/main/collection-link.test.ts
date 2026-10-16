@@ -315,6 +315,26 @@ describe("collection over the real host, pipe and controller", () => {
     ]);
   }, 20_000);
 
+  it("relays the desktop's language to the worker as a push", async () => {
+    const channel: NativeChannel<HostPort> = new NativeChannel(() => {
+      const port = open();
+      port.onMessage((message) => channel.received(port, message));
+      return port;
+    });
+    const port = channel.port();
+    await until(() => server.hostCount === 1, "the worker's host to link up");
+    expect(server.broadcast({ type: "ui-lang", lang: "tr" })).toBe(1);
+    await until(() => port.count("ui-lang") === 1, "the language to reach the worker");
+    expect(port.received.find((message) => message.type === "ui-lang")).toEqual({
+      type: "ui-lang",
+      lang: "tr",
+    });
+    // A push answers nothing: the ping's pong is the only reply counted.
+    channel.retire();
+    channel.port();
+    expect(await port.exited, port.stderr).toBe(0);
+  });
+
   it("runs a desktop-started Mode B collection end to end, through a settings sync", async () => {
     const startRequests: unknown[] = [];
     const channel: NativeChannel<HostPort> = new NativeChannel(() => {

@@ -146,8 +146,18 @@ function applyLanguage(): void {
   );
   if (next === lang) return;
   lang = next;
+  sendLangToExtensions();
   if (tray) setTrayMenu();
   void controller.setLang(next).catch((error: unknown) => log(`language: ${String(error)}`));
+}
+
+/**
+ * Every linked extension shows this language when it is set to
+ * "system": the OS's language is known here, not to the browser (whose
+ * own language may be any other).
+ */
+function sendLangToExtensions(): void {
+  link?.broadcast({ type: "ui-lang", lang });
 }
 
 function settingsStatus(): SettingsStatus {
@@ -466,6 +476,7 @@ async function startLink(): Promise<void> {
       },
       onHostsChanged: (hosts) => {
         controller.setLink({ hosts });
+        sendLangToExtensions();
         settingsManager.setBrowserConnected(collectBrowserConnected());
       },
     });

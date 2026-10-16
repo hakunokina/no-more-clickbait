@@ -12,6 +12,7 @@ const PUSHES: ReadonlySet<string> = new Set([
   "stop-collection",
   "link-status",
   "settings-push",
+  "ui-lang",
 ]);
 
 function isPush(reply: unknown): boolean {

@@ -47,6 +47,7 @@ import {
   SETTINGS_STAMP_KEY,
   SETTINGS_STORAGE_KEY,
 } from "./settings.js";
+import { DESKTOP_LANG_STORAGE_KEY } from "./settings-key.js";
 import {
   applySettingsPush,
   NATIVE_HOST_NAME,
@@ -114,7 +115,9 @@ export { NATIVE_HOST_NAME };
  * settings (`settings-sync` with their stamp), so the desktop app shows
  * them and hands back a later change made there; a change in the
  * desktop app arrives as `settings-push` and is applied unless the
- * extension saved later (settings-sync.ts applySettingsPush).
+ * extension saved later (settings-sync.ts applySettingsPush). The
+ * desktop also says which language it shows (`ui-lang`, on linking up
+ * and on every change); "system" here means that language.
  */
 const LINK_RETRY_FIRST_MS = 5_000;
 const LINK_RETRY_MAX_MS = 60_000;
@@ -218,6 +221,11 @@ async function handleReply(raw: unknown, replyGeneration: number): Promise<void>
   }
   if (reply.type === "settings-push") {
     applyPushedSettings(reply.settings, reply.stamp);
+    return;
+  }
+  if (reply.type === "ui-lang") {
+    // Pages (and this worker) set to "system" follow it via watchUiLang.
+    await chrome.storage.local.set({ [DESKTOP_LANG_STORAGE_KEY]: reply.lang });
     return;
   }
   if (reply.type === "link-status") {
