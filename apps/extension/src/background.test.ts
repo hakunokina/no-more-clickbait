@@ -1010,7 +1010,13 @@ describe("custom sites in the background worker's collections", () => {
       responseCount: 0,
       target: 4,
       sites: [
-        { siteId: "news.example.invalid/world", method: "rss", status: "ok", itemCount: 3 },
+        {
+          siteId: "news.example.invalid/world",
+          name: "World",
+          method: "rss",
+          status: "ok",
+          itemCount: 3,
+        },
       ],
     });
     expect(fake.badge.text).toBe("4");
