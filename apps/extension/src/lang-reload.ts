@@ -52,3 +52,29 @@ export function createLangReloader(deps: LangReloadDeps): LangReloader {
     pending: () => wanted !== undefined && !reloading,
   };
 }
+
+export interface StatusLine {
+  /** Shows `text`, followed by the waiting language's note while one waits. */
+  say(text: string): void;
+  notePending(pending: boolean): void;
+}
+
+/** The page's status line; what it says next never drops a waiting language's note. */
+export function createStatusLine(
+  el: { textContent: string | null } | null,
+  note: () => string,
+): StatusLine {
+  let pending = false;
+  return {
+    say(text) {
+      if (el) el.textContent = pending ? `${text} ${note()}` : text;
+    },
+    notePending(next) {
+      pending = next;
+      if (!el) return;
+      const text = el.textContent ?? "";
+      if (next && !text.includes(note())) el.textContent = text ? `${text} ${note()}` : note();
+      if (!next) el.textContent = text.replace(note(), "").trim();
+    },
+  };
+}

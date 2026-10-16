@@ -571,6 +571,20 @@ describe("desktop link in the background worker", () => {
     modeBStrategy: "minimized-window",
   };
 
+  it("stores the desktop's language, and nothing it cannot show", async () => {
+    currentPort().onMessage.emit({ type: "ui-lang", lang: "tr" });
+    await settle();
+    expect(fake.local.get("nmc-desktop-lang")).toBe("tr");
+    for (const lang of ["de", "system", 1, undefined]) {
+      currentPort().onMessage.emit({ type: "ui-lang", lang });
+    }
+    await settle();
+    expect(fake.local.get("nmc-desktop-lang")).toBe("tr");
+    currentPort().onMessage.emit({ type: "ui-lang", lang: "en" });
+    await settle();
+    expect(fake.local.get("nmc-desktop-lang")).toBe("en");
+  });
+
   it("opens the long-lived host port with a ping at startup", () => {
     expect(fake.ports).toHaveLength(1);
     expect(postedTypes(fake.ports[0])).toEqual(["ping"]);

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLangReloader } from "./lang-reload.js";
+import { createLangReloader, createStatusLine } from "./lang-reload.js";
 
 function harness(busy = false) {
   const state = { busy };
@@ -48,5 +48,49 @@ describe("Options language reload", () => {
     state.busy = false;
     reloader.settle();
     expect(deps.reload).not.toHaveBeenCalled();
+  });
+
+  it("keeps the waiting note through later status lines, then reloads once when Sites settles", () => {
+    // Options with a delete's Undo window open in Sites when the desktop's language arrives.
+    const sites = { busy: true };
+    const el = { textContent: "" as string | null };
+    const line = createStatusLine(el, () => "Language waits.");
+    const reload = vi.fn();
+    const reloader = createLangReloader({
+      pageLang: () => "en",
+      busy: () => sites.busy,
+      reload,
+      notePending: (pending) => line.notePending(pending),
+    });
+    line.say("Saved.");
+    reloader.changed("tr");
+    expect(el.textContent).toBe("Saved. Language waits.");
+    // The desktop's settings push lands on a clean form.
+    line.say("Updated from the desktop app.");
+    expect(el.textContent).toBe("Updated from the desktop app. Language waits.");
+    reloader.settle();
+    expect(el.textContent).toBe("Updated from the desktop app. Language waits.");
+    expect(reload).not.toHaveBeenCalled();
+    sites.busy = false;
+    reloader.settle();
+    reloader.settle();
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops the note when the language changes back before the page settled", () => {
+    const el = { textContent: "" as string | null };
+    const line = createStatusLine(el, () => "Language waits.");
+    const reloader = createLangReloader({
+      pageLang: () => "en",
+      busy: () => true,
+      reload: vi.fn(),
+      notePending: (pending) => line.notePending(pending),
+    });
+    reloader.changed("tr");
+    expect(el.textContent).toBe("Language waits.");
+    reloader.changed("en");
+    expect(el.textContent).toBe("");
+    line.say("Saved.");
+    expect(el.textContent).toBe("Saved.");
   });
 });
