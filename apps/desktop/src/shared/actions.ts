@@ -10,9 +10,11 @@ import { isRunActive, type DesktopStatus } from "./status.js";
  * - `cancel`: stops the run, or the collection (via the extension);
  * - `build`: builds the pending collection;
  * - `rebuild`: runs the cancelled run's session again (no new collection);
- * - `retry`: the same after an error.
+ * - `retry`: the same after an error;
+ * - `open`: opens the finished timeline in the reading window (owner's
+ *   call: once it is ready, reading it comes first).
  */
-export type MonitorAction = "collect" | "cancel" | "build" | "rebuild" | "retry";
+export type MonitorAction = "collect" | "cancel" | "build" | "rebuild" | "retry" | "open";
 
 export interface MonitorActions {
   primary: MonitorAction;
@@ -63,6 +65,9 @@ export function monitorActions(status: DesktopStatus): MonitorActions {
       disabled: false,
       collectLink: true,
     };
+  }
+  if (run.stage === "ready" && run.hasTimeline && !run.timelineGone) {
+    return { primary: "open", label: m.openReader, disabled: false, collectLink: true };
   }
   return {
     primary: "collect",

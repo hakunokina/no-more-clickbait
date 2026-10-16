@@ -52,7 +52,7 @@ await build({
   logLevel: "info",
 });
 
-for (const page of ["index.html", "reader.html", "settings.html"]) {
+for (const page of ["index.html", "reader.html", "settings.html", "ui.css"]) {
   await cp(join(root, "src/renderer", page), join(dist, "renderer", page));
 }
 console.log(`Desktop app built to ${dist}`);

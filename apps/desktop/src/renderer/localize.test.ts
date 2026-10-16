@@ -13,4 +13,12 @@ describe("localizePage", () => {
     expect(document.querySelector("button")?.textContent).not.toBe("Cancel");
     expect(document.documentElement.hasAttribute("data-i18n-pending")).toBe(false);
   });
+
+  it("names icon-only buttons in the language", () => {
+    document.body.innerHTML = '<button data-i18n-label="openSettings"><svg></svg></button>';
+    localizePage(document, "tr");
+    const button = document.querySelector("button");
+    expect(button?.getAttribute("aria-label")).toBe("Ayarlar…");
+    expect(button?.title).toBe("Ayarlar…");
+  });
 });

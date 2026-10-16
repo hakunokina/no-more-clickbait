@@ -123,7 +123,6 @@ const TR_STAGES: Readonly<Record<RunStage, string>> = {
 const en = {
   appTagline: "Your feed, filtered. Finite by design.",
   // Monitor
-  timeline: "Timeline",
   linkWaiting: "Waiting for the browser extension…",
   technicalDetail: "Technical detail",
   openReader: "Open reading window",
@@ -146,7 +145,14 @@ const en = {
   running: "Running…",
   stageScore: (time: string) => `score ${time}`,
   stageVerify: (time: string) => `verify ${time}`,
-  llmProvider: "LLM provider (your local CLI)",
+  /** The run's steps, as the monitor lists them under the ring. */
+  stepFilter: "Filtering",
+  stepScore: "Scoring",
+  stepVerify: "Verifying",
+  stepWrite: "Writing",
+  /** The word under the ring's number. */
+  unitPosts: (n: number) => plural("en", n, { one: "post", other: "posts" }),
+  unitClaims: (n: number) => plural("en", n, { one: "claim", other: "claims" }),
   llmNotChecked: "Not checked yet.",
   llmCheck: "Check the claude CLI",
   llmChecking: "Checking…",
@@ -346,8 +352,14 @@ const en = {
   settingsSub:
     "The same settings as the extension's options page — a change here is sent to the browser extension, and a change there shows up here. Changes are saved as you make them.",
   browserForCollecting: "Browser for collecting",
-  collectIn: "Collect in",
-  settingsSection: "Collection, filter and checks",
+  groupSources: "Where to collect",
+  groupCut: "What makes the cut",
+  groupChecks: "Fact checks",
+  groupModeB: "Mode B",
+  groupBrowser: "Browser and language",
+  groupDeveloper: "Developer",
+  /** Why a field is greyed out: it only counts while another one is on. */
+  appliesWhenOn: (label: string) => `Applies when “${label}” is on.`,
   browserSystemDefault: "System default browser",
   browserIsDefault: (label: string) => `${label} (system default)`,
   collectsIn: (label: string, connected: boolean) =>
@@ -438,7 +450,6 @@ export type DesktopMessages = typeof en;
 
 const tr: MessageTable<DesktopMessages> = {
   appTagline: "Akışın, süzülmüş. Sonu belli.",
-  timeline: "Akış",
   linkWaiting: "Tarayıcı eklentisi bekleniyor…",
   technicalDetail: "Teknik ayrıntı",
   openReader: "Okuma penceresini aç",
@@ -461,7 +472,13 @@ const tr: MessageTable<DesktopMessages> = {
   running: "Sürüyor…",
   stageScore: (time) => `puanlama ${time}`,
   stageVerify: (time) => `doğrulama ${time}`,
-  llmProvider: "LLM sağlayıcı (yerel CLI'ın)",
+  stepFilter: "Eleme",
+  stepScore: "Puanlama",
+  stepVerify: "Doğrulama",
+  stepWrite: "Yazma",
+  // Turkish keeps the noun singular after a number.
+  unitPosts: (_n) => "gönderi",
+  unitClaims: (_n) => "iddia",
   llmNotChecked: "Henüz denetlenmedi.",
   llmCheck: "claude CLI'ı denetle",
   llmChecking: "Denetleniyor…",
@@ -639,8 +656,13 @@ const tr: MessageTable<DesktopMessages> = {
   settingsSub:
     "Eklentinin seçenekler sayfasındaki ayarların aynısı — burada yapılan değişiklik tarayıcı eklentisine gönderilir, orada yapılan burada görünür. Değişiklikler yapıldığı anda kaydedilir.",
   browserForCollecting: "Toplama tarayıcısı",
-  collectIn: "Toplanacak tarayıcı",
-  settingsSection: "Toplama, filtre ve kontroller",
+  groupSources: "Nereden toplanır",
+  groupCut: "Akışa ne girer",
+  groupChecks: "Doğruluk kontrolleri",
+  groupModeB: "B modu",
+  groupBrowser: "Tarayıcı ve dil",
+  groupDeveloper: "Geliştirici",
+  appliesWhenOn: (label) => `“${label}” açıkken geçerli.`,
   browserSystemDefault: "Sistemin varsayılan tarayıcısı",
   browserIsDefault: (label) => `${label} (sistem varsayılanı)`,
   collectsIn: (label, connected) =>

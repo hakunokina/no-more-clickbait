@@ -1,17 +1,16 @@
 import { INTL_LOCALES, type UiLang } from "@nmc/core";
 import type { DesktopApi } from "../preload/preload.js";
 import {
-  describeLink,
-  describeRun,
   describeUnfinished,
   formatCost,
   formatCount,
   formatDuration,
 } from "../shared/format.js";
 import { messages, say } from "../shared/i18n.js";
-import { isRunActive, type DesktopStatus } from "../shared/status.js";
+import type { DesktopStatus } from "../shared/status.js";
 import { monitorActions, type MonitorAction } from "../shared/actions.js";
 import { localizePage } from "./localize.js";
+import { monitorView, type MonitorView, type PillView, type Tone } from "./monitor-view.js";
 
 declare global {
   interface Window {
@@ -29,6 +28,107 @@ function text(id: string, value: string): void {
   el(id).textContent = value;
 }
 
+const SVG = "http://www.w3.org/2000/svg";
+
+function icon(name: string): SVGSVGElement {
+  const svg = document.createElementNS(SVG, "svg");
+  svg.setAttribute("class", "i");
+  svg.setAttribute("aria-hidden", "true");
+  const use = document.createElementNS(SVG, "use");
+  use.setAttribute("href", `#i-${name}`);
+  svg.append(use);
+  return svg;
+}
+
+const TONE_ICONS: Readonly<Record<Tone, string | null>> = {
+  plain: null,
+  ok: "check",
+  warn: "warn",
+  bad: "x",
+};
+
+/** Colours a line by tone and shows the tone's icon (its first svg). */
+function toneLine(line: HTMLElement, tone: Tone): void {
+  line.classList.remove("ok", "warn", "bad");
+  if (tone !== "plain") line.classList.add(tone);
+  const mark = line.querySelector("svg");
+  const name = TONE_ICONS[tone];
+  if (!mark) return;
+  mark.toggleAttribute("hidden", name === null);
+  if (name) mark.querySelector("use")?.setAttribute("href", `#i-${name}`);
+}
+
+const PILL_ICONS: Readonly<Record<PillView["state"], string>> = {
+  done: "check",
+  now: "dot",
+  next: "ring",
+  warn: "warn",
+};
+
+function renderView(view: MonitorView): void {
+  const ring = el("ring");
+  ring.hidden = view.ring === null;
+  if (view.ring) {
+    ring.classList.toggle("ring--quiet", view.ring.kind === "icon");
+    if (view.ring.kind === "icon") {
+      el("ring-icon").setAttribute("href", `#i-${view.ring.icon}`);
+    } else {
+      const filled = view.ring.percent;
+      el("ring-bar").setAttribute("stroke-dasharray", `${filled} 100`);
+      // A round cap on an empty arc would still draw a dot.
+      el("ring-bar").toggleAttribute("hidden", filled <= 0);
+      text("ring-value", view.ring.value);
+      text("ring-caption", view.ring.caption);
+    }
+    const label = view.ring.kind === "progress" ? view.ring.label : null;
+    if (label) {
+      ring.setAttribute("role", "img");
+      ring.setAttribute("aria-label", label);
+      ring.removeAttribute("aria-hidden");
+    } else {
+      ring.removeAttribute("role");
+      ring.removeAttribute("aria-label");
+      ring.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  text("stage-text", view.title);
+  toneLine(el("stage"), view.tone);
+
+  const pills = el("pills");
+  pills.hidden = view.pills.length === 0;
+  pills.replaceChildren(
+    ...view.pills.map((pill) => {
+      const item = document.createElement("li");
+      item.className = pill.state;
+      const spoken = document.createElement("span");
+      spoken.className = "sr-only";
+      spoken.textContent = pill.spoken;
+      item.append(icon(PILL_ICONS[pill.state]), spoken, pill.text);
+      return item;
+    }),
+  );
+  text("lead", view.lead);
+
+  el("tagline").hidden = !view.tagline;
+  const summary = el("summary");
+  summary.hidden = view.summary.length === 0;
+  summary.replaceChildren(
+    ...view.summary.map(({ label, value }) => {
+      const pair = document.createElement("div");
+      const term = document.createElement("dt");
+      term.textContent = label;
+      const detail = document.createElement("dd");
+      detail.textContent = value;
+      pair.append(term, " ", detail);
+      return pair;
+    }),
+  );
+
+  text("link-status", view.link.text);
+  toneLine(el("link-line"), view.link.tone);
+}
+
 let current: DesktopStatus | null = null;
 let primaryAction: MonitorAction = "collect";
 /** The page's static words are in this language. */
@@ -42,6 +142,7 @@ const ACTIONS: Record<MonitorAction, () => Promise<unknown>> = {
   build: () => window.nmc.buildTimeline(),
   rebuild: () => window.nmc.retryRun(),
   retry: () => window.nmc.retryRun(),
+  open: () => window.nmc.openReader(),
 };
 
 function render(status: DesktopStatus): void {
@@ -53,23 +154,9 @@ function render(status: DesktopStatus): void {
     localizePage(document, lang);
     if (llmLine) text("llm-status", llmLine(lang));
   }
-  const active = isRunActive(run.stage);
-  text("stage", describeRun(status));
-  text("link-status", describeLink(status));
+  renderView(monitorView(status));
   text("collection-note", say(lang, status.collection.message));
   text("unfinished-note", describeUnfinished(status));
-
-  const pending = active ? null : status.pending;
-  text(
-    "pending-note",
-    pending === null
-      ? ""
-      : pending.sources && pending.sources.length > 0
-        ? m.pendingFeeds(pending.mode, pending.sources)
-        : pending.mode === "A"
-          ? m.pendingModeA(pending.uniquePostCount)
-          : m.pendingModeB(pending.reason, pending.uniquePostCount),
-  );
 
   const error = el("run-error");
   error.hidden = run.error === null;
@@ -79,36 +166,19 @@ function render(status: DesktopStatus): void {
   const actions = monitorActions(status);
   primaryAction = actions.primary;
   const primary = el<HTMLButtonElement>("primary");
-  primary.textContent = actions.label;
+  text("primary-label", actions.label);
   primary.disabled = actions.disabled;
+  // Cancelling is offered, not urged: only the other actions are filled.
+  primary.classList.toggle("btn--primary", actions.primary !== "cancel");
+  el("primary-mark").toggleAttribute("hidden", actions.primary !== "open");
+  // One button per action: the corner one steps aside while reading is the primary.
+  el("open-reader").hidden = actions.primary === "open";
   const collectLink = el<HTMLButtonElement>("collect-link");
   collectLink.hidden = !actions.collectLink;
   collectLink.disabled = !status.link.listening;
 
-  const counts = run.counts;
-  const { collection } = status;
   const count = (value: number | null) => formatCount(value, lang);
-  const inCollection =
-    !active && (collection.state === "collecting" || collection.state === "cancelling");
-  const feeds = inCollection && collection.sources?.length ? collection.sources : null;
-  const collecting = inCollection && collection.count !== null;
-  text(
-    "posts-collected",
-    feeds
-      ? m.feedCountsLine(feeds, collection.target)
-      : collecting
-        ? `${count(collection.count)} / ${count(collection.target)}`
-        : count(counts.afterHardFilter ?? counts.postsIn),
-  );
-  text("posts-filtered", count(counts.filteredOut));
-  text(
-    "posts-verified",
-    counts.verifyTotal > 0 ? `${counts.verifyDone} / ${counts.verifyTotal}` : count(null),
-  );
-  text(
-    "posts-kept",
-    counts.selected === null ? "—" : `${count(counts.selected)} / ${count(counts.postsIn)}`,
-  );
+  el("usage").hidden = run.startedAt === null;
   const usage = run.usage;
   const used = usage.llmCalls > 0;
   text("tokens-in", used ? count(usage.inputTokens) : "—");
@@ -175,15 +245,15 @@ void window.nmc.getStatus().then(render, () => localizePage(document, lang()));
 const button = el<HTMLButtonElement>("check-llm");
 const status = el("llm-status");
 
-function showLlm(line: (lang: UiLang) => string, className: string): void {
+function showLlm(line: (lang: UiLang) => string, tone: Tone): void {
   llmLine = line;
   status.textContent = line(lang());
-  status.className = className;
+  toneLine(el("llm-line"), tone);
 }
 
 button.addEventListener("click", () => {
   button.disabled = true;
-  showLlm((l) => messages(l).llmChecking, "");
+  showLlm((l) => messages(l).llmChecking, "plain");
   window.nmc
     .checkLlmStatus()
     .then((availability) => {
