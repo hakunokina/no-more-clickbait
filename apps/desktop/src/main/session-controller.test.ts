@@ -2,14 +2,26 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SettingsSchema, type Post, type PostBatch } from "@nmc/core";
+import {
+  feedItemKey,
+  platformOf,
+  SettingsSchema,
+  type FeedBatch,
+  type FeedItem,
+  type GenericItem,
+  type InstagramPost,
+  type Post,
+  type PostBatch,
+  type SiteCollectOutcome,
+} from "@nmc/core";
 import { listSessions, PostSessionStore, type DesktopCommand } from "@nmc/native-host";
 import { renderTimeline, TIMELINE_CSPS } from "@nmc/timeline-renderer";
-import { say } from "../shared/i18n.js";
+import { messages, say } from "../shared/i18n.js";
 import type { DesktopStatus } from "../shared/status.js";
 import { PipelineRunner, type RunStages } from "./pipeline-runner.js";
 import {
   missingSourcesOf,
+  runSourcesOf,
   SessionController,
   TIMELINE_DOC_FILE,
   TIMELINE_FILE,
@@ -37,6 +49,43 @@ function batch(ids: string[]): PostBatch {
     posts: ids.map(post),
   };
 }
+
+function genericItem(id: string): GenericItem {
+  return {
+    platform: "generic",
+    id,
+    sourceLabel: "custom:News",
+    title: `synthetic headline ${id}`,
+    url: `https://news.example/world/${id}`,
+    domain: "news.example",
+    kind: "link",
+    promoted: false,
+  };
+}
+
+function instagramPost(id: string): InstagramPost {
+  return {
+    platform: "instagram",
+    id,
+    url: `https://www.instagram.com/p/${id}/`,
+    authorHandle: "synthetic_ig",
+    caption: `synthetic caption ${id}`,
+    kind: "post",
+    media: [],
+    publishedAt: "2026-01-01T08:00:00.000Z",
+    promoted: false,
+  };
+}
+
+function feedBatch(siteId: string, items: FeedItem[]): FeedBatch {
+  return { siteId, capturedAt: "2026-01-01T10:00:02.000Z", items };
+}
+
+/** X + two custom sites, the second broken: its outcome only, no items. */
+const SITES: SiteCollectOutcome[] = [
+  { siteId: "news.example/world", status: "ok", method: "rss", itemCount: 2 },
+  { siteId: "broken.example/feed", status: "error", method: "static", itemCount: 0 },
+];
 
 function stages(overrides: Partial<RunStages> = {}): RunStages {
   return {
@@ -74,17 +123,54 @@ async function completeSession(
 }
 
 describe("missingSourcesOf", () => {
-  it("lists enabled sources that delivered nothing while others did", () => {
+  const x = { label: "x", reason: "nothingFromSource" } as const;
+  const site = { label: "site.example/a", reason: "siteTimeout" } as const;
+
+  it("lists enabled sources that delivered nothing while others did, with their reason", () => {
     const delivered = [{ label: "x", in: 4, shown: 2 }];
-    expect(missingSourcesOf(["x", "custom:Site"], delivered)).toEqual([
-      { label: "custom:Site", reason: expect.any(String) as string },
+    expect(missingSourcesOf([x, site], delivered)).toEqual([
+      { label: "site.example/a", reason: messages("en").siteTimeout },
     ]);
-    expect(missingSourcesOf(["x"], delivered)).toEqual([]);
+    expect(missingSourcesOf([x, site], delivered, "tr")).toEqual([
+      { label: "site.example/a", reason: messages("tr").siteTimeout },
+    ]);
+    expect(missingSourcesOf([x], delivered)).toEqual([]);
+    expect(missingSourcesOf([x, site, site], [{ label: "custom:B", in: 1, shown: 1 }])).toEqual(
+      [
+        { label: "x", reason: messages("en").nothingFromSource },
+        { label: "site.example/a", reason: messages("en").siteTimeout },
+      ],
+    );
   });
 
   it("lists nothing when no source delivered (not a partial timeline)", () => {
-    expect(missingSourcesOf(["x", "custom:Site"], undefined)).toEqual([]);
-    expect(missingSourcesOf(["x"], [])).toEqual([]);
+    expect(missingSourcesOf([x, site], undefined)).toEqual([]);
+    expect(missingSourcesOf([x], [])).toEqual([]);
+  });
+});
+
+describe("runSourcesOf", () => {
+  it("is X alone without custom sites (older sessions too)", () => {
+    expect(runSourcesOf(undefined, [])).toEqual([{ label: "x", reason: "nothingFromSource" }]);
+  });
+
+  it("expects each site that stored nothing by its id, with its outcome as the reason", () => {
+    const sites: SiteCollectOutcome[] = [
+      ...SITES,
+      { siteId: "slow.example", status: "timeout", itemCount: 0 },
+      { siteId: "quiet.example", status: "empty", itemCount: 0 },
+      { siteId: "note.example", status: "skipped", itemCount: 0 },
+      { siteId: "lost.example", status: "ok", itemCount: 3 },
+    ];
+    expect(runSourcesOf(sites, ["news.example/world"])).toEqual([
+      { label: "x", reason: "nothingFromSource" },
+      { label: "broken.example/feed", reason: "siteError" },
+      { label: "slow.example", reason: "siteTimeout" },
+      { label: "quiet.example", reason: "siteEmpty" },
+      { label: "note.example", reason: "siteSkipped" },
+      // Collected, but nothing reached the session.
+      { label: "lost.example", reason: "nothingFromSource" },
+    ]);
   });
 });
 
@@ -233,6 +319,134 @@ describe("SessionController", () => {
     expect(html).toContain(TIMELINE_CSPS.en);
     expect(html).toContain('data-action="collect"');
     expect(html).toContain("synthetic post 1");
+  });
+
+  /** X posts plus two custom sites (one broken), completed as a Mode B run. */
+  async function mixedSession(xIds: string[] = ["1", "2"]): Promise<string> {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    if (xIds.length > 0) await store.addBatch(batch(xIds));
+    await store.addFeedBatch(
+      feedBatch("news.example/world", [genericItem("g1"), instagramPost("ig1")]),
+    );
+    return (await store.complete({
+      mode: "B",
+      reason: xIds.length > 0 ? "target-reached" : "stalled",
+      uniquePostCount: xIds.length,
+      responseCount: 1,
+      target: 100,
+      sites: SITES,
+    })) as string;
+  }
+
+  /** The real renderer, and a scorer that keys every item like the pipeline. */
+  function mixedController(judged: FeedItem[][]): SessionController {
+    runStages = stages({
+      scorer: {
+        score: async (items) => {
+          judged.push([...items]);
+          return items.map((item) => ({
+            postId: feedItemKey(item),
+            clickbaitScore: 0.1,
+            readWorthinessScore: 0.6,
+            checkWorthy: false,
+            checkWorthyClaim: null,
+          }));
+        },
+      },
+    });
+    return controller(undefined, {
+      loadSettings: async () => SettingsSchema.parse({ timelineSize: 10 }),
+      renderTimeline: (doc, lang) => renderTimeline(doc, { actions: true, lang }),
+    });
+  }
+
+  it("runs X and the custom sites' items together; a broken site is named as missing", async () => {
+    const id = await mixedSession();
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    await c.processPending(); // complete.json on disk carries the sites' outcomes
+
+    expect(c.status.run.stage).toBe("ready");
+    expect(judged.flat().map((item) => `${platformOf(item)}:${item.id}`)).toEqual([
+      "x:1",
+      "x:2",
+      "generic:g1",
+      "instagram:ig1",
+    ]);
+    const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+      bySource: { label: string; in: number; shown: number }[];
+      missingSources: { label: string; reason: string }[];
+      cards: unknown[];
+    };
+    expect(doc.cards).toHaveLength(4);
+    expect(doc.bySource).toEqual(
+      expect.arrayContaining([
+        { label: "x", in: 2, shown: 2 },
+        { label: "custom:News", in: 1, shown: 1 },
+        { label: "instagram", in: 1, shown: 1 },
+      ]),
+    );
+    expect(doc.bySource).toHaveLength(3);
+    expect(doc.missingSources).toEqual([
+      { label: "broken.example/feed", reason: messages("en").siteError },
+    ]);
+
+    const page = () => readFile(join(root, id, TIMELINE_FILE), "utf8");
+    const html = await page();
+    expect(html).toContain('<article class="post" ');
+    expect(html).toContain('<article class="post post--ig" ');
+    expect(html).toContain('<article class="post post--gen" ');
+    expect(html).toContain("broken.example/feed");
+    expect(html).toContain(messages("en").siteError);
+
+    // The broken site's note follows the language, with its own reason.
+    await expect(c.setLang("tr")).resolves.toBe(true);
+    expect(await page()).toContain(messages("tr").siteError);
+    expect(await page()).not.toContain(messages("tr").nothingFromSource);
+  });
+
+  it("keeps the X numbers to X: the pending count and the stored batch count", async () => {
+    const id = await mixedSession();
+    const c = controller();
+    c.handleHostEvent({ ...completeEvent(id, "not-logged-in", 2), sites: SITES });
+    await expect.poll(() => c.status.pending?.uniquePostCount).toBe(2);
+    expect(asked).toEqual([{ sessionId: id, uniquePostCount: 2 }]);
+    const [session] = await listSessions(root);
+    expect(session).toMatchObject({ batchCount: 1, feedBatchCount: 1 });
+  });
+
+  it("builds a run whose X part brought nothing but a site did", async () => {
+    const id = await mixedSession([]);
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    c.handleHostEvent({ ...completeEvent(id, "stalled", 0), sites: SITES });
+    await expect.poll(() => c.status.run.stage).toBe("ready");
+    expect(judged.flat().map(platformOf)).toEqual(["generic", "instagram"]);
+    const doc = JSON.parse(await readFile(join(root, id, TIMELINE_DOC_FILE), "utf8")) as {
+      missingSources: { label: string }[];
+    };
+    expect(doc.missingSources.map((source) => source.label)).toEqual([
+      "x",
+      "broken.example/feed",
+    ]);
+  });
+
+  it("still drops a run where neither X nor any site brought anything", async () => {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch(feedBatch("news.example/world", []));
+    const id = (await store.complete({
+      mode: "B",
+      reason: "stalled",
+      uniquePostCount: 0,
+      responseCount: 1,
+      sites: [{ siteId: "news.example/world", status: "empty", itemCount: 0 }],
+    })) as string;
+    const c = controller();
+    await c.processPending();
+    expect(c.status.run.stage).toBe("idle");
+    expect((await listSessions(root)).find((s) => s.id === id)?.processed?.status).toBe(
+      "cancelled",
+    );
   });
 
   it("writes the timeline in the windows' language, and again when it changes", async () => {
@@ -488,7 +702,9 @@ describe("SessionController", () => {
     await running;
     expect(checks).toBe(0);
     expect(c.status.run.stage).toBe("cancelled");
-    expect((await listSessions(root))[0]?.processed?.status).toBe("cancelled");
+    expect((await listSessions(root)).find((s) => s.id === id)?.processed?.status).toBe(
+      "cancelled",
+    );
     expect(ready).toEqual([]);
 
     // The flag does not leak into the next run.
@@ -559,7 +775,9 @@ describe("SessionController", () => {
     expect(c.cancel()).toBe(true);
     await running;
     expect(c.status.run.stage).toBe("cancelled");
-    expect((await listSessions(root))[0]?.processed?.status).toBe("cancelled");
+    expect((await listSessions(root)).find((s) => s.id === id)?.processed?.status).toBe(
+      "cancelled",
+    );
     expect(ready).toEqual([]);
   });
 

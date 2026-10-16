@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   FeedBatchSchema,
   PostBatchSchema,
+  SiteCollectOutcomeSchema,
   type CollectionMetrics,
   type FeedBatch,
   type FeedItem,
@@ -41,6 +42,8 @@ export const SessionCompletionSchema = z.object({
   responseCount: z.number().int().nonnegative(),
   /** Distinct posts the collection was working towards (absent in older sessions). */
   target: z.number().int().min(1).optional(),
+  /** How each custom site's part went (absent: no custom sites, or an older session). */
+  sites: z.array(SiteCollectOutcomeSchema).max(100).optional(),
   completedAt: z.string().datetime(),
 });
 export type SessionCompletion = z.infer<typeof SessionCompletionSchema>;
@@ -360,6 +363,8 @@ export interface LoadedSession {
   feedItems: FeedItem[];
   /** Stored `feed-batch` batches. */
   feedBatchCount: number;
+  /** Sites (`FeedBatch.siteId`) with at least one stored item, in first-batch order. */
+  feedSiteIds: string[];
   completion: SessionCompletion | null;
   collection?: CollectionMetrics;
 }
@@ -391,6 +396,7 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
     if (!last || at > last) last = at;
   }
   const feedItems: FeedItem[] = [];
+  const feedSiteIds = new Set<string>();
   let feedBatchCount = 0;
   for (const name of feedNames) {
     const batch = FeedBatchSchema.safeParse(await readJson(join(batchDir, name)));
@@ -400,6 +406,7 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
     }
     feedBatchCount += 1;
     feedItems.push(...batch.data.items);
+    if (batch.data.siteId && batch.data.items.length > 0) feedSiteIds.add(batch.data.siteId);
   }
   const completion = SessionCompletionSchema.safeParse(
     await readJson(join(dir, "complete.json")),
@@ -412,6 +419,7 @@ export async function loadSession(root: string, id: string): Promise<LoadedSessi
     invalidBatchCount,
     feedItems,
     feedBatchCount,
+    feedSiteIds: [...feedSiteIds],
     completion: completion.success ? completion.data : null,
     ...(first && last
       ? {

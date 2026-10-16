@@ -210,6 +210,11 @@ const en = {
   errLastRunFailed: "The last run failed.",
   /** A source that brought nothing (shown on the timeline page). */
   nothingFromSource: "Nothing was collected from this source.",
+  /** Why a custom site brought nothing (its collect outcome). */
+  siteError: "The site could not be reached or read.",
+  siteTimeout: "The site did not answer in time.",
+  siteEmpty: "The site answered, but no items were found.",
+  siteSkipped: "Skipped: confirm this site's note in the extension's options.",
   // Browsers
   browserUnsupportedDefault:
     "Your default browser is not a supported Chromium browser. Pick a browser for collecting in Settings.",
@@ -435,6 +440,10 @@ const tr: MessageTable<DesktopMessages> = {
   errWriteFailed: "Akış diske yazılamadı.",
   errLastRunFailed: "Son çalıştırma başarısız oldu.",
   nothingFromSource: "Bu kaynaktan hiçbir şey toplanmadı.",
+  siteError: "Siteye ulaşılamadı ya da site okunamadı.",
+  siteTimeout: "Site zamanında yanıt vermedi.",
+  siteEmpty: "Site yanıt verdi ama hiç öğe bulunamadı.",
+  siteSkipped: "Atlandı: eklenti ayarlarında bu sitenin notunu onayla.",
   browserUnsupportedDefault:
     "Varsayılan tarayıcın desteklenen bir Chromium tarayıcısı değil. Ayarlar'da toplama için bir tarayıcı seç.",
   browserDefaultMissing: (family) =>

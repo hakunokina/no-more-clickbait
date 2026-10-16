@@ -127,7 +127,30 @@ describe("PostSessionStore", () => {
     expect(loaded.batchCount).toBe(1);
     expect(loaded.feedBatchCount).toBe(1);
     expect(loaded.feedItems.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(loaded.feedSiteIds).toEqual(["news.example/world"]);
     expect(loaded.invalidBatchCount).toBe(0);
+  });
+
+  it("keeps each custom site's outcome with the completion", async () => {
+    const store = new PostSessionStore(root, () => clock);
+    await store.addBatch(batch(clock, ["1"]));
+    await store.addFeedBatch({ siteId: "quiet.example", capturedAt: clock, items: [] });
+    const sites = [
+      { siteId: "news.example/world", status: "ok" as const, method: "rss", itemCount: 2 },
+      { siteId: "broken.example", status: "error" as const, itemCount: 0, message: "HTTP 503" },
+    ];
+    const id = (await store.complete({
+      mode: "B",
+      reason: "target-reached",
+      uniquePostCount: 1,
+      responseCount: 1,
+      sites,
+    })) as string;
+    const loaded = await loadSession(root, id);
+    expect(loaded.completion?.sites).toEqual(sites);
+    // A batch without items does not count as the site delivering.
+    expect(loaded.feedSiteIds).toEqual([]);
+    expect((await listSessions(root))[0]?.completion?.sites).toEqual(sites);
   });
 
   it("refuses feed batches after completion and skips tampered ones", async () => {

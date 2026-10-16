@@ -112,18 +112,28 @@ function dispatch(raw: string): void {
       }
       return stored;
     },
-    onCollectionComplete: async ({ mode, reason, uniquePostCount, responseCount, target }) => {
-      const counts = { mode, reason, uniquePostCount, responseCount };
-      const sessionId = await sessionStore.complete({
-        ...counts,
+    onCollectionComplete: async ({
+      mode,
+      reason,
+      uniquePostCount,
+      responseCount,
+      target,
+      sites,
+    }) => {
+      const counts = {
+        mode,
+        reason,
+        uniquePostCount,
+        responseCount,
         ...(target !== undefined ? { target } : {}),
-      });
+        ...(sites !== undefined ? { sites } : {}),
+      };
+      const sessionId = await sessionStore.complete(counts);
       // Desktop closed: it finds the complete session on disk at its next start.
       link?.send({
         type: "collection-complete",
         sessionId,
         ...counts,
-        ...(target !== undefined ? { target } : {}),
       });
     },
     onCollectionStartResult: relay.onCollectionStartResult,

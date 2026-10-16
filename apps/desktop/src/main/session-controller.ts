@@ -5,6 +5,7 @@ import {
   toTimelineDoc,
   type MissingSource,
   type Settings,
+  type SiteCollectOutcome,
   type SourceCount,
   type TimelineDoc,
   type UiLang,
@@ -28,7 +29,7 @@ import {
   type RunError,
   type RunErrorKind,
 } from "../shared/status.js";
-import { messages, note, runErrorNote, say } from "../shared/i18n.js";
+import { DESKTOP_MESSAGES, messages, note, runErrorNote, say } from "../shared/i18n.js";
 import { usageOf, type PipelineRunner } from "./pipeline-runner.js";
 
 /**
@@ -123,11 +124,51 @@ export function planCompletion(mode: "A" | "B", reason: string): "build" | "ask"
   return BUILD_AFTER_STOP.has(reason) ? "build" : "ask";
 }
 
+/** Why a source may have brought nothing (page text, see missingSourcesOf). */
+const SOURCE_REASONS = [
+  "nothingFromSource",
+  "siteError",
+  "siteTimeout",
+  "siteEmpty",
+  "siteSkipped",
+] as const;
+export type SourceReason = (typeof SOURCE_REASONS)[number];
+
+/** A source a desktop run expects, and why it would have brought nothing. */
+export interface RunSource {
+  /** `SourceCount.label`; a site that stored nothing goes by its id. */
+  label: string;
+  reason: SourceReason;
+}
+
+const SITE_REASONS: Readonly<Record<SiteCollectOutcome["status"], SourceReason>> = {
+  // Collected but nothing reached the session (e.g. the link was closed).
+  ok: "nothingFromSource",
+  error: "siteError",
+  timeout: "siteTimeout",
+  empty: "siteEmpty",
+  skipped: "siteSkipped",
+};
+
 /**
  * Sources a desktop run collects from: the extension's X home timeline
- * (custom sites join here once the desktop collects them).
+ * and the custom sites the collection reported (`sites`). A site whose
+ * items are in the session counts under its items' own label (bySource);
+ * one that stored nothing is expected under its id, with its outcome as
+ * the reason.
  */
-const RUN_SOURCES: readonly string[] = ["x"];
+export function runSourcesOf(
+  sites: readonly SiteCollectOutcome[] | undefined,
+  storedSiteIds: readonly string[],
+): RunSource[] {
+  const stored = new Set(storedSiteIds);
+  return [
+    { label: "x", reason: "nothingFromSource" },
+    ...(sites ?? [])
+      .filter((site) => !stored.has(site.siteId))
+      .map((site) => ({ label: site.siteId, reason: SITE_REASONS[site.status] })),
+  ];
+}
 
 /**
  * Enabled sources that delivered nothing while others did (a partial
@@ -136,15 +177,33 @@ const RUN_SOURCES: readonly string[] = ["x"];
  * page text, in the timeline's language.
  */
 export function missingSourcesOf(
-  enabled: readonly string[],
+  enabled: readonly RunSource[],
   bySource: readonly SourceCount[] | undefined,
   lang: UiLang = "en",
 ): MissingSource[] {
   const delivered = new Set(bySource?.map((count) => count.label));
   if (delivered.size === 0) return [];
-  return enabled
-    .filter((label) => !delivered.has(label))
-    .map((label) => ({ label, reason: messages(lang).nothingFromSource }));
+  // One entry per label (the timeline doc requires it).
+  const missing = new Map<string, MissingSource>();
+  for (const { label, reason } of enabled) {
+    if (delivered.has(label) || missing.has(label)) continue;
+    missing.set(label, { label, reason: messages(lang)[reason] });
+  }
+  return [...missing.values()];
+}
+
+/** A saved timeline's reason (either language) as its key, to re-word it. */
+function sourceReasonOf(text: string | undefined): SourceReason {
+  return (
+    SOURCE_REASONS.find((key) =>
+      Object.values(DESKTOP_MESSAGES).some((table) => table[key] === text),
+    ) ?? "nothingFromSource"
+  );
+}
+
+/** Items the custom sites delivered (outside the X counts). */
+function siteItemCount(sites: readonly SiteCollectOutcome[] | undefined): number {
+  return (sites ?? []).reduce((total, site) => total + site.itemCount, 0);
 }
 
 export class SessionController {
@@ -255,7 +314,7 @@ export class SessionController {
             ...doc,
             missingSources: doc.missingSources.map((source) => ({
               ...source,
-              reason: messages(lang).nothingFromSource,
+              reason: messages(lang)[sourceReasonOf(source.reason)],
             })),
           }
         : doc;
@@ -401,6 +460,7 @@ export class SessionController {
       mode: event.mode,
       reason: event.reason,
       uniquePostCount: event.uniquePostCount,
+      siteItemCount: siteItemCount(event.sites),
       target: event.target ?? this.#status.collection.target,
       live: true,
     }).catch((error: unknown) => this.#deps.log?.(`completion failed: ${String(error)}`));
@@ -412,12 +472,15 @@ export class SessionController {
     mode: "A" | "B";
     reason: string;
     uniquePostCount: number;
+    /** Items custom sites delivered: a run with only these is not empty. */
+    siteItemCount: number;
     target: number | null;
     /** Announced just now (not found on disk at start-up): notify the user. */
     live: boolean;
   }): Promise<void> {
     // Batches of ads/repeats only leave a folder but no post to build from.
-    const empty = done.sessionId === null || done.uniquePostCount === 0;
+    const empty =
+      done.sessionId === null || (done.uniquePostCount === 0 && done.siteItemCount === 0);
     let plan = empty ? "drop" : planCompletion(done.mode, done.reason);
     if (plan === "build" && this.#status.collection.state === "cancelling") {
       // The user already cancelled: a late complete (e.g. target-reached
@@ -639,6 +702,7 @@ export class SessionController {
       mode: newest.completion.mode,
       reason: newest.completion.reason,
       uniquePostCount: newest.completion.uniquePostCount,
+      siteItemCount: siteItemCount(newest.completion.sites),
       target: newest.completion.target ?? null,
       live: false,
     });
@@ -725,7 +789,8 @@ export class SessionController {
     this.#inRunner = true;
     const outcome = await this.#deps.runner
       .run(
-        session.posts,
+        // X first, then the custom sites' items: the pipeline judges them together.
+        [...session.posts, ...session.feedItems],
         settings,
         (progress) =>
           this.#update((status) => {
@@ -772,7 +837,7 @@ export class SessionController {
           ...(collection ? { collection } : {}),
           metrics: outcome.result.metrics,
           missingSources: missingSourcesOf(
-            RUN_SOURCES,
+            runSourcesOf(session.completion?.sites, session.feedSiteIds),
             outcome.result.metrics.bySource,
             this.#status.lang,
           ),
