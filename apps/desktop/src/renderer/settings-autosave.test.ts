@@ -1,4 +1,4 @@
-import { ManagedSettingsSchema, type ManagedSettings } from "@nmc/core";
+import { ManagedSettingsSchema, UNSTAMPED, type ManagedSettings } from "@nmc/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { note, type Note } from "../shared/i18n.js";
 import {
@@ -9,11 +9,13 @@ import {
 import { readSettingForm, settingFormValues } from "./settings-form.js";
 
 const defaults = ManagedSettingsSchema.parse({});
+const later = { updatedAt: "2026-10-16T10:00:00.000Z", source: "extension" } as const;
 
 describe("SettingsAutoSave", () => {
   /** What the form shows (raw values, as the inputs hold them). */
   let values: Record<string, string | boolean>;
   let saved: ManagedSettings[];
+  let filled: ManagedSettings[];
   let states: AutoSaveState["kind"][];
   let shownErrors: Readonly<Record<string, Note>>;
   let save: (settings: ManagedSettings) => Promise<void>;
@@ -22,6 +24,7 @@ describe("SettingsAutoSave", () => {
     vi.useFakeTimers();
     values = settingFormValues(defaults);
     saved = [];
+    filled = [];
     states = [];
     shownErrors = {};
     save = (settings) => {
@@ -31,18 +34,27 @@ describe("SettingsAutoSave", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  function autosave(): SettingsAutoSave {
-    return new SettingsAutoSave(
-      {
-        read: (base) => readSettingForm(values, base),
-        save: (settings) => save(settings),
-        showErrors: (errors) => {
-          shownErrors = errors;
-        },
-        onState: (state) => states.push(state.kind),
+  function unshown(): SettingsAutoSave {
+    return new SettingsAutoSave({
+      read: (base) => readSettingForm(values, base),
+      fill: (settings) => {
+        filled.push(settings);
+        values = settingFormValues(settings);
       },
-      defaults,
-    );
+      save: (settings) => save(settings),
+      showErrors: (errors) => {
+        shownErrors = errors;
+      },
+      onState: (state) => states.push(state.kind),
+    });
+  }
+
+  /** Shown the defaults as the real settings, as the first status does. */
+  function autosave(): SettingsAutoSave {
+    const auto = unshown();
+    auto.show(UNSTAMPED, defaults);
+    filled = [];
+    return auto;
   }
 
   it("saves a committed change at once", async () => {
@@ -154,9 +166,54 @@ describe("SettingsAutoSave", () => {
   it("takes settings filled from outside as the saved ones", async () => {
     const auto = autosave();
     const pushed = { ...defaults, timelineSize: 30 };
-    auto.reset(pushed);
-    values = settingFormValues(pushed);
+    auto.show(later, pushed);
+    expect(filled).toEqual([pushed]);
     await auto.flush();
     expect(saved).toEqual([]);
+  });
+
+  it("saves nothing before the real settings are shown, not even on close", async () => {
+    const auto = unshown();
+    // A tick on the form's starting (default) values must not overwrite the real settings.
+    values = { ...values, collectFromInstagram: true };
+    auto.typed();
+    await auto.flush();
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS * 2);
+    expect(saved).toEqual([]);
+    expect(states).toEqual([]);
+    expect(auto.busy).toBe(false);
+
+    const real = { ...defaults, collectFromInstagram: false, timelineSize: 30 };
+    auto.show(later, real);
+    expect(filled).toEqual([real]);
+    values = { ...values, verifyEnabled: false };
+    await auto.flush();
+    expect(saved).toEqual([{ ...real, verifyEnabled: false }]);
+  });
+
+  it("refills on the same stamp with other values, but not twice for the same", () => {
+    const auto = autosave();
+    const pushed = { ...defaults, timelineSize: 30 };
+    auto.show(later, pushed);
+    auto.show(later, pushed);
+    expect(filled).toEqual([pushed]);
+    // The extension could not apply a value: same stamp, other settings.
+    const applied = { ...pushed, collectFromInstagram: !pushed.collectFromInstagram };
+    auto.show(later, applied);
+    expect(filled).toEqual([pushed, applied]);
+  });
+
+  it("does not refill while the form holds edits of its own", async () => {
+    const auto = autosave();
+    values = { ...values, maxClickbait: "3" };
+    auto.typed();
+    auto.show(later, { ...defaults, timelineSize: 30 });
+    expect(filled).toEqual([]);
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS);
+    expect(saved).toEqual([{ ...defaults, maxClickbait: 3 }]);
+
+    // Settled: the waiting settings can show now.
+    auto.show(later, { ...defaults, timelineSize: 30 });
+    expect(filled).toEqual([{ ...defaults, timelineSize: 30 }]);
   });
 });

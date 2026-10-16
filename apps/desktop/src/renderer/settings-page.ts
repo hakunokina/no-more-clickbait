@@ -1,4 +1,4 @@
-import { ManagedSettingsSchema, settingCopy, type UiLang } from "@nmc/core";
+import { settingCopy, type UiLang } from "@nmc/core";
 import type { DesktopApi } from "../preload/preload.js";
 import { messages, say } from "../shared/i18n.js";
 import type { SettingsStatus } from "../shared/settings-status.js";
@@ -23,8 +23,8 @@ const SAVED_NOTE_MS = 2_500;
 
 const form = buildSettingsForm(el("settings-form"));
 const choiceSelect = el<HTMLSelectElement>("browser-choice");
-/** The stamped settings the form was last filled with. */
-let filled = "";
+// Locked until the real settings are in: its starting values are only defaults.
+form.element.inert = true;
 let latest: SettingsStatus | null = null;
 let lang: UiLang = "en";
 /** The save line, re-worded when the language changes. */
@@ -54,18 +54,16 @@ function showSaveState(state: AutoSaveState): void {
       return;
   }
   // Settled: what the other side changed meanwhile can show now.
-  fillFromLatest();
+  if (latest) autosave.show(latest.stamp, latest.settings);
 }
 
-const autosave = new SettingsAutoSave(
-  {
-    read: (base) => form.read(base),
-    save: (settings) => window.nmc.updateSettings(settings),
-    showErrors: (errors) => form.showErrors(errors),
-    onState: showSaveState,
-  },
-  ManagedSettingsSchema.parse({}),
-);
+const autosave = new SettingsAutoSave({
+  read: (base) => form.read(base),
+  fill: (settings) => form.fill(settings),
+  save: (settings) => window.nmc.updateSettings(settings),
+  showErrors: (errors) => form.showErrors(errors),
+  onState: showSaveState,
+});
 
 // Number fields save once typing pauses; ticks, choices and a field left save at once.
 form.element.addEventListener("input", (event) => {
@@ -82,20 +80,6 @@ form.element.addEventListener("submit", (event) => {
   void autosave.flush();
 });
 window.nmc.onFlushSettings(() => autosave.flush());
-
-/**
- * Shows the latest settings unless the form holds edits of its own. A
- * push answer may carry the stamp just saved with other values (the
- * extension could not apply some), so the values count too.
- */
-function fillFromLatest(): void {
-  if (!latest || autosave.busy) return;
-  const key = JSON.stringify([latest.stamp, latest.settings]);
-  if (key === filled) return;
-  filled = key;
-  form.fill(latest.settings);
-  autosave.reset(latest.settings);
-}
 
 function renderBrowsers(status: SettingsStatus): void {
   const m = messages(lang);
@@ -136,7 +120,9 @@ function render(status: SettingsStatus): void {
   renderBrowsers(status);
   // A push from the other side never overwrites what is being typed.
   latest = status;
-  fillFromLatest();
+  autosave.show(status.stamp, status.settings);
+  form.element.inert = false;
+  el("load-note").textContent = "";
   el("outdated-note").textContent =
     status.extensionMissing.length > 0
       ? m.extensionOutdated(status.extensionMissing.map((key) => settingCopy(lang, key).label))
@@ -158,5 +144,9 @@ choiceSelect.addEventListener("change", () => {
 });
 
 window.nmc.onSettingsStatus(render);
-// Without a status the page still shows, in English.
-void window.nmc.getSettingsStatus().then(render, () => localizePage(document, lang));
+// Without a status the page still shows, in English, with the form locked:
+// saving its default values would overwrite the real settings.
+void window.nmc.getSettingsStatus().then(render, () => {
+  localizePage(document, lang);
+  if (!latest) el("load-note").textContent = messages(lang).settingsUnreadable;
+});
