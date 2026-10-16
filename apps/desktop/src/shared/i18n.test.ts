@@ -1,13 +1,7 @@
 import { readFileSync } from "node:fs";
 import { tableMismatches } from "@nmc/core";
 import { describe, expect, it } from "vitest";
-import {
-  describeLink,
-  describeRun,
-  describeUnfinished,
-  formatCost,
-  formatDuration,
-} from "./format.js";
+import { describeLink, describeUnfinished, formatCost, formatDuration } from "./format.js";
 import { DESKTOP_MESSAGES, messages, note, runErrorNote, say } from "./i18n.js";
 import { initialStatus, type DesktopStatus } from "./status.js";
 
@@ -87,6 +81,32 @@ describe("desktop messages", () => {
     expect(runErrorNote(undefined)).toEqual(note("errLastRunFailed"));
   });
 
+  it("groups the digits of every count, in the text and the labels alike", () => {
+    const en = messages("en");
+    const tr = messages("tr");
+    expect(tr.pendingTitle(1234)).toBe("1.234 gönderi toplandı");
+    expect(tr.posts(1234)).toBe("1.234 gönderi");
+    expect(tr.soFar(1234, 2500)).toBe("Şu ana kadar 1.234 / 2.500 gönderi.");
+    expect(tr.soFar(1234, null)).toBe("Şu ana kadar 1.234 gönderi.");
+    expect(tr.claims(1234, 2500)).toBe("1.234 / 2.500 iddia");
+    expect(tr.readyCount(1234)).toBe("1.234 gönderi.");
+    expect(tr.toJudge(1234)).toBe("1.234 gönderi değerlendirilecek");
+    expect(tr.collectingTarget(1234)).toMatch(/^Eklenti X akışından 1\.234 gönderi topluyor\./);
+    expect(tr.sitesTitle(1234, 2500)).toBe("Özel siteler · 1.234/2.500 bitti");
+    expect(tr.linkMany(1234)).toBe("1.234 tarayıcı bağlı.");
+    expect(tr.wholeNumber(1, 10000)).toBe("1 ile 10.000 arasında bir tam sayı gir.");
+    expect(en.pendingTitle(1234)).toBe("1,234 posts collected");
+    expect(en.posts(1234)).toBe("1,234 posts");
+    expect(en.soFar(1234, 2500)).toBe("1,234 of 2,500 posts so far.");
+    expect(en.claims(1234, 2500)).toBe("1,234 / 2,500 claims");
+    expect(en.readyCount(1234)).toBe("1,234 posts.");
+    expect(en.toJudge(1234)).toBe("1,234 posts to judge");
+    expect(en.collectingTarget(1234)).toMatch(/^The extension is collecting 1,234 posts /);
+    expect(en.sitesTitle(1234, 2500)).toBe("Custom sites · 1,234/2,500 done");
+    expect(en.linkMany(1234)).toBe("1,234 browsers connected.");
+    expect(en.wholeNumber(1, 10000)).toBe("Enter a whole number between 1 and 10,000.");
+  });
+
   it("formats the monitor's figures in the windows' language", () => {
     expect(formatCost(0.1234, "en")).toBe("$0.123");
     expect(formatCost(12.5, "en")).toBe("$12.50");
@@ -96,12 +116,7 @@ describe("desktop messages", () => {
     expect(formatDuration(null, "tr")).toBe("—");
   });
 
-  it("describes the run, the link and unfinished collections in Turkish", () => {
-    const collecting = status((s) => {
-      s.lang = "tr";
-      s.collection = { state: "collecting", message: null, target: 1500, count: 1200 };
-    });
-    expect(describeRun(collecting)).toBe("Tarayıcıda toplanıyor… 1.200 / 1.500 gönderi");
+  it("describes the link and unfinished collections in Turkish", () => {
     expect(describeLink(status((s) => (s.lang = "tr")))).toBe("Tarayıcı bağlantısı açılıyor…");
     expect(
       describeLink(
@@ -118,6 +133,5 @@ describe("desktop messages", () => {
     expect(describeUnfinished(unfinished)).toBe(
       "Daha önceki 2 toplama tamamlanmadı. Gönderileri diskte duruyor; akışa dönüştürülmedi.",
     );
-    expect(describeRun(status(() => undefined))).toBe("Idle");
   });
 });

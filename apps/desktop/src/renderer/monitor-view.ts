@@ -40,7 +40,11 @@ export interface PillView {
 export interface SiteRowView {
   name: string;
   state: "done" | "now" | "next" | "warn" | "bad";
-  /** Read out before the name, as on the pills. */
+  /**
+   * Read out before the name, as on the pills — but only for a site that
+   * went wrong ("Incomplete: "): "Done", "Collecting" and "Waiting" are
+   * already in its state, and saying them twice only makes it longer.
+   */
   spoken: string;
   /** The site's state in words, with its items once it has finished. */
   status: string;
@@ -219,7 +223,7 @@ function sitesView(status: DesktopStatus, m: DesktopMessages): SitesView | null 
     return {
       name: site.name,
       state,
-      spoken: spoken(m, state),
+      spoken: state === "warn" || state === "bad" ? spoken(m, state) : "",
       status: items
         ? `${m.siteStatus(site.status)} · ${m.siteItems(site.itemCount)}`
         : m.siteStatus(site.status),

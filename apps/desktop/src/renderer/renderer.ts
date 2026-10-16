@@ -102,7 +102,13 @@ function renderSites(view: MonitorView["sites"]): void {
       const state = document.createElement("span");
       state.className = "sites__state";
       state.textContent = row.status;
-      item.append(icon(SITE_ICONS[row.state]), spoken, name, " ", state);
+      item.append(
+        icon(SITE_ICONS[row.state]),
+        ...(row.spoken ? [spoken] : []),
+        name,
+        " ",
+        state,
+      );
       return item;
     }),
   );

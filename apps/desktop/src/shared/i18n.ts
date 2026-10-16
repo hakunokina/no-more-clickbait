@@ -176,7 +176,8 @@ const en = {
   unitPosts: (n: number) => plural("en", n, { one: "post", other: "posts" }),
   unitClaims: (n: number) => plural("en", n, { one: "claim", other: "claims" }),
   /** The custom sites of a collection, one line each under the feeds. */
-  sitesTitle: (done: number, total: number) => `Custom sites · ${done}/${total} done`,
+  sitesTitle: (done: number, total: number) =>
+    `Custom sites · ${enCount(done)}/${enCount(total)} done`,
   sitesProblems: (n: number) =>
     `${enCount(n)} ${plural("en", n, { one: "problem", other: "problems" })}`,
   siteStatus: (status: SiteProgress["status"]) => EN_SITE_STATUS[status],
@@ -196,28 +197,15 @@ const en = {
   seconds: (s: number) => `${s} s`,
   minutes: (m: number) => `${m} min`,
   minutesSeconds: (m: number, s: number) => `${m} min ${s} s`,
-  // Run line
-  runChecking: "Checking the claude CLI…",
-  runFiltering: "Filtering ads and repeats…",
-  runScoring: (posts: number | null) =>
-    posts === null ? "Scoring posts…" : `Scoring ${enPosts(posts)}…`,
-  runVerifying: (done: number, total: number) => `Verifying claims ${done}/${total}…`,
-  runRendering: "Writing the timeline…",
-  runReady: (posts: number | null) => (posts === null ? "Ready" : `Ready — ${enPosts(posts)}`),
   runError: "The timeline could not be prepared",
   runCancelled: "Run cancelled",
   collectRequested: "Asking the extension to collect…",
   collectCancelling: "Cancelling the collection…",
-  collectProgress: (count: number, target: number) =>
-    `Collecting in the browser… ${enCount(count)} / ${enPosts(target)}`,
-  collectTarget: (target: number) => `Collecting ${enPosts(target)} in the browser…`,
-  collectAny: "Collecting posts in the browser…",
-  idle: "Idle",
   // Link line
   linkOpening: "Opening the browser link…",
   linkNoBrowser: "Browser extension not connected (open Brave/Chrome with the extension).",
   linkOne: "Browser extension connected.",
-  linkMany: (hosts: number) => `${hosts} browsers connected.`,
+  linkMany: (hosts: number) => `${enCount(hosts)} browsers connected.`,
   linkUnavailable:
     "The browser link could not be opened (is another copy of the app running?).",
   // Unfinished collections
@@ -267,8 +255,6 @@ const en = {
     "Nothing to collect: X, Instagram and every custom site are off. Turn one on in Settings.",
   modeBOffFeeds: (target: number | null, feeds: CollectSource[]) =>
     `Automatic collection (Mode B) is off. Browse ${feeds.map((feed) => FEED_PLACES[feed]).join(" and ")} in your browser; once ${target === null ? "enough posts are" : `${enPosts(target)} are`} collected from each you can build the timeline.`,
-  collectProgressFeeds: (feeds: FeedProgress[], target: number | null) =>
-    `Collecting in the browser… ${feedCounts(feeds, target, enCount)}`,
   feedCountsLine: (feeds: FeedProgress[], target: number | null) =>
     feedCounts(feeds, target, enCount),
   feedsNotReached: (outcomes: CollectSourceOutcome[]) =>
@@ -343,7 +329,7 @@ const en = {
   prepScoring: "Claude reads and scores",
   prepScoringDetail: "One call · a few minutes",
   prepVerifying: "Checking the claims worth verifying",
-  claims: (done: number, total: number) => `${done} / ${total} claims`,
+  claims: (done: number, total: number) => `${enCount(done)} / ${enCount(total)} claims`,
   prepRendering: "Writing the timeline",
   preparingTitle: "Preparing the timeline",
   preparingLead: "You can close this window; the tray lets you know when it is ready.",
@@ -407,7 +393,8 @@ const en = {
   saveFailed: (error: string) => `Could not save: ${error}`,
   choiceFailed: (error: string) => `Could not save the browser choice: ${error}`,
   pickOption: "Pick one of the listed options.",
-  wholeNumber: (min: number, max: number) => `Enter a whole number between ${min} and ${max}.`,
+  wholeNumber: (min: number, max: number) =>
+    `Enter a whole number between ${enCount(min)} and ${enCount(max)}.`,
   outOfRange: "Some values are out of range.",
 };
 
@@ -508,7 +495,7 @@ const tr: MessageTable<DesktopMessages> = {
   // Turkish keeps the noun singular after a number.
   unitPosts: (_n) => "gönderi",
   unitClaims: (_n) => "iddia",
-  sitesTitle: (done, total) => `Özel siteler · ${done}/${total} bitti`,
+  sitesTitle: (done, total) => `Özel siteler · ${trCount(done)}/${trCount(total)} bitti`,
   sitesProblems: (n) => `${trCount(n)} sorun`,
   siteStatus: (status) => TR_SITE_STATUS[status],
   siteItems: (n) => `${trCount(n)} öğe`,
@@ -527,26 +514,14 @@ const tr: MessageTable<DesktopMessages> = {
   seconds: (s) => `${s} sn`,
   minutes: (m) => `${m} dk`,
   minutesSeconds: (m, s) => `${m} dk ${s} sn`,
-  runChecking: "claude CLI denetleniyor…",
-  runFiltering: "Reklam ve tekrarlar ayıklanıyor…",
-  runScoring: (posts) =>
-    posts === null ? "Gönderiler puanlanıyor…" : `${trCount(posts)} gönderi puanlanıyor…`,
-  runVerifying: (done, total) => `İddialar doğrulanıyor ${done}/${total}…`,
-  runRendering: "Akış yazılıyor…",
-  runReady: (posts) => (posts === null ? "Hazır" : `Hazır — ${trCount(posts)} gönderi`),
   runError: "Akış hazırlanamadı",
   runCancelled: "Çalıştırma iptal edildi",
   collectRequested: "Eklentiden toplaması isteniyor…",
   collectCancelling: "Toplama iptal ediliyor…",
-  collectProgress: (count, target) =>
-    `Tarayıcıda toplanıyor… ${trCount(count)} / ${trCount(target)} gönderi`,
-  collectTarget: (target) => `Tarayıcıda ${trCount(target)} gönderi toplanıyor…`,
-  collectAny: "Tarayıcıda gönderiler toplanıyor…",
-  idle: "Boşta",
   linkOpening: "Tarayıcı bağlantısı açılıyor…",
   linkNoBrowser: "Tarayıcı eklentisi bağlı değil (Brave/Chrome'u eklentiyle aç).",
   linkOne: "Tarayıcı eklentisi bağlı.",
-  linkMany: (hosts) => `${hosts} tarayıcı bağlı.`,
+  linkMany: (hosts) => `${trCount(hosts)} tarayıcı bağlı.`,
   linkUnavailable:
     "Tarayıcı bağlantısı açılamadı (uygulamanın başka bir kopyası mı çalışıyor?).",
   unfinished: (count, newestAt) =>
@@ -588,8 +563,6 @@ const tr: MessageTable<DesktopMessages> = {
     "Toplanacak bir şey yok: X, Instagram ve tüm özel siteler kapalı. Ayarlar'da birini aç.",
   modeBOffFeeds: (target, feeds) =>
     `Otomatik toplama (B modu) kapalı. Tarayıcında ${feeds.map((feed) => FEED_PLACES[feed]).join(" ve ")} adreslerinde gezin; her birinden ${target === null ? "yeterli gönderi" : `${trCount(target)} gönderi`} toplanınca akışı oluşturabilirsin.`,
-  collectProgressFeeds: (feeds, target) =>
-    `Tarayıcıda toplanıyor… ${feedCounts(feeds, target, trCount)}`,
   feedCountsLine: (feeds, target) => feedCounts(feeds, target, trCount),
   feedsNotReached: (outcomes) =>
     `Hedefe ulaşılamadı — akış şunlarla oluşturuluyor: ${trOutcomes(outcomes)}.`,
@@ -648,25 +621,25 @@ const tr: MessageTable<DesktopMessages> = {
   stepWaiting: "Sırada: ",
   stepIncomplete: "Eksik: ",
   prepCollected: "Toplandı",
-  posts: (posts) => `${posts} gönderi`,
+  posts: (posts) => `${trCount(posts)} gönderi`,
   prepSetAside: "Reklam, tekrar ve yalnız-medya ayrıldı",
-  toJudge: (posts) => `${posts} gönderi değerlendirilecek`,
+  toJudge: (posts) => `${trCount(posts)} gönderi değerlendirilecek`,
   prepScoring: "Claude okuyor ve puanlıyor",
   prepScoringDetail: "Tek çağrı · birkaç dakika",
   prepVerifying: "Doğrulamaya değer iddialar kontrol ediliyor",
-  claims: (done, total) => `${done} / ${total} iddia`,
+  claims: (done, total) => `${trCount(done)} / ${trCount(total)} iddia`,
   prepRendering: "Akış yazılıyor",
   preparingTitle: "Akış hazırlanıyor",
   preparingLead: "Bu pencereyi kapatabilirsin; hazır olunca tepsiden haber verilir.",
   cancel: "İptal",
   collectingTitle: "Gönderiler toplanıyor",
   collectingTarget: (target) =>
-    `Eklenti X akışından ${target} gönderi topluyor. Bitince akış kendiliğinden hazırlanır.`,
+    `Eklenti X akışından ${trCount(target)} gönderi topluyor. Bitince akış kendiliğinden hazırlanır.`,
   collectingAny: "Eklenti X akışından gönderi topluyor. Bitince akış kendiliğinden hazırlanır.",
   collectingFeeds: (target, feeds) =>
     `Eklenti ${feedList("tr", feeds)} akışlarının her birinden sırayla ${target === null ? "gönderi" : `${trCount(target)} gönderi`} topluyor. Bitince akış kendiliğinden hazırlanır.`,
-  soFar: (count, target) => `Şu ana kadar ${count}${target ? ` / ${target}` : ""} gönderi.`,
-  pendingTitle: (posts) => `${posts} gönderi toplandı`,
+  soFar: (count, target) => `Şu ana kadar ${trOf(count, target)}.`,
+  pendingTitle: (posts) => `${trCount(posts)} gönderi toplandı`,
   pendingLeadA: (feeds) =>
     `${feeds === null ? "X'te" : feeds.length > 0 ? `${feedList("tr", feeds)}${TR_LOCATIVE[feeds.at(-1) ?? "x"]}` : "Özel sitelerinde"} gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.`,
   pendingLeadB:
@@ -680,7 +653,7 @@ const tr: MessageTable<DesktopMessages> = {
   goneLead:
     "Bu akışın dosyaları yer açmak için silindi (eski toplamalar sınırlı sayıda saklanır). Yeni bir akış toplayabilirsin.",
   readyTitle: "Akış hazır",
-  readyCount: (posts) => `${posts} gönderi.`,
+  readyCount: (posts) => `${trCount(posts)} gönderi.`,
   openTimeline: "Akışı aç",
   emptyTitle: "Henüz akış yok",
   emptyLead:
@@ -715,7 +688,7 @@ const tr: MessageTable<DesktopMessages> = {
   saveFailed: (error) => `Kaydedilemedi: ${error}`,
   choiceFailed: (error) => `Tarayıcı seçimi kaydedilemedi: ${error}`,
   pickOption: "Listedeki seçeneklerden birini seç.",
-  wholeNumber: (min, max) => `${min} ile ${max} arasında bir tam sayı gir.`,
+  wholeNumber: (min, max) => `${trCount(min)} ile ${trCount(max)} arasında bir tam sayı gir.`,
   outOfRange: "Bazı değerler aralığın dışında.",
 };
 

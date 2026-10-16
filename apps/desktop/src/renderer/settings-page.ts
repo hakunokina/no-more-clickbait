@@ -5,6 +5,7 @@ import type { SettingsStatus } from "../shared/settings-status.js";
 import { localizePage } from "./localize.js";
 import { SettingsAutoSave, type AutoSaveState } from "./settings-autosave.js";
 import { buildSettingsForm } from "./settings-form.js";
+import { loadSettings } from "./settings-load.js";
 
 declare global {
   interface Window {
@@ -155,9 +156,17 @@ choiceSelect.addEventListener("change", () => {
 });
 
 window.nmc.onSettingsStatus(render);
-// Without a status the page still shows, in English, with the form locked:
-// saving its default values would overwrite the real settings.
-void window.nmc.getSettingsStatus().then(render, () => {
-  localizePage(document, lang);
-  if (!latest) el("load-note").textContent = messages(lang).settingsUnreadable;
+// Without a status the page still shows, in the system's language, with the
+// form locked: saving its default values would overwrite the real settings.
+loadSettings({
+  get: () => window.nmc.getSettingsStatus(),
+  render,
+  unreadable: (systemLang) => {
+    if (latest) return;
+    lang = systemLang;
+    localizePage(document, lang, messages(lang).settingsWindowTitle);
+    form.setLanguage(lang);
+    el("load-note").textContent = messages(lang).settingsUnreadable;
+  },
+  systemLocales: navigator.languages,
 });
