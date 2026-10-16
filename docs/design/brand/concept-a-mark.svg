@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="256" height="256" role="img" aria-labelledby="t">
+  <title id="t">No More Clickbait — konsept A (Kırık kanca) — işaret</title>
+  <rect width="32" height="32" rx="8" fill="#1f6b4f"/>
+  <circle cx="20" cy="7" r="2.5" fill="none" stroke="#faf7f2" stroke-width="3"/>
+  <path d="M20 10V19A5.5 5.5 0 0 1 9 19V13M9 13L11.5 15.5" fill="none" stroke="#faf7f2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M15.5 18.5L24.5 13" stroke="#1f6b4f" stroke-width="3.5"/>
+</svg>
