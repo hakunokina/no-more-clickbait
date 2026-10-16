@@ -88,6 +88,8 @@ const TR_INSTAGRAM_STOP_REASONS: Readonly<Record<string, string>> = {
 
 /** The scrolled feeds by name (the same in both languages). */
 const FEED_NAMES: Readonly<Record<CollectSource, string>> = { x: "X", instagram: "Instagram" };
+/** Turkish locative suffix after each feed's name ("X'te", "Instagram'da"). */
+const TR_LOCATIVE: Readonly<Record<CollectSource, string>> = { x: "'te", instagram: "'da" };
 /** Where the user browses each feed in Mode A. */
 const FEED_PLACES: Readonly<Record<CollectSource, string>> = {
   x: "x.com/home",
@@ -320,8 +322,8 @@ const en = {
     `The extension is collecting ${target === null ? "posts" : enPosts(target)} from each of ${feedList("en", feeds)}, one after the other. The timeline is prepared on its own when it is done.`,
   soFar: (count: number, target: number | null) => `${enOf(count, target)} so far.`,
   pendingTitle: (posts: number) => `${enPosts(posts)} collected`,
-  pendingLeadA:
-    "Build the timeline from the posts collected while you browsed X? Claude scores and checks them; it takes a few minutes.",
+  pendingLeadA: (feeds: CollectSource[] | null) =>
+    `Build the timeline from the posts collected while you browsed ${feeds === null ? "X" : feeds.length > 0 ? feedList("en", feeds) : "your custom sites"}? Claude scores and checks them; it takes a few minutes.`,
   pendingLeadB:
     "The collection stopped before its target. Build the timeline from what was collected anyway? Claude scores and checks them; it takes a few minutes.",
   notPrepared: "The timeline could not be prepared",
@@ -611,8 +613,8 @@ const tr: MessageTable<DesktopMessages> = {
     `Eklenti ${feedList("tr", feeds)} akışlarının her birinden sırayla ${target === null ? "gönderi" : `${trCount(target)} gönderi`} topluyor. Bitince akış kendiliğinden hazırlanır.`,
   soFar: (count, target) => `Şu ana kadar ${count}${target ? ` / ${target}` : ""} gönderi.`,
   pendingTitle: (posts) => `${posts} gönderi toplandı`,
-  pendingLeadA:
-    "X'te gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.",
+  pendingLeadA: (feeds) =>
+    `${feeds === null ? "X'te" : feeds.length > 0 ? `${feedList("tr", feeds)}${TR_LOCATIVE[feeds.at(-1) ?? "x"]}` : "Özel sitelerinde"} gezinirken toplanan gönderilerden akışı oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.`,
   pendingLeadB:
     "Toplama hedefe ulaşmadan durdu. Toplananlarla akışı yine de oluşturalım mı? Claude puanlar ve doğrular; birkaç dakika sürer.",
   notPrepared: "Akış hazırlanamadı",

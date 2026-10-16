@@ -375,7 +375,7 @@ export const EN = {
     "<b>Mode A (always available):</b> while you browse X yourself, the extension passively keeps the timeline responses your browser already received.",
   optModeBLabel: "Mode B: collect automatically in a hidden tab",
   optModeBRisk:
-    "<b>Off by default, and risky.</b> Mode B opens X in a hidden tab and scrolls it automatically until enough posts are gathered. Automated browsing sits in a grey area of X's Terms of Service and may put your account at risk (rate limits, locks or suspension). Only enable it if you understand and accept that. See the README section “Mode B and its risks”.",
+    "<b>Off by default, and risky.</b> Mode B opens X and Instagram in a hidden tab and scrolls them automatically until enough posts are gathered. Automated browsing sits in a grey area of X's and Instagram's terms of use and may put your accounts at risk (rate limits, locks or suspension). Only enable it if you understand and accept that. See the README section “Mode B and its risks”.",
   optModeBRun:
     "A run collects “Posts to collect” distinct organic posts (no ads, no repeats). It also stops after 10 minutes, after about 20 seconds without a new post, or when X shows a login, error or rate-limit page. The hidden window closes when the run ends.",
   optStrategyLabel: "Where to collect",
@@ -387,7 +387,7 @@ export const EN = {
   optPacingNormal: "Normal (default)",
   optPacingFast: "Fast",
   optPacingHint:
-    "Fast scrolls twice as quickly, but may be more likely to be noticed by X. Save before collecting.",
+    "Fast scrolls twice as quickly, but may be more likely to be noticed by X and Instagram. Save before collecting.",
   optLastRunHeading: "Last run",
   optDevLegend: "Developer capture",
   optDevLabel: "Developer capture: save raw timeline responses locally",
@@ -856,7 +856,7 @@ export const TR: Record<MessageKey, string> = {
     "<b>A modu (her zaman açık):</b> X'te kendin gezinirken eklenti, tarayıcının zaten aldığı akış yanıtlarını kendiliğinden saklar.",
   optModeBLabel: "B modu: gizli bir pencerede kendiliğinden topla",
   optModeBRisk:
-    "<b>Varsayılan olarak kapalı ve riskli.</b> B modu X'i gizli bir pencerede açar ve yeterli gönderi toplanana kadar kendiliğinden kaydırır. Otomatik gezinme X'in Hizmet Şartları'nın gri bir alanında kalır ve hesabını riske atabilir (hız sınırı, kilitlenme ya da askıya alma). Yalnız bunu anlayıp kabul ediyorsan aç. README'deki “Mode B and its risks” bölümüne bak.",
+    "<b>Varsayılan olarak kapalı ve riskli.</b> B modu X'i ve Instagram'ı gizli bir pencerede açar ve yeterli gönderi toplanana kadar kendiliğinden kaydırır. Otomatik gezinme X'in ve Instagram'ın kullanım şartlarının gri bir alanında kalır ve hesaplarını riske atabilir (hız sınırı, kilitlenme ya da askıya alma). Yalnız bunu anlayıp kabul ediyorsan aç. README'deki “Mode B and its risks” bölümüne bak.",
   optModeBRun:
     "Bir çalıştırma “Toplanacak gönderi” kadar farklı organik gönderi toplar (reklam ve tekrar yok). 10 dakika sonra, yaklaşık 20 saniye yeni gönderi gelmeyince ya da X bir giriş, hata veya hız sınırı sayfası gösterince de durur. Çalıştırma bitince gizli pencere kapanır.",
   optStrategyLabel: "Toplama yeri",
@@ -868,7 +868,7 @@ export const TR: Record<MessageKey, string> = {
   optPacingNormal: "Normal (varsayılan)",
   optPacingFast: "Hızlı",
   optPacingHint:
-    "Hızlı, iki kat çabuk kaydırır ama X'in dikkatini çekme olasılığı daha yüksek olabilir. Toplamadan önce kaydet.",
+    "Hızlı, iki kat çabuk kaydırır ama X'in ve Instagram'ın dikkatini çekme olasılığı daha yüksek olabilir. Toplamadan önce kaydet.",
   optLastRunHeading: "Son çalıştırma",
   optDevLegend: "Geliştirici kaydı",
   optDevLabel: "Geliştirici kaydı: ham akış yanıtlarını yerelde sakla",

@@ -813,10 +813,13 @@ async function startNewCountingSession(): Promise<void> {
   generation += 1;
   desktopLinked = false;
   channel.retire();
+  // Cleared with the port it belongs to, before any await: a batch sent
+  // on the next port meanwhile marks the new session, not this one.
+  postsSent = false;
+  const sentCleared = chrome.storage.session.remove(FEED_POSTS_SENT_KEY).catch(() => undefined);
   await session.reset();
   await igSession.reset();
-  postsSent = false;
-  await chrome.storage.session.remove(FEED_POSTS_SENT_KEY).catch(() => undefined);
+  await sentCleared;
   await changeProgress(() => ({}));
   if (titled) {
     titled = false;

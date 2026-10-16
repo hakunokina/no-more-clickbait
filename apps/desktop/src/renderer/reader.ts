@@ -153,7 +153,13 @@ function render(status: DesktopStatus): void {
   } else if (status.pending) {
     content = [
       h("h1", {}, m.pendingTitle(status.pending.uniquePostCount)),
-      h("p", {}, status.pending.mode === "A" ? m.pendingLeadA : m.pendingLeadB),
+      h(
+        "p",
+        {},
+        status.pending.mode === "A"
+          ? m.pendingLeadA(status.pending.sources?.map((feed) => feed.source) ?? null)
+          : m.pendingLeadB,
+      ),
       ...(note ? [h("p", { class: "muted" }, note)] : []),
       h(
         "div",

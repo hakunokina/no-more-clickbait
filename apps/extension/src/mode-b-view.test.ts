@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SettingsSchema, type ModeBRunSummary } from "@nmc/core";
-import { lastRunLine, lastRunRows, progressLine } from "./mode-b-view.js";
+import { finishOffered, lastRunLine, lastRunRows, progressLine } from "./mode-b-view.js";
 
 describe("the popup's per-feed progress", () => {
   const both = SettingsSchema.parse({ collectTarget: 250, collectFromInstagram: true });
@@ -21,6 +21,20 @@ describe("the popup's per-feed progress", () => {
 
   it("ignores a malformed record", () => {
     expect(progressLine(both, { x: { count: -1 }, instagram: "lots" })).toBe("");
+  });
+
+  it("offers Finish now once any feed counted a post, even one turned off", () => {
+    expect(finishOffered(undefined, undefined)).toBe(false);
+    expect(finishOffered({ x: { count: 0 } }, undefined)).toBe(false);
+    expect(finishOffered({ x: { count: 3 } }, undefined)).toBe(true);
+    // Developer capture keeps the collection open with both ticks off.
+    const neither = SettingsSchema.parse({ collectFromX: false });
+    expect(progressLine(neither, { instagram: { count: 40 } })).toBe("");
+    expect(finishOffered({ instagram: { count: 40 } }, undefined)).toBe(true);
+  });
+
+  it("does not offer Finish now while a Mode B run has its own Stop", () => {
+    expect(finishOffered({ x: { count: 3 } }, { uniquePostCount: 3, target: 250 })).toBe(false);
   });
 });
 
