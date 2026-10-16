@@ -71,6 +71,40 @@ describe("monitorActions", () => {
     });
   });
 
+  it("opens a ready timeline first, with collecting as the secondary link", () => {
+    const ready = status((s) => {
+      s.run.stage = "ready";
+      s.run.hasTimeline = true;
+      s.run.counts.selected = 42;
+    });
+    expect(monitorActions(ready)).toEqual({
+      primary: "open",
+      label: "Open reading window",
+      disabled: false,
+      collectLink: true,
+    });
+    expect(monitorActions({ ...ready, lang: "tr" }).label).toBe("Okuma penceresini aç");
+    // Nothing to open: the timeline was pruned, or none was written.
+    const gone = status((s) => {
+      s.run.stage = "ready";
+      s.run.timelineGone = true;
+    });
+    expect(monitorActions(gone)).toMatchObject({ primary: "collect", collectLink: false });
+    // A newer collection waiting to be built comes before reading the old timeline.
+    const pendingOverReady = status((s) => {
+      s.run.stage = "ready";
+      s.run.hasTimeline = true;
+      s.pending = {
+        sessionId: "2026-01-01T11-00-00-000Z-cd34",
+        uniquePostCount: 40,
+        mode: "A",
+        reason: "target-reached",
+        target: 40,
+      };
+    });
+    expect(monitorActions(pendingOverReady)).toMatchObject({ primary: "build" });
+  });
+
   it("labels the buttons in the windows' language", () => {
     const failed = status((s) => {
       s.lang = "tr";
