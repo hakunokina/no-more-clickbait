@@ -146,7 +146,7 @@ function dispatch(raw: string): void {
     onOversizedCapture: (capture) => captureStore(capture.source).recordOversized(capture),
     captureStats: (source) => captureStore(source).stats,
     onModeBRun: (run) => captureStore().recordModeBRun(run),
-    onSettingsSync: async (settings, stamp) => {
+    onSettingsSync: async (settings, stamp, missing) => {
       const file = await saveSettingsFile(settings, stamp);
       link?.send({
         type: "settings-state",
@@ -154,9 +154,13 @@ function dispatch(raw: string): void {
         settings,
         stamp: stamp ?? UNSTAMPED,
         saved: file.written,
+        ...(missing.length > 0 ? { extensionMissing: missing } : {}),
       });
     },
-    onSettingsPushResult: async ({ outcome, settings, stamp, modeBPermissionMissing }) => {
+    onSettingsPushResult: async (
+      { outcome, settings, stamp, modeBPermissionMissing },
+      missing,
+    ) => {
       const file = await saveSettingsFile(settings, stamp);
       link?.send({
         type: "settings-state",
@@ -166,6 +170,7 @@ function dispatch(raw: string): void {
         stamp,
         saved: file.written,
         ...(modeBPermissionMissing !== undefined ? { modeBPermissionMissing } : {}),
+        ...(missing.length > 0 ? { extensionMissing: missing } : {}),
       });
     },
   })

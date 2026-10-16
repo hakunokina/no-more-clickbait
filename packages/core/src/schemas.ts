@@ -814,6 +814,19 @@ export const ManagedSettingsSchema = SettingsFieldsSchema.pick({
 });
 export type ManagedSettings = z.infer<typeof ManagedSettingsSchema>;
 
+export const ManagedSettingKeySchema = ManagedSettingsSchema.keyof();
+
+/**
+ * The managed settings missing from `raw` as a sender wrote it. An
+ * extension built before a setting existed drops it unread (its schema
+ * strips unknown keys), and parsing fills the gap with the default, so
+ * the raw message is the only place the difference shows.
+ */
+export function missingManagedSettings(raw: unknown): (keyof ManagedSettings)[] {
+  const record = typeof raw === "object" && raw !== null ? raw : {};
+  return ManagedSettingKeySchema.options.filter((key) => !(key in record));
+}
+
 /**
  * When and where a settings set was last saved. Two copies (extension,
  * settings.json, a desktop change waiting for the browser) are

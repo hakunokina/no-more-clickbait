@@ -1,5 +1,6 @@
 import {
   BridgeMessageSchema,
+  missingManagedSettings,
   type BridgeReply,
   type CaptureSource,
   type CaptureStats,
@@ -38,10 +39,21 @@ export interface BridgeHandlers {
   onCollectionStartResult?: (result: CollectionStartResult) => Promise<void> | void;
   /** Relays a Mode B run's count so far to the desktop app. */
   onCollectionProgress?: (progress: CollectionProgress) => Promise<void> | void;
-  /** Saves the user's settings for the desktop (settings.json). */
-  onSettingsSync?: (settings: ManagedSettings, stamp?: SettingsStamp) => Promise<void> | void;
+  /**
+   * Saves the user's settings for the desktop (settings.json). `missing`:
+   * the managed settings the extension left out — it is older than this
+   * host, and they hold defaults.
+   */
+  onSettingsSync?: (
+    settings: ManagedSettings,
+    stamp: SettingsStamp | undefined,
+    missing: (keyof ManagedSettings)[],
+  ) => Promise<void> | void;
   /** Saves the settings the extension holds after a desktop push, and tells the desktop. */
-  onSettingsPushResult?: (result: SettingsPushResult) => Promise<void> | void;
+  onSettingsPushResult?: (
+    result: SettingsPushResult,
+    missing: (keyof ManagedSettings)[],
+  ) => Promise<void> | void;
 }
 
 const EMPTY_STATS: CaptureStats = {
@@ -133,14 +145,21 @@ export async function handleBridgeMessage(
       if (!handlers.onSettingsSync) {
         return { type: "error", message: "settings sync is not configured on this host" };
       }
-      await handlers.onSettingsSync(parsed.data.settings, parsed.data.stamp);
+      await handlers.onSettingsSync(
+        parsed.data.settings,
+        parsed.data.stamp,
+        missingManagedSettings((parsedJson as { settings?: unknown }).settings),
+      );
       return { type: "settings-synced" };
     }
     case "settings-push-result": {
       if (!handlers.onSettingsPushResult) {
         return { type: "error", message: "settings sync is not configured on this host" };
       }
-      await handlers.onSettingsPushResult(parsed.data);
+      await handlers.onSettingsPushResult(
+        parsed.data,
+        missingManagedSettings((parsedJson as { settings?: unknown }).settings),
+      );
       return { type: "settings-synced" };
     }
     case "collection-complete": {

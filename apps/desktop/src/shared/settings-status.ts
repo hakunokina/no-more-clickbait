@@ -30,6 +30,8 @@ export interface SettingsStatus {
   browserConnected: boolean;
   /** Mode B was asked for here but its browser permission is missing. */
   modeBPermissionMissing: boolean;
+  /** Settings the collecting browser's extension is too old to know. */
+  extensionMissing: (keyof ManagedSettings)[];
   choice: BrowserChoice;
   /** Installed Chromium browsers the user can pick from. */
   browsers: BrowserOption[];

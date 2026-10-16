@@ -17,7 +17,6 @@
       .sub { margin: 0 0 1rem; opacity: 0.75; font-size: 0.9rem; }
       section { border: 1px solid #8884; border-radius: 0.6rem; padding: 0.75rem; margin-bottom: 0.75rem; }
       h2 { font-size: 0.9rem; margin: 0 0 0.5rem; }
-      button { min-height: 2.5rem; padding: 0.4rem 1rem; width: 100%; margin-top: 0.5rem; }
       :focus-visible { outline: 0.15rem solid #0b57d0; outline-offset: 0.15rem; }
       .ok { color: #1c7c3c; }
       .bad { color: #b3261e; }
@@ -49,7 +48,7 @@
     <h1 data-i18n="settingsTitle">Settings</h1>
     <p class="sub" data-i18n="settingsSub">
       The same settings as the extension's options page — a change here is sent to the
-      browser extension, and a change there shows up here.
+      browser extension, and a change there shows up here. Changes are saved as you make them.
     </p>
 
     <section aria-labelledby="browser-h">
@@ -62,8 +61,8 @@
     <section aria-labelledby="settings-h">
       <h2 id="settings-h" data-i18n="settingsSection">Collection, filter and checks</h2>
       <div id="settings-form"></div>
-      <button id="save" type="button" data-i18n="saveSettings">Save settings</button>
       <p id="save-note" class="note" role="status" aria-live="polite"></p>
+      <p id="outdated-note" class="note bad" aria-live="polite"></p>
       <p id="pending-note" class="note" aria-live="polite"></p>
       <p id="mode-b-note" class="note bad" role="alert"></p>
     </section>

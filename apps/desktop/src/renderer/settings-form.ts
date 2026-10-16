@@ -64,19 +64,28 @@ export function settingFieldModels(lang: UiLang = "en"): SettingFieldModel[] {
 /** Raw form values keyed by setting (text for integers/choices, checkbox booleans). */
 export type SettingFormValues = Readonly<Record<string, string | boolean>>;
 
-/** Errors are notes: the form words them in whatever language it shows. */
-export type SettingFormResult =
-  | { ok: true; settings: ManagedSettings }
-  | { ok: false; errors: Readonly<Record<string, Note>> };
+/**
+ * The settings to save — every valid field's value over `base` — and
+ * the fields that do not validate (they keep their `base` value). Errors
+ * are notes: the form words them in whatever language it shows.
+ */
+export interface SettingFormResult {
+  settings: ManagedSettings;
+  errors: Readonly<Record<string, Note>>;
+}
 
 /**
  * Validates raw form values against core's bounds. Every bad field gets
  * its own message (the form is `novalidate`; native bubbles would hide
- * these). Unknown keys are ignored, missing ones read as invalid.
+ * these) and is left at its `base` value, so the valid ones can still be
+ * saved. Unknown keys are ignored, missing ones read as invalid.
  */
-export function parseSettingForm(values: SettingFormValues): SettingFormResult {
+export function readSettingForm(
+  values: SettingFormValues,
+  base: ManagedSettings,
+): SettingFormResult {
   const errors: Record<string, Note> = {};
-  const parsed: Record<string, unknown> = {};
+  const parsed: Record<string, unknown> = { ...base };
   for (const field of settingFieldModels()) {
     const raw = values[field.key];
     if (field.kind === "boolean") {
@@ -96,11 +105,10 @@ export function parseSettingForm(values: SettingFormValues): SettingFormResult {
       }
     }
   }
-  if (Object.keys(errors).length > 0) return { ok: false, errors };
   const settings = ManagedSettingsSchema.safeParse(parsed);
   return settings.success
-    ? { ok: true, settings: settings.data }
-    : { ok: false, errors: { form: note("outOfRange") } };
+    ? { settings: settings.data, errors }
+    : { settings: base, errors: { ...errors, form: note("outOfRange") } };
 }
 
 /** The raw values that fill the form from a settings object. */
@@ -117,7 +125,7 @@ export function settingFormValues(settings: ManagedSettings): Record<string, str
 
 export interface SettingsFormHandle {
   element: HTMLFormElement;
-  read(): SettingFormResult;
+  read(base: ManagedSettings): SettingFormResult;
   fill(settings: ManagedSettings): void;
   showErrors(errors: Readonly<Record<string, Note>>): void;
   /** Re-words labels, hints, choices and shown errors; values stay. */
@@ -214,7 +222,7 @@ export function buildSettingsForm(
 
   return {
     element: form,
-    read() {
+    read(base) {
       const values: Record<string, string | boolean> = {};
       for (const [key, { input }] of fields) {
         values[key] =
@@ -222,7 +230,7 @@ export function buildSettingsForm(
             ? input.checked
             : input.value;
       }
-      return parseSettingForm(values);
+      return readSettingForm(values, base);
     },
     fill(settings) {
       const values = settingFormValues(settings);
@@ -241,12 +249,11 @@ export function buildSettingsForm(
     showErrors(errors) {
       shownErrors = errors;
       word();
+      // No focus move: errors show while the user types, saved as they go.
       for (const [key, { input }] of fields) {
         if (errors[key]) input.setAttribute("aria-invalid", "true");
         else input.removeAttribute("aria-invalid");
       }
-      const first = Object.keys(errors)[0];
-      if (first) fields.get(first)?.input.focus();
     },
     setLanguage(next) {
       if (next === shownLang) return;
