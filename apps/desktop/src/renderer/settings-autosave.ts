@@ -1,4 +1,4 @@
-import type { ManagedSettings } from "@nmc/core";
+import type { ManagedSettings, SettingsStamp } from "@nmc/core";
 import type { Note } from "../shared/i18n.js";
 import type { SettingFormResult } from "./settings-form.js";
 
@@ -9,7 +9,8 @@ import type { SettingFormResult } from "./settings-form.js";
  * that does not validate is shown as such and never saved: it keeps its
  * last valid value, while the other fields still save. Saves go out one
  * at a time; `flush` saves whatever waits (the window calls it before
- * it closes).
+ * it closes). Nothing is saved before the real settings have been shown
+ * once: the form's starting values are only defaults.
  */
 
 export const AUTOSAVE_DELAY_MS = 400;
@@ -24,6 +25,8 @@ export type AutoSaveState =
 export interface AutoSaveDeps {
   /** The form's values over `base` (the last saved settings). */
   read(base: ManagedSettings): SettingFormResult;
+  /** Fills the form with settings from outside. */
+  fill(settings: ManagedSettings): void;
   save(settings: ManagedSettings): Promise<void>;
   showErrors(errors: Readonly<Record<string, Note>>): void;
   onState(state: AutoSaveState): void;
@@ -36,7 +39,10 @@ function sameSettings(a: ManagedSettings, b: ManagedSettings): boolean {
 
 export class SettingsAutoSave {
   readonly #deps: AutoSaveDeps;
-  #saved: ManagedSettings;
+  /** Null until the real settings have been shown: there is nothing to save over. */
+  #saved: ManagedSettings | null = null;
+  /** The stamped settings the form was last filled with. */
+  #shown = "";
   #timer: ReturnType<typeof setTimeout> | undefined;
   #work: Promise<void> = Promise.resolve();
   /** Saves queued or under way. */
@@ -45,9 +51,8 @@ export class SettingsAutoSave {
   /** The last save failed: the form holds changes not saved anywhere. */
   #failed = false;
 
-  constructor(deps: AutoSaveDeps, saved: ManagedSettings) {
+  constructor(deps: AutoSaveDeps) {
     this.#deps = deps;
-    this.#saved = saved;
   }
 
   /**
@@ -58,16 +63,26 @@ export class SettingsAutoSave {
     return this.#timer !== undefined || this.#queued > 0 || this.#invalid || this.#failed;
   }
 
-  /** The form now shows `settings` (filled from outside): they are the saved ones. */
-  reset(settings: ManagedSettings): void {
-    this.#cancelTimer();
+  /**
+   * Fills the form with the latest settings from outside unless it holds
+   * edits of its own; they become the saved ones. A push answer may carry
+   * the stamp just saved with other values (the other side could not
+   * apply some), so the values count too.
+   */
+  show(stamp: SettingsStamp, settings: ManagedSettings): void {
+    if (this.busy) return;
+    const key = JSON.stringify([stamp, settings]);
+    if (key === this.#shown) return;
+    this.#shown = key;
     this.#saved = settings;
     this.#invalid = false;
     this.#failed = false;
+    this.#deps.fill(settings);
   }
 
   /** A field is being typed in: saved once typing pauses. */
   typed(): void {
+    if (this.#saved === null) return;
     this.#cancelTimer();
     this.#timer = setTimeout(() => {
       this.#timer = undefined;
@@ -77,6 +92,7 @@ export class SettingsAutoSave {
 
   /** Saves what waits now (a committed change, or the window closing). */
   flush(): Promise<void> {
+    if (this.#saved === null) return this.#work;
     this.#cancelTimer();
     this.#queued += 1;
     this.#work = this.#work
@@ -105,11 +121,13 @@ export class SettingsAutoSave {
   }
 
   async #save(): Promise<AutoSaveState | null> {
-    const { settings, errors } = this.#deps.read(this.#saved);
+    const base = this.#saved;
+    if (base === null) return null;
+    const { settings, errors } = this.#deps.read(base);
     this.#deps.showErrors(errors);
     this.#invalid = Object.keys(errors).length > 0;
     // Nothing new (a field left unchanged, a bad entry only): no save, no new stamp.
-    if (sameSettings(settings, this.#saved) && !this.#failed) {
+    if (sameSettings(settings, base) && !this.#failed) {
       return this.#invalid ? { kind: "invalid" } : null;
     }
     this.#deps.onState({ kind: "saving" });

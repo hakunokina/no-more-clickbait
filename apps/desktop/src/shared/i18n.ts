@@ -358,6 +358,8 @@ const en = {
     "Mode B stayed off: only the extension's options page can ask the browser for its “alarms” permission. Turn Mode B on there once.",
   extensionOutdated: (settings: string[]) =>
     `The browser extension is older than this app and does not know ${new Intl.ListFormat(INTL_LOCALES.en).format(settings.map((s) => `“${s}”`))}: changes to them do not reach the browser. Reload the extension on the browser's extensions page (for example brave://extensions), then make the change again.`,
+  settingsUnreadable:
+    "Could not read the settings — the form stays locked so nothing is overwritten. Close this window and open it again.",
   saveInvalid: "The marked fields are not saved — they keep their last valid value.",
   saving: "Saving…",
   saved: "Saved.",
@@ -649,6 +651,8 @@ const tr: MessageTable<DesktopMessages> = {
     "B modu kapalı kaldı: tarayıcıdan “alarms” iznini yalnız eklentinin seçenekler sayfası isteyebilir. B modunu bir kez orada aç.",
   extensionOutdated: (settings) =>
     `Tarayıcı eklentisi bu uygulamadan eski ve ${new Intl.ListFormat(INTL_LOCALES.tr).format(settings.map((s) => `“${s}”`))} ayarlarını bilmiyor: bunlardaki değişiklik tarayıcıya ulaşmaz. Eklentiyi tarayıcının uzantılar sayfasında (örneğin brave://extensions) yeniden yükle, sonra değişikliği tekrar yap.`,
+  settingsUnreadable:
+    "Ayarlar okunamadı — hiçbir şeyin üzerine yazılmasın diye form kilitli. Bu pencereyi kapatıp yeniden aç.",
   saveInvalid: "İşaretli alanlar kaydedilmedi — son geçerli değerleri duruyor.",
   saving: "Kaydediliyor…",
   saved: "Kaydedildi.",
