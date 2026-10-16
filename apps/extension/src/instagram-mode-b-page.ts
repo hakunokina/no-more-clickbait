@@ -19,7 +19,8 @@ export interface InstagramPageFacts {
   postCount: number;
 }
 
-const LOGIN_PATH = /^\/accounts\/(?:login|emailsignup)\b/;
+/** Instagram's sign-in redirects (login, sign-up, one-tap…) all live under /accounts/. */
+const LOGIN_PATH = /^\/accounts\//;
 const LOGIN_FORM = ["form#loginForm", 'input[name="password"]'].join(",");
 const POST = "main article";
 

@@ -75,7 +75,7 @@ export function createHardFilter(
   resume?: HardFilterState,
   options: HardFilterOptions = {},
 ): CountingHardFilter {
-  /** Item key → whether its kept appearance was a repost. */
+  /** Item key → whether its first non-ad appearance was a repost. */
   const seenIds = new Map<string, boolean>(resume?.seen);
   const stats: HardFilterStats = resume
     ? copyStats(resume.stats)
@@ -94,9 +94,6 @@ export function createHardFilter(
   const check = (item: FeedItem): HardFilterDropReason | null => {
     stats.seen += 1;
     if (item.promoted) return drop("promoted");
-    if (options.dropSuggested && isInstagramPost(item) && item.suggested === true) {
-      return drop("not-followed");
-    }
     const isRepost = isXPost(item) && item.repostedBy !== undefined;
     const key = feedItemKey(item);
     const seenAsRepost = seenIds.get(key);
@@ -104,6 +101,11 @@ export function createHardFilter(
       return drop(seenAsRepost || isRepost ? "duplicate-repost" : "duplicate");
     }
     seenIds.set(key, isRepost);
+    // After the repeat check: a suggestion seen again is a repeat, so
+    // "not-followed" counts distinct suggested posts.
+    if (options.dropSuggested && isInstagramPost(item) && item.suggested === true) {
+      return drop("not-followed");
+    }
     stats.kept += 1;
     if (isMediaOnly(item)) stats.flagged.mediaOnly += 1;
     return null;

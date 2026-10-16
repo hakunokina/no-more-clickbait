@@ -795,7 +795,14 @@ export class ModeBRunner {
     await this.#hooks.onFinish(final);
   }
 
-  /** Hands the run's tab over to the next feed, as a fresh leg. */
+  /**
+   * Hands the run's tab over to the next feed, as a fresh leg. Deliberate:
+   * its count goes on from the feed's count in this collection, not from
+   * zero — posts the user's own tab of that feed brought during the
+   * earlier legs are in the session and count too (as the user's own X
+   * tab counts during an X leg), so a leg may reach the target at its
+   * first answer, without scrolling.
+   */
   async #nextLeg(
     run: ModeBRun,
     summary: ModeBRunSummary,

@@ -1,10 +1,12 @@
 import { access, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  platformOf,
   TimelineDocSchema,
   toTimelineDoc,
   type CollectSource,
   type CollectSourceOutcome,
+  type FeedItem,
   type MissingSource,
   type Settings,
   type SiteCollectOutcome,
@@ -156,6 +158,28 @@ export function collectedCount(
   return sources && sources.length > 0
     ? sources.reduce((sum, source) => sum + source.uniquePostCount, 0)
     : uniquePostCount;
+}
+
+/**
+ * The items a session's run judges: X's posts, then the feed batches'.
+ * Only the feeds the completion names (`sources`; absent: X alone) are
+ * kept — a feed whose tick was turned off before the collection ended
+ * is not among them, so what it stored earlier stays out. Custom
+ * sites' items always go in; a session not completed keeps everything.
+ */
+export function collectedItems(
+  session: Pick<LoadedSession, "posts" | "feedItems" | "completion">,
+): FeedItem[] {
+  const { posts, feedItems, completion } = session;
+  if (!completion) return [...posts, ...feedItems];
+  const feeds = new Set<string>(completion.sources?.map((feed) => feed.source) ?? ["x"]);
+  return [
+    ...(feeds.has("x") ? posts : []),
+    ...feedItems.filter((item) => {
+      const platform = platformOf(item);
+      return platform === "generic" || feeds.has(platform);
+    }),
+  ];
 }
 
 /** Why a source may have brought nothing (page text, see missingSourcesOf). */
@@ -870,8 +894,8 @@ export class SessionController {
     this.#inRunner = true;
     const outcome = await this.#deps.runner
       .run(
-        // X first, then the custom sites' items: the pipeline judges them together.
-        [...session.posts, ...session.feedItems],
+        // X first, then the other feeds' and custom sites' items: judged together.
+        collectedItems(session),
         settings,
         (progress) =>
           this.#update((status) => {

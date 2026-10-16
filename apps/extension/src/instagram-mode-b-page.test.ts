@@ -22,6 +22,9 @@ describe("classifyInstagramPage", () => {
     expect(classifyInstagramPage(facts({ hasLoginForm: true, postCount: 0 }))).toBe("login");
     expect(classifyInstagramPage(facts({ pathname: "/accounts/login/" }))).toBe("login");
     expect(classifyInstagramPage(facts({ pathname: "/accounts/emailsignup/" }))).toBe("login");
+    // Any other sign-in redirect under /accounts/ is the login flow too, not "away".
+    expect(classifyInstagramPage(facts({ pathname: "/accounts/onetap/" }))).toBe("login");
+    expect(classifyInstagramPage(facts({ pathname: "/accounts/login" }))).toBe("login");
   });
 
   it("sees a tab that left the home feed", () => {

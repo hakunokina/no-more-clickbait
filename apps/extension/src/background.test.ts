@@ -1107,6 +1107,86 @@ describe("Instagram as a collection source", () => {
     expect(fake.sessionArea.has("nmc-collection-progress")).toBe(false);
   });
 
+  it("Mode A: turning Instagram off once X reached its target completes the collection", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline(); // X: 4 of 4, Instagram still at 0
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "post-batch"]);
+
+    await setSettings({ collectTarget: 4, collectFromInstagram: false });
+    await settle();
+    // X alone is collected now, and it is at its target: a normal completion.
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+    });
+  });
+
+  it("Mode A: a feed turned off is left out of the completion, X's goes on to its target", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureInstagram(); // Instagram: 5 of 4, closed; X at 0
+    await settle();
+    await setSettings({ collectTarget: 4, collectFromInstagram: false });
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "feed-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toBeUndefined();
+
+    captureTimeline(); // X: 4 of 4
+    await settle();
+    // X alone (no `sources`): the desktop leaves Instagram's stored items out.
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+    });
+  });
+
+  it("Mode A: a feed turned on mid-collection counts from then on, towards its own target", async () => {
+    await setSettings({ collectTarget: 100 });
+    await settle();
+    const port = currentPort();
+    captureTimeline(); // X: 4 of 100
+    await settle();
+    await setSettings({ collectTarget: 100, collectFromInstagram: true });
+    await settle();
+    captureInstagram();
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "post-batch", "feed-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
+      x: { count: 4 },
+      instagram: { count: 5 },
+    });
+  });
+
+  it("Mode A: a feed turned off and on again starts over (its earlier close is gone)", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureInstagram(); // Instagram: 5 of 4, closed
+    await settle();
+    await setSettings({ collectTarget: 4, collectFromInstagram: false });
+    await settle();
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    captureInstagram(); // counted again from zero: 5 of 4, closed again
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping", "feed-batch", "feed-batch"]);
+    expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
+      instagram: { count: 5, closed: "target-reached" },
+    });
+  });
+
   it("Instagram alone: its own target completes the collection, X's counts stay zero", async () => {
     await setSettings({ collectTarget: 4, collectFromX: false, collectFromInstagram: true });
     await settle();

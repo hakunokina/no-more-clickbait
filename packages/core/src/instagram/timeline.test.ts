@@ -229,6 +229,9 @@ describe("parseInstagramTimeline (synthetic fixtures)", () => {
       "not-followed": 1,
     });
     expect(followedOnly.stats.kept).toBe(1);
+    // The same suggestion on a later page is a repeat: "Suggested" counts distinct posts.
+    expect(followedOnly.check(suggested)).toBe("duplicate");
+    expect(followedOnly.stats.dropped).toMatchObject({ duplicate: 1, "not-followed": 1 });
 
     // Off (the default): the suggestion is kept, and no such reason appears.
     const all = createHardFilter();

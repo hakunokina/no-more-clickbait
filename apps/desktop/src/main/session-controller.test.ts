@@ -422,13 +422,19 @@ describe("SessionController", () => {
     await store.addFeedBatch(
       feedBatch("news.example/world", [genericItem("g1"), instagramPost("ig1")]),
     );
+    const reason = xIds.length > 0 ? "target-reached" : "stalled";
     return (await store.complete({
       mode: "B",
-      reason: xIds.length > 0 ? "target-reached" : "stalled",
+      reason,
       uniquePostCount: xIds.length,
       responseCount: 1,
       target: 100,
       sites: SITES,
+      // Instagram's items are in the run only when it was collected.
+      sources: [
+        { source: "x", uniquePostCount: xIds.length, reason, target: 100 },
+        { source: "instagram", uniquePostCount: 1, reason: "stalled", target: 100 },
+      ],
     })) as string;
   }
 
@@ -1049,6 +1055,39 @@ describe("SessionController", () => {
     expect(html).toContain(messages("en").sourceNotLoggedInX);
   });
 
+  it("leaves out the stored items of a feed whose tick was turned off before completion", async () => {
+    const seed = async (at: string, sources?: CollectSourceOutcome[]) => {
+      const store = new PostSessionStore(root, () => at);
+      await store.addBatch(batch(["1", "2"]));
+      await store.addFeedBatch({
+        capturedAt: "2026-01-01T10:00:02.000Z",
+        items: [instagramPost("ig1")],
+      });
+      await store.addFeedBatch(feedBatch("news.example/world", [genericItem("g1")]));
+      return (await store.complete({
+        mode: "A",
+        reason: "target-reached",
+        uniquePostCount: 2,
+        responseCount: 0,
+        target: 2,
+        ...(sources ? { sources } : {}),
+      })) as string;
+    };
+    const judgedFor = async (id: string) => {
+      const judged: FeedItem[][] = [];
+      await mixedController(judged).runSession(id);
+      return judged.flat().map((item) => `${platformOf(item)}:${item.id}`);
+    };
+    // Instagram turned off: X alone completed (no `sources`); its sites stay.
+    const xOnly = await seed("2026-01-01T10:00:00.000Z");
+    expect(await judgedFor(xOnly)).toEqual(["x:1", "x:2", "generic:g1"]);
+    // X turned off: Instagram alone completed.
+    const igOnly = await seed("2026-01-01T11:00:00.000Z", [
+      { source: "instagram", uniquePostCount: 1, reason: "target-reached", target: 2 },
+    ]);
+    expect(await judgedFor(igOnly)).toEqual(["instagram:ig1", "generic:g1"]);
+  });
+
   it("leaves Instagram's suggestions out on 'only accounts I follow', counted apart", async () => {
     const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
     await store.addFeedBatch({
@@ -1061,6 +1100,9 @@ describe("SessionController", () => {
       uniquePostCount: 0,
       responseCount: 0,
       target: 100,
+      sources: [
+        { source: "instagram", uniquePostCount: 1, reason: "target-reached", target: 100 },
+      ],
     })) as string;
     runStages = stages({
       scorer: {

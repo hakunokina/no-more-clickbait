@@ -633,38 +633,71 @@ function completeModeA(
   countGeneration: number,
 ): void {
   if (count < settings.collectTarget || countGeneration !== generation) return;
-  runCommand(async () => {
-    // Another message may have completed this session already.
-    if (countGeneration !== generation || (await modeB.current())) return;
-    const sources = enabledCollectSources(settings);
-    for (const other of sources) {
-      if (other === source || (await sessionOf(other).closedReason()) !== null) continue;
-      if ((await countOf(other, settings)) < settings.collectTarget) {
-        await closeSource(source, "target-reached");
-        return;
-      }
+  runCommand(() => settleModeA(settings, countGeneration, source));
+}
+
+/**
+ * Completes a Mode A collection when every feed collected now (`settings`)
+ * is at the target: closed there, or `reached` (the feed whose count just
+ * got there). Otherwise `reached` is closed and the others go on. Runs in
+ * the command queue.
+ */
+async function settleModeA(
+  settings: Settings,
+  countGeneration: number,
+  reached?: CollectSource,
+): Promise<void> {
+  // Another message may have completed this session already.
+  if (countGeneration !== generation || (await modeB.current())) return;
+  const sources = enabledCollectSources(settings);
+  if (sources.length === 0) return;
+  for (const other of sources) {
+    if (other === reached || (await sessionOf(other).closedReason()) !== null) continue;
+    if ((await countOf(other, settings)) < settings.collectTarget) {
+      if (reached) await closeSource(reached, "target-reached");
+      return;
     }
-    // The custom sites join here; completion waits for them.
-    startSiteRun();
-    // Batches that arrived while this waited in the queue went to this
-    // session too: report the counts as they stand now.
-    const counts = new Map<CollectSource, number>();
-    for (const feed of sources) counts.set(feed, await countOf(feed, settings));
-    await completeCollection({
-      mode: "A",
-      reason: "target-reached",
-      uniquePostCount: counts.get("x") ?? 0,
-      // The extension counter does not track responses outside a Mode B run.
-      responseCount: 0,
-      target: Math.min(settings.collectTarget, 10_000),
-      ...sourceOutcomes(
-        sources,
-        (feed) => ({ count: counts.get(feed) ?? 0, reason: "target-reached" }),
-        settings.collectTarget,
-      ),
-    });
-    await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
+  }
+  // The custom sites join here; completion waits for them.
+  startSiteRun();
+  // Batches that arrived while this waited in the queue went to this
+  // session too: report the counts as they stand now.
+  const counts = new Map<CollectSource, number>();
+  for (const feed of sources) counts.set(feed, await countOf(feed, settings));
+  await completeCollection({
+    mode: "A",
+    reason: "target-reached",
+    uniquePostCount: counts.get("x") ?? 0,
+    // The extension counter does not track responses outside a Mode B run.
+    responseCount: 0,
+    target: Math.min(settings.collectTarget, 10_000),
+    ...sourceOutcomes(
+      sources,
+      (feed) => ({ count: counts.get(feed) ?? 0, reason: "target-reached" }),
+      settings.collectTarget,
+    ),
   });
+  await chrome.action.setBadgeBackgroundColor({ color: TARGET_BADGE_COLOR });
+}
+
+/**
+ * Mode A, a feed's tick changed mid-collection: what was collected is
+ * kept. The toggled feed starts over — turned on, it counts from now;
+ * turned off, it is out of this collection (the completion names only
+ * the feeds still on, and the desktop leaves out what the others
+ * stored) — and the collection completes if every feed still on is
+ * already at the target.
+ */
+async function sourcesToggled(toggled: readonly CollectSource[]): Promise<void> {
+  for (const source of toggled) await sessionOf(source).reset();
+  await changeProgress((record) => {
+    const next = { ...record };
+    for (const source of toggled) delete next[source];
+    return next;
+  });
+  const settings = await loadSettings();
+  // As a count's: with developer capture on, Mode A never completes on its own.
+  if (!settings.devCaptureEnabled) await settleModeA(settings, generation);
 }
 
 /**
@@ -1016,6 +1049,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   void modeB.onTabRemoved(tabId);
 });
 
+const SOURCE_TICKS = {
+  x: "collectFromX",
+  instagram: "collectFromInstagram",
+} as const satisfies Record<CollectSource, string>;
+
 function flag(
   value: unknown,
   key: "devCaptureEnabled" | "modeBEnabled" | "collectFromX" | "collectFromInstagram",
@@ -1033,14 +1071,18 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   const modeBTurnedOff =
     flag(change.oldValue, "modeBEnabled") && !flag(change.newValue, "modeBEnabled");
   // A run scrolls the feeds that were on when it started.
-  const sourcesToggled = (["collectFromX", "collectFromInstagram"] as const).some(
-    (key) => flag(change.oldValue, key) !== flag(change.newValue, key),
+  const toggled = (Object.keys(SOURCE_TICKS) as CollectSource[]).filter(
+    (source) =>
+      flag(change.oldValue, SOURCE_TICKS[source]) !==
+      flag(change.newValue, SOURCE_TICKS[source]),
   );
-  if (!captureToggled && !modeBTurnedOff && !sourcesToggled) return;
+  if (!captureToggled && !modeBTurnedOff && toggled.length === 0) return;
   runCommand(async () => {
+    const running = (await modeB.current()) !== null;
     // A run's counts belong to the session it ran in: end it first.
     await modeB.stop("settings-changed");
     if (captureToggled) await startNewCountingSession();
+    else if (toggled.length > 0 && !running) await sourcesToggled(toggled);
   });
 });
 
