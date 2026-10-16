@@ -291,7 +291,8 @@ describe("background worker", () => {
     const port = currentPort();
     expect(postedTypes(port)).toEqual(["ping", "raw-capture", "post-batch"]);
     expect(fake.badge.text).toBe("");
-    expect(fake.sessionArea.size).toBe(0); // host is the single source
+    // Host is the single source: no counter of its own, only "posts were sent".
+    expect([...fake.sessionArea.keys()]).toEqual(["nmc.feedPostsSent"]);
 
     port?.onMessage.emit({ type: "capture-accepted", sequence: 1, stats: stats(17) });
     await settle();
@@ -1184,6 +1185,97 @@ describe("Instagram as a collection source", () => {
     expect(postedTypes(port)).toEqual(["ping", "feed-batch", "feed-batch"]);
     expect(fake.sessionArea.get("nmc-collection-progress")).toEqual({
       instagram: { count: 5, closed: "target-reached" },
+    });
+  });
+
+  it("Mode A: a capture still in flight when its feed is turned off leaves it out of the completion", async () => {
+    await setSettings({ collectTarget: 4, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline(); // X: 4 of 4, closed; Instagram at 0
+    await settle();
+    captureInstagram(); // read the settings with Instagram still on
+    // The tick goes off before the capture is counted; Chrome tells the worker later.
+    const off = { collectTarget: 4, collectFromInstagram: false };
+    const on = fake.local.get("nmc-settings");
+    fake.local.set("nmc-settings", off);
+    await settle();
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "target-reached",
+      uniquePostCount: 4,
+      responseCount: 0,
+      target: 4,
+    });
+    fake.chrome.storage.onChanged.emit(
+      { "nmc-settings": { oldValue: on, newValue: off } },
+      "local",
+    );
+    await settle();
+    expect(postedTypes(port).filter((type) => type === "collection-complete")).toHaveLength(1);
+  });
+
+  it("Mode A: X and Instagram both turned off after posts were sent ends the collection early", async () => {
+    await setSettings({ collectTarget: 100, collectFromInstagram: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    captureInstagram();
+    await settle();
+    await setSettings({ collectTarget: 100, collectFromInstagram: false });
+    await settle();
+    await setSettings({ collectTarget: 100, collectFromX: false, collectFromInstagram: false });
+    await settle();
+    // No feed named: the desktop leaves their posts out and asks before a run.
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 100,
+      sources: [],
+    });
+    expect(currentPort()).not.toBe(port);
+    expect(fake.sessionArea.has("nmc.feedPostsSent")).toBe(false);
+  });
+
+  it("Mode A: X turned off before any post leaves nothing to complete", async () => {
+    await setSettings({ collectTarget: 100 });
+    await settle();
+    const port = currentPort();
+    await setSettings({ collectTarget: 100, collectFromX: false });
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping"]);
+    expect(currentPort()).toBe(port);
+    // Finish now has nothing to end either.
+    fake.chrome.runtime.onMessage.emit({ kind: "collection-finish" }, { id: "test" });
+    await settle();
+    expect(postedTypes(port)).toEqual(["ping"]);
+  });
+
+  it("Finish now ends a collection whose feeds were all turned off (developer capture on)", async () => {
+    await setSettings({ collectTarget: 100, devCaptureEnabled: true });
+    await settle();
+    const port = currentPort();
+    captureTimeline();
+    await settle();
+    // With developer capture on, Mode A never completes on its own.
+    await setSettings({ collectTarget: 100, devCaptureEnabled: true, collectFromX: false });
+    await settle();
+    expect(postedTypes(port)).not.toContain("collection-complete");
+
+    fake.chrome.runtime.onMessage.emit({ kind: "collection-finish" }, { id: "test" });
+    await settle();
+    expect(port.posted.at(-1)).toEqual({
+      type: "collection-complete",
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 0,
+      responseCount: 0,
+      target: 100,
+      sources: [],
     });
   });
 

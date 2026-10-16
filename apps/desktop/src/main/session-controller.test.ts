@@ -575,6 +575,52 @@ describe("SessionController", () => {
     expect(c.status.collection.message).toEqual(note("endedEmpty", "stalled"));
   });
 
+  /** Mode A ended by turning both ticks off: the feeds named nothing (`sources: []`). */
+  async function ticksOffSession(feedItems: FeedItem[]): Promise<string> {
+    const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
+    await store.addFeedBatch(feedBatch("instagram", [instagramPost("ig1")]));
+    if (feedItems.length > 0)
+      await store.addFeedBatch(feedBatch("news.example/world", feedItems));
+    return (await store.complete({
+      mode: "A",
+      reason: "finished-early",
+      uniquePostCount: 0,
+      responseCount: 1,
+      sources: [],
+    })) as string;
+  }
+
+  function ticksOffEvent(id: string) {
+    return { ...completeEvent(id, "finished-early", 0), mode: "A" as const, sources: [] };
+  }
+
+  it("drops a run whose only items are a feed turned off, without running", async () => {
+    const id = await ticksOffSession([]);
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    c.handleHostEvent(ticksOffEvent(id));
+    await expect
+      .poll(async () => (await listSessions(root)).find((s) => s.id === id)?.processed?.status)
+      .toBe("cancelled");
+    expect(c.status.pending).toBeNull();
+    expect(judged).toEqual([]);
+    expect(c.status.run.stage).toBe("idle");
+  });
+
+  it("keeps a run with every feed turned off pending on its custom sites' items alone", async () => {
+    const id = await ticksOffSession([genericItem("g1")]);
+    const judged: FeedItem[][] = [];
+    const c = mixedController(judged);
+    c.handleHostEvent(ticksOffEvent(id));
+    await expect.poll(() => c.status.pending?.sessionId).toBe(id);
+    expect(judged).toEqual([]);
+    await c.buildPending();
+    expect(c.status.run.stage).toBe("ready");
+    expect(judged.flat().map((item) => `${platformOf(item)}:${item.id}`)).toEqual([
+      "generic:g1",
+    ]);
+  });
+
   it("names a site that said it delivered items but stored none as missing", async () => {
     const store = new PostSessionStore(root, () => "2026-01-01T10:00:00.000Z");
     await store.addBatch(batch(["1", "2"]));

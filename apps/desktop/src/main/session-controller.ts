@@ -279,13 +279,15 @@ function sourceReasonOf(text: string | undefined): SourceReason {
 }
 
 /**
- * Custom-site items the session actually stored (outside the X counts):
- * a site's own `itemCount` may claim items whose batch never got saved.
- * Null when the session cannot be read: not empty, the run reports it.
+ * Items the session actually stored that its run would judge
+ * (collectedItems under the stored completion's `sources`): a site's own
+ * `itemCount` may claim items whose batch never got saved, and a feed
+ * whose tick was turned off does not count. Null when the session cannot
+ * be read: not empty, the run reports it.
  */
-async function storedFeedItemCount(root: string, sessionId: string): Promise<number | null> {
+async function storedCollectedCount(root: string, sessionId: string): Promise<number | null> {
   try {
-    return (await loadSession(root, sessionId)).feedItems.length;
+    return collectedItems(await loadSession(root, sessionId)).length;
   } catch {
     return null;
   }
@@ -573,11 +575,13 @@ export class SessionController {
     live: boolean;
   }): Promise<void> {
     // Batches of ads/repeats only leave a folder but no post to build from;
-    // a run with only custom-site (or Instagram) items stored is not empty.
+    // a run with only custom-site (or Instagram) items stored is not empty,
+    // unless those items' feed was turned off (not in `sources`).
+    const xCounts = !done.sources || done.sources.some((feed) => feed.source === "x");
     const empty =
       done.sessionId === null ||
-      (done.uniquePostCount === 0 &&
-        (await storedFeedItemCount(this.#deps.sessionsRoot, done.sessionId)) === 0);
+      (!(xCounts && done.uniquePostCount > 0) &&
+        (await storedCollectedCount(this.#deps.sessionsRoot, done.sessionId)) === 0);
     let plan = empty ? "drop" : planCompletion(done.mode, done.reason, done.sources);
     if (plan === "build" && this.#status.collection.state === "cancelling") {
       // The user already cancelled: a late complete (e.g. target-reached
