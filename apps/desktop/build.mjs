@@ -1,5 +1,5 @@
 // Bundles main (ESM), the preloads (CJS — required for sandboxed preloads)
-// and the renderer pages (monitor, reading window) into dist/.
+// and the renderer pages (monitor, reading window) into dist/, with the app icon.
 import { build } from "esbuild";
 import { cp, mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -55,4 +55,5 @@ await build({
 for (const page of ["index.html", "reader.html", "settings.html", "ui.css"]) {
   await cp(join(root, "src/renderer", page), join(dist, "renderer", page));
 }
+await cp(join(root, "assets/nmc.ico"), join(dist, "nmc.ico"));
 console.log(`Desktop app built to ${dist}`);

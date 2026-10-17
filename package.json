@@ -15,10 +15,12 @@
     "typecheck": "tsc -b",
     "lint": "eslint .",
     "test": "vitest run",
+    "brand:icons": "node scripts/brand-icons.mjs",
     "format:check": "prettier --check \"**/*.{ts,js,mjs,json,md,yml,yaml}\" --ignore-path .gitignore --ignore-path .prettierignore"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
+    "@resvg/resvg-js": "^2.6.2",
     "eslint": "^9.0.0",
     "prettier": "^3.0.0",
     "typescript": "^5.6.0",

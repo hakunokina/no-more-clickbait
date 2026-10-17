@@ -3,7 +3,6 @@ import {
   BrowserWindow,
   ipcMain,
   Menu,
-  nativeImage,
   nativeTheme,
   Notification,
   protocol,
@@ -82,6 +81,8 @@ import {
 const here = dirname(fileURLToPath(import.meta.url));
 const rendererDir = join(here, "renderer");
 const preload = join(here, "preload.cjs");
+// Multi-size .ico (16–256): Windows picks the tray / taskbar size per DPI.
+const appIcon = join(here, "nmc.ico");
 const readerPage = join(rendererDir, "reader.html");
 const readerPageUrl = pathToFileURL(readerPage).href;
 const root = sessionsRoot();
@@ -227,6 +228,7 @@ const images = new ReaderImages({
 const reader = new ReadingWindow({
   preload: join(here, "reader-preload.cjs"),
   preloadArguments: [`${READER_PAGE_ARG}${readerPageUrl}`],
+  icon: appIcon,
   appPage: readerPage,
   fileRoots: [rendererDir, root],
   images: {
@@ -304,6 +306,7 @@ function createMonitor(): BrowserWindow {
     resizable: false,
     show: false,
     title: "No More Clickbait",
+    icon: appIcon,
     autoHideMenuBar: true,
     backgroundColor: windowBackground(),
     webPreferences: {
@@ -341,6 +344,7 @@ function createSettingsWindow(): BrowserWindow {
     minHeight: 480,
     show: false,
     title: messages(lang).settingsWindowTitle,
+    icon: appIcon,
     autoHideMenuBar: true,
     backgroundColor: windowBackground(),
     webPreferences: {
@@ -435,11 +439,7 @@ async function startCollection(): Promise<void> {
 }
 
 function createTray(): void {
-  // 1x1 transparent placeholder until real icons land.
-  const icon = nativeImage.createFromDataURL(
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAwMCAO+ip1sAAAAASUVORK5CYII=",
-  );
-  tray = new Tray(icon);
+  tray = new Tray(appIcon);
   tray.setToolTip("No More Clickbait");
   setTrayMenu();
   tray.on("click", toggleMonitor);

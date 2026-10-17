@@ -4,7 +4,12 @@
   "version": "0.1.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqcmR2D8okABQiSqTrpFFHEnlwXeMgnoTdNn4GJ4qzli9S4XLZ+ifMOYQwqwG8qGTEYXTHd82RbHJ/Bw16eKj4jwWESFabtx6HW1yOGpEXkhK5ipyJ+Tww1z6PZLKmU/Wv9QbkxsnVcsqQmgfCJInV37aXjpAXLla8+6//QbELMFGpR1dyChHmCQ5wdnJLMA8fRB8ln+yooS4H1M4KHEiTtgQKSicwsror8NEnQLwO2fSukLjrVYETUVoI0bJ9oiDhWudK3LnedPbld34mWSaVnp/sRzDLPXibaTCLwgMhFVUKha8hS82So1ecMt9i/sQoA1xVe/c4zbw0GTwGkJ/2wIDAQAB",
   "description": "__MSG_extDescription__",
-  "icons": { "128": "icon-128.png" },
+  "icons": {
+    "16": "icon-16.png",
+    "32": "icon-32.png",
+    "48": "icon-48.png",
+    "128": "icon-128.png"
+  },
   "default_locale": "en",
   "permissions": ["storage", "nativeMessaging", "notifications", "scripting", "offscreen"],
   "optional_permissions": ["alarms"],
@@ -22,7 +27,12 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "__MSG_extName__",
-    "default_icon": { "128": "icon-128.png" }
+    "default_icon": {
+      "16": "icon-16.png",
+      "32": "icon-32.png",
+      "48": "icon-48.png",
+      "128": "icon-128.png"
+    }
   },
   "options_page": "options.html",
   "content_scripts": [
