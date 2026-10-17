@@ -46,6 +46,8 @@ export interface ReadingWindowOptions {
   preload: string;
   /** Passed to the preload's argv (it tells our own page from a timeline). */
   preloadArguments?: string[];
+  /** Window / taskbar icon file. */
+  icon: string;
   /** Our own status page (preparing / error / empty states). */
   appPage: string;
   /** Directories the window may load files from. */
@@ -127,6 +129,7 @@ export class ReadingWindow {
       minHeight: 480,
       show: false,
       title: "No More Clickbait",
+      icon: this.#options.icon,
       autoHideMenuBar: true,
       webPreferences: {
         preload: this.#options.preload,
