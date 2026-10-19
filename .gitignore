@@ -1,5 +1,4 @@
 .dex/*
-!.dex/stack.md
 
 node_modules/
 dist/
