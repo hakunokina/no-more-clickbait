@@ -16,7 +16,7 @@
     "@nmc/timeline-renderer": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.5",
     "electron": "44.7.2",
     "esbuild": "^0.24.0",
     "typescript": "^5.6.0"
